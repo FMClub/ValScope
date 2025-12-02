@@ -1,65 +1,6 @@
 # Valscope
 
-## Project Overview
-Valscope is an SQL query mutation testing framework for generating diverse SQL queries and mutating them to test the robustness and correctness of database systems. The framework can generate random SQL queries, create seed queries, perform AST (Abstract Syntax Tree) mutations, and supports multiple database dialects such as MySQL, TiDB, etc.
-
-## Features
-
-- **Random SQL Generation**: Capable of generating various complex SQL queries, including subqueries, JOIN operations, aggregate functions, etc.
-- **Seed Query Generation**: Creates seed query sets for mutation based on generated SQL
-- **AST Mutation**: Performs multiple pattern mutations on the abstract syntax tree of SQL queries
-- **Multi-database Dialect Support**: Compatible with multiple database systems such as MySQL, TiDB, MariaDB, OceanBase, etc.
-- **Performance Monitoring**: Provides execution logs and performance metrics collection
-- **Memory Optimization**: Uses batch processing and iterator pattern to optimize memory usage
-
-## Code Structure
-
-```
-Pinolo_Extension-main/
-├── ast_nodes/         # AST node definitions
-├── data_structures/   # Data structure definitions
-├── documents/         # Documentation files
-├── generated_sql/     # Generated SQL files
-├── invalid_mutation/  # Invalid mutation storage
-├── mutator/           # Mutator implementations
-└── sql_generation/    # SQL generation module
-```
-
-## Main Modules
-
-### 1. Entry Module
-- **main.py**: The main entry point of the project, responsible for initializing configurations, coordinating the workflow of various modules, executing loop tests, recording logs, and monitoring performance. Supports setting runtime duration, database dialects, and other parameters, and provides memory management and error handling mechanisms.
-
-### 2. AST Operation Module
-- **generateAST.py**: Responsible for generating and manipulating SQL abstract syntax trees, providing functionality to parse SQL text into AST and convert AST back to SQL text. Contains the `Change` class for handling AST node creation, modification, and conversion.
-- **changeAST.py**: Implements AST mutation operations, contains the `MutateSolve` class responsible for reading seed queries, applying mutation strategies, and processing mutation results. Supports batch processing mode to optimize memory usage.
-
-### 3. SQL Generation Module
-- **generate_random_sql.py**: A powerful random SQL generator that can create complex SQL queries, including SELECT and INSERT statements, supporting advanced features such as subqueries, JOIN operations, aggregate functions, window functions, etc. Uses ColumnUsageTracker to track column usage and ensure semantic correctness of generated SQL.
-- **get_seedQuery.py**: Seed query generator, responsible for filtering and converting suitable seed query sets for mutation testing from generated random SQL.
-
-### 4. Mutator Module
-- **mutator/set_mutator.py**: Implements set-related mutation operations, such as modifying WHERE conditions, adjusting JOIN types, changing grouping methods, etc., mainly mutating the structure of SQL queries.
-- **mutator/value_mutator.py**: Implements value-related mutation operations, such as modifying literal values, function parameters, comparison operators, etc., mainly mutating specific values in SQL queries.
-
-### 5. Data Structures Module
-- **data_structures/table.py**: Defines table structures and related operations
-- **data_structures/column.py**: Defines column structures, data types, and properties
-- **data_structures/db_dialect.py**: Implements database dialect management, supporting syntax features of multiple database systems such as MySQL, TiDB, MariaDB, OceanBase, etc.
-- **data_structures/function.py**: Defines function-related data structures and types
-- **data_structures/dependency.py**: Handles dependency relationships between SQL elements
-
-### 6. AST Nodes Module
-- **ast_nodes/ast_node.py**: Defines the base class and common operations for AST nodes
-- **ast_nodes/select_node.py**: AST node corresponding to SELECT statements
-- **ast_nodes/from_node.py**: AST node corresponding to FROM clauses and table references
-- **ast_nodes/arithmetic_node.py**: AST node corresponding to arithmetic expressions
-- **ast_nodes/comparison_node.py**: AST node corresponding to comparison expressions
-- **ast_nodes/logical_node.py**: AST node corresponding to logical expressions
-- **ast_nodes/function_call_node.py**: AST node corresponding to function calls
-- **ast_nodes/group_by_node.py**: AST node corresponding to GROUP BY clauses
-- **ast_nodes/with_node.py**: AST node corresponding to WITH clauses (CTEs)
-- **ast_nodes/subquery_node.py**: AST node corresponding to subqueries
+ValScope is a DBMS testing framework based on a unified SQL query approximation model that combines set-semantic and value-semantic reasoning. By generating, mutating, and verifying SQL queries, it effectively detects logical bugs in DBMSs. It supports multiple database dialects including MySQL, MariaDB, Percona, OceanBase, and PolarDB.
 
 ## How to Run
 
@@ -68,11 +9,9 @@ Pinolo_Extension-main/
 - Optional database systems:
   - MySQL 8.0+ (Default port: 13306)
   - MariaDB (Default port: 9901)
-  - TiDB (Default port: 4000)
   - OceanBase (Default port: 2881)
   - Percona (Default port: 23306)
   - PolarDB (Default port: 8527)
-  - PostgreSQL 12.0+ (Connection parameters not fully configured yet)
 
 ### DBMS Connection Parameter Configuration Locations
 
@@ -167,25 +106,3 @@ python main.py
 - **invalid_mutation/** directory:
   - Stores invalid mutation results categorized by database type
 
-### 8. Adjusting Memory Usage
-If you encounter memory issues when processing a large number of queries, you can adjust the batch size in the mutate_main method of changeAST.py:
-
-```python
-mutate_main(self, batch_size=100, max_queries=None)
-```
-Decreasing the batch_size value can reduce memory usage.
-
-## Workflow
-
-1. **Initialization Configuration**: Set database dialect and runtime parameters
-2. **Random SQL Generation**: Create diverse SQL queries
-3. **Seed Query Generation**: Create seed queries for mutation based on random SQL
-4. **AST Mutation Execution**: Perform various mutation operations on seed queries
-5. **Result Processing**: Save valid and invalid mutation results
-6. **Loop Execution**: Repeat the above process according to the set runtime duration
-
-## Extension Guide
-
-To extend new mutation patterns, you can add new mutator classes in the `mutator/` directory and integrate them in `changeAST.py`.
-
-To support new database dialects, you can add corresponding dialect definitions in `data_structures/db_dialect.py`.

@@ -27,5 +27,5 @@ local_settings.py
 db.sqlite3
 instance/
 # IDE-specific files
-idea/
+.idea/
 vscode/

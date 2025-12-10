@@ -2,6 +2,100 @@
 
 ValScope is a DBMS testing framework based on a unified SQL query approximation model that combines set-semantic and value-semantic reasoning. By generating, mutating, and verifying SQL queries, it effectively detects logical bugs in DBMSs. It supports multiple database dialects including MySQL, MariaDB, Percona, OceanBase, and PolarDB.
 
+Up to now, we have found 62 logical bugs in MySQL, MariaDB, OceanBase, PERCONA, and TiDB,  44 of which have been confirmed by developers.
+
+## MySQL
+
+| ID   | Issue ID                                           | Status    |
+| ---- | -------------------------------------------------- | --------- |
+| 1    | [118846](https://bugs.mysql.com/bug.php?id=118846) | comfirmed |
+| 2    | [119022](https://bugs.mysql.com/bug.php?id=119022) | comfirmed |
+| 3    | [119348](https://bugs.mysql.com/bug.php?id=119348) | comfirmed |
+| 4    | [119321](https://bugs.mysql.com/bug.php?id=119321) | comfirmed |
+| 5    | [119322](https://bugs.mysql.com/bug.php?id=119322) | comfirmed |
+| 6    | [119323](https://bugs.mysql.com/bug.php?id=119323) | comfirmed |
+| 7    | [119329](https://bugs.mysql.com/bug.php?id=119329) | comfirmed |
+| 8    | [119342](https://bugs.mysql.com/bug.php?id=119342) | comfirmed |
+| 9    | [119344](https://bugs.mysql.com/bug.php?id=119344) | comfirmed |
+| 10   | [119350](https://bugs.mysql.com/bug.php?id=119350) | comfirmed |
+| 11   | [119446](https://bugs.mysql.com/bug.php?id=119446) | comfirmed |
+| 12   | [119165](https://bugs.mysql.com/bug.php?id=119165) | pending   |
+| 13   | [119352](https://bugs.mysql.com/bug.php?id=119352) | pending   |
+| 14   | [119353](https://bugs.mysql.com/bug.php?id=119353) | pending   |
+| 15   | [119398](https://bugs.mysql.com/bug.php?id=119398) | comfirmed |
+| 16   | [119399](https://bugs.mysql.com/bug.php?id=119399) | comfirmed |
+| 17   | [119400](https://bugs.mysql.com/bug.php?id=119400) | comfirmed |
+| 18   | [119402](https://bugs.mysql.com/bug.php?id=119402) | comfirmed |
+| 19   | [119403](https://bugs.mysql.com/bug.php?id=119403) | comfirmed |
+
+## MariaDB
+
+| ID   | Issue ID                                            | Status    |
+| ---- | --------------------------------------------------- | --------- |
+| 1    | [33026](https://jira.mariadb.org/browse/MDEV-33026) | comfirmed |
+| 2    | [33027](https://jira.mariadb.org/browse/MDEV-33027) | comfirmed |
+| 3    | [37888](https://jira.mariadb.org/browse/MDEV-37888) | comfirmed |
+| 4    | [37891](https://jira.mariadb.org/browse/MDEV-37891) | comfirmed |
+| 5    | [38032](https://jira.mariadb.org/browse/MDEV-38032) | comfirmed |
+| 6    | [38052](https://jira.mariadb.org/browse/MDEV-38052) | comfirmed |
+| 7    | [38063](https://jira.mariadb.org/browse/MDEV-38063) | comfirmed |
+| 8    | [38064](https://jira.mariadb.org/browse/MDEV-38064) | comfirmed |
+| 9    | [38102](https://jira.mariadb.org/browse/MDEV-38102) | pending   |
+
+## OceanBase
+
+| ID   | Issue ID                                                   | Status    |
+| ---- | ---------------------------------------------------------- | --------- |
+| 1    | [1752](https://github.com/oceanbase/oceanbase/issues/1752) | comfirmed |
+| 2    | [1753](https://github.com/oceanbase/oceanbase/issues/1753) | comfirmed |
+| 3    | [1755](https://github.com/oceanbase/oceanbase/issues/1755) | comfirmed |
+| 4    | [2326](https://github.com/oceanbase/oceanbase/issues/2326) | comfirmed |
+| 5    | [2339](https://github.com/oceanbase/oceanbase/issues/2339) | comfirmed |
+| 6    | [2341](https://github.com/oceanbase/oceanbase/issues/2341) | comfirmed |
+| 7    | [2340](https://github.com/oceanbase/oceanbase/issues/2340) | pending   |
+
+## PERCONA
+
+| ID   | Issue ID                                                  | Status    |
+| ---- | --------------------------------------------------------- | --------- |
+| 1    | [10277](https://perconadev.atlassian.net/browse/PS-10277) | comfirmed |
+| 2    | [10297](https://perconadev.atlassian.net/browse/PS-10297) | comfirmed |
+| 3    | [10298](https://perconadev.atlassian.net/browse/PS-10298) | comfirmed |
+| 4    | [10299](https://perconadev.atlassian.net/browse/PS-10299) | comfirmed |
+| 5    | [10301](https://perconadev.atlassian.net/browse/PS-10301) | comfirmed |
+| 6    | [10302](https://perconadev.atlassian.net/browse/PS-10302) | comfirmed |
+| 7    | [10303](https://perconadev.atlassian.net/browse/PS-10303) | comfirmed |
+| 8    | [10304](https://perconadev.atlassian.net/browse/PS-10304) | comfirmed |
+| 9    | [10305](https://perconadev.atlassian.net/browse/PS-10305) | comfirmed |
+| 10   | [10252](https://perconadev.atlassian.net/browse/PS-10252) | pending   |
+
+## PolarDB
+
+| ID   | Issue ID                                                  | Status    |
+| ---- | --------------------------------------------------------- | --------- |
+| 1    | [243](https://github.com/polardb/polardbx-sql/issues/243) | comfirmed |
+| 2    | [246](https://github.com/polardb/polardbx-sql/issues/246) | comfirmed |
+| 3    | [247](https://github.com/polardb/polardbx-sql/issues/247) | comfirmed |
+| 4    | [248](https://github.com/polardb/polardbx-sql/issues/248) | comfirmed |
+| 5    | [249](https://github.com/polardb/polardbx-sql/issues/249) | pending   |
+| 6    | [250](https://github.com/polardb/polardbx-sql/issues/250) | pending   |
+| 7    | [251](https://github.com/polardb/polardbx-sql/issues/251) | pending   |
+| 8    | [252](https://github.com/polardb/polardbx-sql/issues/252) | pending   |
+| 9    | [253](https://github.com/polardb/polardbx-sql/issues/253) | pending   |
+| 10   | [254](https://github.com/polardb/polardbx-sql/issues/254) | pending   |
+| 11   | [255](https://github.com/polardb/polardbx-sql/issues/255) | pending   |
+| 12   | [256](https://github.com/polardb/polardbx-sql/issues/256) | pending   |
+
+## TIDB
+
+| ID   | Issue ID                                              | Status    |
+| ---- | ----------------------------------------------------- | --------- |
+| 1    | [63643](https://github.com/pingcap/tidb/issues/63643) | confirmed |
+| 2    | [64445](https://github.com/pingcap/tidb/issues/64445) | pending   |
+| 3    | [64451](https://github.com/pingcap/tidb/issues/64451) | pending   |
+| 4    | [64453](https://github.com/pingcap/tidb/issues/64452) | pending   |
+| 5    | [64454](https://github.com/pingcap/tidb/issues/64654) | pending   |
+
 ## How to Run
 
 ### 1. Environment Requirements

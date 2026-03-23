@@ -2,7 +2,7 @@
 
 ValScope is a DBMS testing framework based on a unified SQL query approximation model that combines set-semantic and value-semantic reasoning. By generating, mutating, and verifying SQL queries, it effectively detects logical bugs in DBMSs. It supports multiple database dialects including MySQL, MariaDB, Percona, OceanBase, and PolarDB.
 
-Up to now, we have found 62 logical bugs in MySQL, MariaDB, OceanBase, PERCONA, and TiDB,  44 of which have been confirmed by developers.
+Up to now, we have found 61 logical bugs in MySQL, MariaDB, OceanBase, PERCONA, and TiDB,  51 of which have been confirmed by developers.
 
 ## MySQL
 
@@ -19,14 +19,13 @@ Up to now, we have found 62 logical bugs in MySQL, MariaDB, OceanBase, PERCONA, 
 | 9    | [119344](https://bugs.mysql.com/bug.php?id=119344) | comfirmed |
 | 10   | [119350](https://bugs.mysql.com/bug.php?id=119350) | comfirmed |
 | 11   | [119446](https://bugs.mysql.com/bug.php?id=119446) | comfirmed |
-| 12   | [119165](https://bugs.mysql.com/bug.php?id=119165) | pending   |
-| 13   | [119352](https://bugs.mysql.com/bug.php?id=119352) | pending   |
-| 14   | [119353](https://bugs.mysql.com/bug.php?id=119353) | pending   |
-| 15   | [119398](https://bugs.mysql.com/bug.php?id=119398) | comfirmed |
-| 16   | [119399](https://bugs.mysql.com/bug.php?id=119399) | comfirmed |
-| 17   | [119400](https://bugs.mysql.com/bug.php?id=119400) | comfirmed |
-| 18   | [119402](https://bugs.mysql.com/bug.php?id=119402) | comfirmed |
-| 19   | [119403](https://bugs.mysql.com/bug.php?id=119403) | comfirmed |
+| 12   | [119352](https://bugs.mysql.com/bug.php?id=119352) | comfirmed |
+| 13   | [119353](https://bugs.mysql.com/bug.php?id=119353) | comfirmed |
+| 14   | [119398](https://bugs.mysql.com/bug.php?id=119398) | comfirmed |
+| 15   | [119399](https://bugs.mysql.com/bug.php?id=119399) | comfirmed |
+| 16   | [119400](https://bugs.mysql.com/bug.php?id=119400) | comfirmed |
+| 17   | [119402](https://bugs.mysql.com/bug.php?id=119402) | comfirmed |
+| 18   | [119403](https://bugs.mysql.com/bug.php?id=119403) | comfirmed |
 
 ## MariaDB
 
@@ -40,7 +39,7 @@ Up to now, we have found 62 logical bugs in MySQL, MariaDB, OceanBase, PERCONA, 
 | 6    | [38052](https://jira.mariadb.org/browse/MDEV-38052) | comfirmed |
 | 7    | [38063](https://jira.mariadb.org/browse/MDEV-38063) | comfirmed |
 | 8    | [38064](https://jira.mariadb.org/browse/MDEV-38064) | comfirmed |
-| 9    | [38102](https://jira.mariadb.org/browse/MDEV-38102) | pending   |
+| 9    | [38102](https://jira.mariadb.org/browse/MDEV-38102) | comfirmed |
 
 ## OceanBase
 
@@ -52,7 +51,7 @@ Up to now, we have found 62 logical bugs in MySQL, MariaDB, OceanBase, PERCONA, 
 | 4    | [2326](https://github.com/oceanbase/oceanbase/issues/2326) | comfirmed |
 | 5    | [2339](https://github.com/oceanbase/oceanbase/issues/2339) | comfirmed |
 | 6    | [2341](https://github.com/oceanbase/oceanbase/issues/2341) | comfirmed |
-| 7    | [2340](https://github.com/oceanbase/oceanbase/issues/2340) | pending   |
+| 7    | [2340](https://github.com/oceanbase/oceanbase/issues/2340) | pending |
 
 ## PERCONA
 
@@ -67,7 +66,7 @@ Up to now, we have found 62 logical bugs in MySQL, MariaDB, OceanBase, PERCONA, 
 | 7    | [10303](https://perconadev.atlassian.net/browse/PS-10303) | comfirmed |
 | 8    | [10304](https://perconadev.atlassian.net/browse/PS-10304) | comfirmed |
 | 9    | [10305](https://perconadev.atlassian.net/browse/PS-10305) | comfirmed |
-| 10   | [10252](https://perconadev.atlassian.net/browse/PS-10252) | pending   |
+| 10   | [10252](https://perconadev.atlassian.net/browse/PS-10252) | comfirmed |
 
 ## PolarDB
 
@@ -82,9 +81,9 @@ Up to now, we have found 62 logical bugs in MySQL, MariaDB, OceanBase, PERCONA, 
 | 7    | [251](https://github.com/polardb/polardbx-sql/issues/251) | pending   |
 | 8    | [252](https://github.com/polardb/polardbx-sql/issues/252) | pending   |
 | 9    | [253](https://github.com/polardb/polardbx-sql/issues/253) | pending   |
-| 10   | [254](https://github.com/polardb/polardbx-sql/issues/254) | pending   |
-| 11   | [255](https://github.com/polardb/polardbx-sql/issues/255) | pending   |
-| 12   | [256](https://github.com/polardb/polardbx-sql/issues/256) | pending   |
+| 10   | [254](https://github.com/polardb/polardbx-sql/issues/254) | comfirmed |
+| 11   | [255](https://github.com/polardb/polardbx-sql/issues/255) | comfirmed |
+| 12   | [256](https://github.com/polardb/polardbx-sql/issues/256) | comfirmed |
 
 ## TIDB
 

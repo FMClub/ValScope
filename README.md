@@ -2,7 +2,7 @@
 
 ValScope is a DBMS testing framework based on a unified SQL query approximation model that combines set-semantic and value-semantic reasoning. By generating, mutating, and verifying SQL queries, it effectively detects logical bugs in DBMSs. It supports multiple database dialects including MySQL, MariaDB, Percona, OceanBase, TiDB, and PolarDB.
 
-Up to now, we have found 68 logical bugs in MySQL, MariaDB, OceanBase, PERCONA, PolarDB, and TiDB,  58 of which have been confirmed by developers.
+Up to now, we have found 67 logical bugs in MySQL, MariaDB, OceanBase, PERCONA, PolarDB, and TiDB,  57 of which have been confirmed by developers.
 
 ## MySQL
 
@@ -31,7 +31,6 @@ Up to now, we have found 68 logical bugs in MySQL, MariaDB, OceanBase, PERCONA, 
 | 21   | [119695](https://bugs.mysql.com/bug.php?id=119695) | comfirmed |
 | 22   | [119696](https://bugs.mysql.com/bug.php?id=119696) | comfirmed |
 | 23   | [119698](https://bugs.mysql.com/bug.php?id=119698) | comfirmed |
-| 24   | [119700](https://bugs.mysql.com/bug.php?id=119700) | comfirmed |
 
 ## MariaDB
 

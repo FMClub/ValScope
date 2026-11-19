@@ -79,7 +79,7 @@ fixes of PR #1 are merged; the design problems below are still open.
    with) operations that break it above a de-duplication (`outside_collation_law`). Open:
    the list of such operations is maintained by hand and may be incomplete; the check is
    static, so it also rejects queries whose data cannot actually hit the problem (2 of the
-   42 SQLite pairs fall under it, and their data was checked by hand: the affected
+   44 SQLite pairs fall under it, and their data was checked by hand: the affected
    columns hold integers only).
 2. **Several collations in one database (mostly solved).** The checker now uses the
    collation of each result column: reported by MariaDB / MySQL, and by SQLite through its
@@ -121,9 +121,10 @@ fixes of PR #1 are merged; the design problems below are still open.
    without `GROUP BY`). All were reproduced on MariaDB 10.11.14 only; other versions,
    MySQL, Percona, TiDB, OceanBase and PolarDB were not tested; causes not analysed.
 2. **MariaDB `GROUP BY` on DOUBLE**: plan-dependent number of groups; not analysed.
-3. **SQLite: 42 confirmed violations, causes mostly not analysed.** 37 from the first
-   campaign (all re-confirmed with the exact collation check) and 5 from a second campaign
-   with the extended model (`results/sqlite-campaign.md`). Open:
+3. **SQLite: 44 confirmed violations, causes mostly not analysed.** 37 from the first
+   campaign (all re-confirmed with the exact collation check), 5 from a second campaign
+   with the extended model and 2 from a third run after the audit fixes
+   (`results/sqlite-campaign.md`). Open:
    - root causes: one is analysed (the `DISTINCT` of a compound arm is ignored under `UNION`
      when the column is `COLLATE NOCASE`); the others are not;
    - the pairs are not reduced, not grouped by root cause, and not mapped to SQLite tickets;

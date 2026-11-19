@@ -13,10 +13,10 @@ Every violation was then re-checked from scratch by `bridge/confirm_sqlite.py`.
 
 ## Result
 
-**42 distinct (original, mutant) query pairs violate the relation that the rule's theorem
-guarantees.** 37 were found by the first campaign and 5 more by a second campaign run
-after the model was extended (strings, decimals, collations, opaque atoms; see below). All
-42 are confirmed:
+**44 distinct (original, mutant) query pairs violate the relation that the rule's theorem
+guarantees.** 37 were found by the first campaign, 5 by a second campaign run after the
+model was extended (strings, decimals, collations, opaque atoms), and 2 by a third run
+after the audit fixes (see below). All 44 are confirmed:
 
 - the database of the seed was rebuilt by each SQLite library and both queries were run
   again;
@@ -36,7 +36,8 @@ results that are consistent with the theorem.
 | Violations recorded on all versions, before de-duplication | 228 |
 | Distinct violating query pairs, confirmed | **37** (from 26 different databases) |
 | Second campaign (`--focus --rich`, seeds 2001-2030, 60 queries per kind) | 3600 queries, 386891 checks passed, 17 violations = **5 new distinct pairs**, all confirmed |
-| Total confirmed pairs | **42** (from 29 databases) |
+| Third run (same seeds, after the audit fixes) | 3600 queries, 328852 checks passed, 24 violations = 6 distinct pairs, all confirmed; **2 new pairs** (seed 2009) |
+| Total confirmed pairs | **44** (from 30 databases) |
 | Negative control (`--flip`, 300 queries) | 1544 violations reported |
 
 The rule of the mutation that exposed each pair:
@@ -47,8 +48,9 @@ The rule of the mutation that exposed each pair:
 | `UNION-ALL->UNION` | 9 |
 | `DISTINCT-add` | 6 |
 | `EXCEPT->left` | 3 |
-| `cond->TRUE` | 2 |
+| `cond->TRUE` | 3 |
 | `LEFT->INNER-JOIN` | 1 |
+| `INNER->LEFT-JOIN` | 1 |
 | `INTERSECT->operand` | 1 |
 
 The number of pairs of the first campaign violated on each version (a pair can be violated
@@ -61,7 +63,7 @@ on several):
 | 3.31.1 | 31 |
 | 3.34.0 | 31 |
 
-All 42 come from set-semantic rules. The value-semantic and HAVING mutators did not find a
+All 44 come from set-semantic rules. The value-semantic and HAVING mutators did not find a
 violation on these SQLite versions.
 
 24 of the 37 pairs were found in focus mode (`--focus`: more compound queries, more
@@ -120,6 +122,13 @@ collation-law check, determined `LIMIT` only, per-column collations from SQLite'
 metadata, exact correspondence search in value checks). The libraries were rebuilt with
 `SQLITE_ENABLE_COLUMN_METADATA`. All 42 pairs were re-confirmed with these changes.
 
+The second campaign was then run again with the same seeds (2001-2030, `--focus --rich`,
+60 queries per kind): 24 violations, 6 distinct pairs, all fixed in 3.53.1 and confirmed
+from scratch; no translation mismatch (4 before). Of the 5 pairs of the previous run, 2
+reappear with the same text, 2 (seed 2011) reappear with a different printed mutant (a join
+with condition TRUE is now printed as `CROSS JOIN`), and 1 (seed 2022, #41) is now rejected
+by the collation-law check. 2 pairs are new (seed 2009: `INNER->LEFT-JOIN`, `cond->TRUE`).
+
 Two pairs (#37, seed 515, and #41, seed 2022) apply `GLOB` or `||` to a column of a
 `SELECT DISTINCT` derived table, which the collation-law check now rejects statically. In
 both databases the affected column (`t2.c3`, `t3.c3`) holds integers only, so the
@@ -158,7 +167,7 @@ L=/tmp/sqlite-libs; python3 bridge/confirm_sqlite.py results/sqlite-confirmed.js
 
 `results/sqlite-confirmed.md` is the output of the last command. For every pair it has the
 queries, the first rows of both results and the verdict on each version.
-`results/sqlite-confirmed.jsonl` holds the 42 pairs as data.
+`results/sqlite-confirmed.jsonl` holds the 44 pairs as data.
 
 ## Limitations
 
@@ -166,5 +175,5 @@ queries, the first rows of both results and the verdict on each version.
   from npm packages.
 - "Confirmed" means inconsistent on the old version and consistent on 3.53.1. It does not
   prove which of the two results on the old version is the wrong one.
-- The 42 pairs most likely share a few root causes; only one cause is analysed, and the
+- The 44 pairs most likely share a few root causes; only one cause is analysed, and the
   test cases are not reduced.

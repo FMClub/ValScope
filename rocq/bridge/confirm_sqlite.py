@@ -40,12 +40,12 @@ def main():
     tmp = tempfile.mkdtemp(prefix='vs_confirm_')
     cache = {}
 
-    def db_for(lib, seed):
-        key = (lib, seed)
+    def db_for(lib, seed, focus):
+        key = (lib, seed, focus)
         if key not in cache:
-            path = os.path.join(tmp, '%s_%d.db' % (os.path.basename(lib or 'python'), seed))
+            path = os.path.join(tmp, '%s_%d_%d.db' % (os.path.basename(lib or 'python'), seed, focus))
             db = SQLiteLib(lib, path)
-            build(db, seed)
+            build(db, seed, focus)
             cache[key] = db
         return cache[key]
 
@@ -55,7 +55,7 @@ def main():
     for i, rec in enumerate(recs, 1):
         per_version = {}
         for lib in libs + [None]:
-            db = db_for(lib, rec['seed'])
+            db = db_for(lib, rec['seed'], rec.get('focus', False))
             per_version[db.version] = recheck(rec, db)
         own = per_version[rec['version']][0]
         latest_version = SQLiteLib(None, ':memory:').version

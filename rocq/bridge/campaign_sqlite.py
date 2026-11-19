@@ -62,9 +62,12 @@ def main():
     ap.add_argument('--out', default=None, help='JSON lines file for the violations')
     ap.add_argument('--flip', action='store_true', help='negative control: expect the opposite relation')
     ap.add_argument('--rich', action='store_true', help='opaque predicates and derived tables')
+    ap.add_argument('--focus', action='store_true',
+                    help='more compounds, DISTINCT, text and COLLATE NOCASE columns')
     args = ap.parse_args()
     gen_fragment.use_sqlite()
     gen_fragment.RICH = args.rich
+    gen_fragment.FOCUS = args.focus
     libs = [None if lib == 'python' else lib for lib in args.libs]
     tmp = tempfile.mkdtemp(prefix='vs_sqlite_')
     st = collections.Counter()
@@ -77,7 +80,7 @@ def main():
             if os.path.exists(path):
                 os.remove(path)
             db = SQLiteLib(lib, path)
-            build(db, seed)
+            build(db, seed, args.focus)
             dbs.append(db)
         latest = dbs.pop()
         rng = random.Random(seed)
@@ -150,7 +153,8 @@ def main():
                     on_latest = None if lb is None or lr is None else verdict_for(mk, m, lb, lr)[0]
                     fixed = on_latest == 'ok'
                     st['violations_fixed_in_latest' if fixed else 'violations_also_in_latest'] += 1
-                    rec = {'version': db.version, 'seed': seed, 'kind': mk, 'rule': rule, 'expect': label,
+                    rec = {'version': db.version, 'seed': seed, 'focus': args.focus, 'kind': mk,
+                           'rule': rule, 'expect': label,
                            'verdict': verdict, 'latest_verdict': on_latest, 'original': original,
                            'mutant': mutant[-1], 'original_rows': len(base), 'mutant_rows': len(res)}
                     print('VIOLATION [%s seed %d] %s %s (%s) latest: %s\n  original: %s\n  mutant  : %s'

@@ -16,28 +16,32 @@ COLUMNS = {'t1': ['c1', 'c4'], 't2': ['c1', 'c2', 'c3', 'c14', 'c15'],
            't3': ['c1', 'c2', 'c3', 'c6', 'c7', 'c8', 'c9']}
 
 
-def value(rng, kind):
+def value(rng, kind, focus=False):
     if rng.random() < 0.15:
         return 'NULL'
     v = rng.choice([0, 1, 1, 2, 2, 3, 4, 5, 7, 10, -1, -3])
     if kind == 'REAL' and rng.random() < 0.4:
         return repr(v + rng.choice([0.5, 0.25, 0.0]))
-    if kind == 'TEXT' and rng.random() < 0.3:
-        return "'%s'" % rng.choice(['a', 'A', 'b', 'x', ' 1', '01', ''])
+    if kind == 'TEXT' and rng.random() < (0.5 if focus else 0.3):
+        return "'%s'" % rng.choice(['a', 'A', 'b', 'B', 'x', ' 1', '01', ''] if focus
+                                   else ['a', 'A', 'b', 'x', ' 1', '01', ''])
     if kind in ('TEXT', '') and rng.random() < 0.3:
         return "'%d'" % v          # a number stored as text
     return str(v)
 
 
-def statements(seed):
-    """The CREATE / INSERT / CREATE INDEX / ANALYZE statements for one seed."""
+def statements(seed, focus=False):
+    """The CREATE / INSERT / CREATE INDEX / ANALYZE statements for one seed.  With
+    `focus`, text columns (half of them COLLATE NOCASE) and mixed-case values are more
+    frequent."""
     rng = random.Random(seed)
     stmts = []
     kinds = {}
     for t, cols in COLUMNS.items():
         defs = []
         for c in cols:
-            kind = rng.choice(['INTEGER', 'INTEGER', 'INTEGER', 'REAL', 'TEXT', ''])
+            kind = rng.choice(['INTEGER', 'INTEGER', 'REAL', 'TEXT', 'TEXT', ''] if focus
+                              else ['INTEGER', 'INTEGER', 'INTEGER', 'REAL', 'TEXT', ''])
             kinds[(t, c)] = kind
             coll = ' COLLATE NOCASE' if kind == 'TEXT' and rng.random() < 0.5 else ''
             defs.append('%s %s%s' % (c, kind, coll))
@@ -46,7 +50,7 @@ def statements(seed):
             defs.append('rid INTEGER PRIMARY KEY')
         stmts.append('CREATE TABLE %s (%s)%s;' % (t, ', '.join(defs), ' WITHOUT ROWID' if without_rowid else ''))
         for i in range(rng.randint(4, 12)):
-            vals = [value(rng, kinds[(t, c)]) for c in cols]
+            vals = [value(rng, kinds[(t, c)], focus) for c in cols]
             if without_rowid:
                 vals.append(str(i))
             stmts.append('INSERT INTO %s VALUES (%s);' % (t, ', '.join(vals)))
@@ -66,11 +70,11 @@ def statements(seed):
     return stmts
 
 
-def build(db, seed):
+def build(db, seed, focus=False):
     """Create the tables in `db` (a sqlite_exec.SQLiteLib).  Statements that fail
     (a UNIQUE index over duplicate data) are skipped.  Returns the statements used."""
     used = []
-    for s in statements(seed):
+    for s in statements(seed, focus):
         try:
             db.executescript(s)
             used.append(s)

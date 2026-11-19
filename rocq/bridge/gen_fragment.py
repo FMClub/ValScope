@@ -16,6 +16,7 @@ CONSTS = [1, 5, 20, 50, 100, 1000, 5000]
 SHIFTS = [5, 50, 500, 5000]
 SQLITE = False
 RICH = False      # opaque predicates and derived tables that stress the SQLite planner
+FOCUS = False     # more compound queries and more DISTINCT
 
 
 def use_sqlite():
@@ -139,7 +140,8 @@ def select(rng, ncols):
         if RICH and rng.random() < 0.2:
             c = rng.choice(['%s + 0', 'CAST(%s AS INTEGER)', "%s || ''", 'abs(%s)', 'coalesce(%s, 0)']) % c
         items.append('%s AS k%d' % (c, i))
-    sql = 'SELECT %s%s FROM %s' % ('DISTINCT ' if rng.random() < 0.3 else '', ', '.join(items), sql_from)
+    sql = 'SELECT %s%s FROM %s' % ('DISTINCT ' if rng.random() < (0.5 if FOCUS else 0.3) else '',
+                                   ', '.join(items), sql_from)
     if rng.random() < 0.85:
         sql += ' WHERE ' + pred(rng, aliases, 2)
     return sql
@@ -149,7 +151,7 @@ def query(rng, depth=2):
     ncols = rng.randint(1, 3)
 
     def go(d):
-        if d <= 0 or rng.random() < 0.55:
+        if d <= 0 or rng.random() < (0.2 if FOCUS else 0.55):
             return select(rng, ncols)
         op = rng.choice(['UNION', 'UNION ALL', 'INTERSECT', 'EXCEPT'])
         if SQLITE:
@@ -248,7 +250,9 @@ if __name__ == '__main__':
         use_sqlite()
     if '--rich' in sys.argv:
         RICH = True
-    args = [a for a in sys.argv[1:] if a not in ('--value', '--sqlite', '--rich')]
+    if '--focus' in sys.argv:
+        FOCUS = True
+    args = [a for a in sys.argv[1:] if a not in ('--value', '--sqlite', '--rich', '--focus')]
     n = int(args[0])
     rng = random.Random(int(args[1]) if len(args) > 1 else 0)
     for _ in range(n):

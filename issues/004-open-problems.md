@@ -1,4 +1,4 @@
-# Open problems (status as of the SQLite campaign)
+# Open problems (status after the SQLite campaign)
 
 > This repository has no issue tracker, so this document (submitted through a PR) collects
 > the problems that are known and not solved, so that they can be reviewed together.
@@ -77,7 +77,9 @@ fixes of PR #1 are merged; the design problems below are still open.
    original, not the mutants: a printing error in a mutant is not caught by it (one such
    error, a missing parenthesis, was found by running against MariaDB and fixed).
 2. The checker (`bridge/checker.py`): row matching by sorting within groups is justified
-   informally; tolerances are chosen by hand.
+   informally; tolerances are chosen by hand; the `collation` classification (a difference
+   that disappears up to case and trailing spaces is not counted) is a heuristic and could
+   hide a real violation.
 3. The list of monotone SQL functions (`EXP`, `FLOOR`, `CEIL`, `ROUND`, `ATAN`, `SIGN`;
    `ROUND` only on SQLite) is an assumption of the bridge.
 4. After extraction the proofs are erased; OCaml code could build an unproved rule record.
@@ -96,13 +98,27 @@ fixes of PR #1 are merged; the design problems below are still open.
    OceanBase and PolarDB were not tested; causes not analysed.
 2. **MariaDB `GROUP BY` on DOUBLE** (see B2.1): plan-dependent number of groups; not
    analysed and not checked against the documentation.
-3. **SQLite.** Only the four old releases bundled in npm packages could be built
-   (3.26.0, 3.30.1, 3.31.1, 3.34.0); `sqlite.org` is not reachable from the test
-   environment. Violations on them are counted as confirmed when the relation holds on the
-   SQLite that Python ships (3.53.1), i.e. when a later release behaves as the theorem
-   says. They were not mapped to SQLite tickets or check-ins, and not reduced to minimal
-   test cases.
-4. No other DBMS (MySQL, TiDB, OceanBase, Percona, PolarDB, PostgreSQL) was run.
+3. **SQLite: 37 confirmed violations, causes mostly not analysed.** The Rocq version found
+   37 distinct query pairs on SQLite 3.26.0 to 3.34.0 that violate the relation of their
+   rule and are consistent on SQLite 3.53.1 (`rocq/results/sqlite-campaign.md` on branch
+   `claude/rocq-core`). Open:
+   - root causes: one is analysed (the `DISTINCT` of a compound arm is ignored under `UNION`
+     when the column is `COLLATE NOCASE`); the `DISTINCT-add` pairs and the pairs that fail
+     on 3.31.1 only are not;
+   - the pairs are not reduced to minimal test cases, not grouped by root cause, and not
+     mapped to SQLite tickets or check-ins;
+   - "confirmed" means inconsistent on the old version and consistent on 3.53.1; it does
+     not establish which of the two old results is wrong;
+   - only the four releases bundled in npm packages could be built (`sqlite.org` is not
+     reachable).
+4. **Value-semantic and HAVING mutators found nothing on SQLite.** All 37 pairs come from
+   set-semantic rules. On SQLite the value rules are restricted (no `VAR_SAMP` /
+   `STDDEV_SAMP`, `ROUND` as the only monotone function) and many queries are skipped by
+   `numeric_probe`; whether the value side can find SQLite bugs at all is open.
+5. **Generator tuning is manual.** The focus mode (more compounds, `DISTINCT`, text and
+   `COLLATE NOCASE` columns) was added after looking at the first violations and found 24
+   of the 37 pairs. There is no feedback-driven or coverage-driven generation.
+6. No other DBMS (MySQL, TiDB, OceanBase, Percona, PolarDB, PostgreSQL) was run.
 
 ## D. Environment
 

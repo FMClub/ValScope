@@ -1,5 +1,14 @@
 # Valscope
 
+> **Branches.** `main` holds the Rocq (Coq) version: every mutation rule is a proved
+> theorem, and a verified engine, extracted to OCaml, applies the rules. It lives in
+> [`rocq/`](rocq/); start with [`rocq/README.md`](rocq/README.md) and the step-by-step guide
+> [`rocq/docs/USAGE.md`](rocq/docs/USAGE.md). The Python files at the top level are the
+> original implementation, kept because the Rocq version reuses its sample schema and
+> queries (`generated_sql/`). The original Python implementation on its own is on branch
+> [`vanilla-python`](https://github.com/FMClub/ValScope/tree/vanilla-python). Known problems
+> and candidate bugs are written up in [`issues/`](issues/).
+
 ValScope is a DBMS testing framework based on a unified SQL query approximation model that combines set-semantic and value-semantic reasoning. By generating, mutating, and verifying SQL queries, it effectively detects logical bugs in DBMSs. It supports multiple database dialects including MySQL, MariaDB, Percona, OceanBase, TiDB, and PolarDB.
 
 Up to now, we have found 67 logical bugs in MySQL, MariaDB, OceanBase, PERCONA, PolarDB, and TiDB,  57 of which have been confirmed by developers.

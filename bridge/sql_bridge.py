@@ -516,8 +516,13 @@ class Translation:
     def _group_is_distinct(self, node):
         """Does the GROUP BY list every column of the FROM tables (all base tables of the
         schema), with no aggregate or window in the select list?"""
-        if any(n.find(exp.AggFunc) or n.find(exp.Window) for n in node.expressions):
-            return False
+        for item in node.expressions:
+            # aggregates inside a scalar subquery are computed per row; only those of
+            # this SELECT itself matter
+            outside = [n for n in item.walk(prune=lambda n: isinstance(n, exp.Select))
+                       if not isinstance(n, exp.Select)]
+            if any(isinstance(n, (exp.AggFunc, exp.Window)) for n in outside):
+                return False
         group = node.args['group']
         if any(group.args.get(k) for k in ('rollup', 'cube', 'grouping_sets', 'totals', 'all')):
             return False
@@ -1054,7 +1059,7 @@ class Translation:
                 if t and t[0] in ('T', 'Named'):
                     found.append((t[0], int(t[1])))
                     return
-                elif t and t[0] in ('Exists', 'In'):
+                elif t and t[0] in ('Exists', 'In', 'InT'):     # tables of subqueries do not count
                     return
                 else:
                     for x in t[1:]:

@@ -338,28 +338,22 @@ class MutateSolve:
                                 # Replace value in dictionary
                                 parent.args[parent_key] = replacement
                     
-        # Process scalar query
-        # Determine if it's a scalar query (a query that returns a single row and column result)
-        # Simple judgment here: only one expression, no GROUP BY clause, no JOIN, might be a scalar query
+        # Process scalar subquery
+        # Stripping aggregates may turn a scalar subquery into a multi-row one, so
+        # ORDER BY + LIMIT 1 is added - but only for subqueries in scalar position.
+        # Adding LIMIT 1 to the top-level query or to subqueries in table / IN /
+        # EXISTS / set-operation position would break the inclusion relation the
+        # set mutators rely on.
         is_scalar_query = False
-        if hasattr(ast, 'expressions') and len(ast.expressions) == 1:
-            # Check if there's no GROUP BY clause
-            has_group_by = hasattr(ast, 'args') and 'group' in ast.args and ast.args['group']
-            
-            # Check if there's no complex JOIN
-            has_complex_join = False
-            if hasattr(ast, 'args') and 'from' in ast.args and ast.args['from']:
-                from_clause = ast.args['from']
-                if hasattr(from_clause, 'expressions'):
-                    for expr in from_clause.expressions:
-                        if isinstance(expr, sqlglot.expressions.Join):
-                            has_complex_join = True
-                            break
-            
-            # Judged as scalar query
-            if not has_group_by and not has_complex_join:
+        parent = ast.parent
+        if (hasattr(ast, 'expressions') and len(ast.expressions) == 1
+                and parent is not None and parent.__class__.__name__ == 'Subquery'):
+            grand_parent = parent.parent
+            if grand_parent is not None and grand_parent.__class__.__name__ not in (
+                    'From', 'Join', 'In', 'Exists', 'Union', 'Intersect', 'Except',
+                    'CTE', 'Subquery', 'Lateral', 'All', 'Any'):
                 is_scalar_query = True
-        
+
         if is_scalar_query:
             order_by_expr = None
             # Get column from SELECT expression as ORDER BY parameter

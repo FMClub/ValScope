@@ -7,6 +7,7 @@ import os
 class SeedQueryGenerator:
     def __init__(self, file_path='generated_sql/queries.sql', db_config=None):
         self.file_path = file_path
+        self.last_column_types = None  # type codes of the columns of the last SELECT
         # Database configuration default values
         self.db_config = db_config or {
             'host': '127.0.0.1',
@@ -200,6 +201,10 @@ class SeedQueryGenerator:
                     result = cursor.fetchall()
                     # Get column names
                     column_names = [desc[0] for desc in cursor.description] if cursor.description else []
+                    # Remember the column types: a mutation that changes them (e.g. because a
+                    # set operation unifies the types of its operands) cannot be checked by
+                    # comparing values.
+                    self.last_column_types = [desc[1] for desc in cursor.description] if cursor.description else []
                     # Return result set and column names
                     return (result, column_names)
                 else:

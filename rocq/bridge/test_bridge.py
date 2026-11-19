@@ -39,11 +39,40 @@ SET_CASES = [
      'NOT (t.a IN (SELECT u.a FROM u WHERE 1 = 0))'),
     ("SELECT t.a FROM t WHERE t.a NOT IN (SELECT u.a FROM u WHERE u.b > 1)", 'Down', 'cmp-weaken',
      'NOT (t.a IN (SELECT u.a FROM u WHERE u.b >= 1))'),
+    # rule 7: LIKE patterns
+    ("SELECT t.a FROM t WHERE t.c LIKE 'a_c%'", 'Up', 'LIKE-generalise', "t.c LIKE 'a%c%'"),
+    ("SELECT t.a FROM t WHERE t.c LIKE 'a_c%'", 'Down', 'LIKE-specialise', "t.c LIKE 'a_c_'"),
+    ("SELECT t.a FROM t WHERE t.c LIKE 'it''s%'", 'Up', 'LIKE-generalise', "t.c LIKE 'it_s%'"),
+    # rule 14: regular expressions of the fragment
+    ("SELECT t.a FROM t WHERE t.c REGEXP '^ab+c$'", 'Up', 'REGEXP-generalise', "t.c REGEXP 'ab+c'"),
+    ("SELECT t.a FROM t WHERE t.c REGEXP '^ab+c$'", 'Up', 'REGEXP-generalise', "t.c REGEXP '^ab*c$'"),
+    ("SELECT t.a FROM t WHERE t.c REGEXP 'ab'", 'Down', 'REGEXP-specialise', "t.c REGEXP '^ab$'"),
+    # derived tables and CTEs are mutated inside
+    ("SELECT d.a FROM (SELECT t.a FROM t WHERE t.b > 1) AS d", 'Up', 'cmp-weaken',
+     'FROM (SELECT t.a FROM t WHERE t.b >= 1) AS d'),
+    ("WITH d AS (SELECT t.a FROM t WHERE t.b > 1) SELECT d.a FROM d", 'Up', 'cond->TRUE',
+     'FROM (SELECT t.a FROM t WHERE 1 = 1) AS d'),
+    # an aggregated arm of a set operation is an opaque query; the set operation is still mutated
+    ("SELECT t.a FROM t UNION SELECT MAX(u.a) FROM u", 'Up', 'UNION->UNION-ALL',
+     '(SELECT t.a FROM t) UNION ALL (SELECT MAX(u.a) FROM u)'),
+    # a scalar subquery in the select list is an expression of the row
+    ("SELECT (SELECT MAX(u.a) FROM u WHERE u.b = t.b) AS m FROM t WHERE t.c > 1", 'Up', 'cmp-weaken',
+     't.c >= 1'),
 ]
 for sql, direction, rule, fragment in SET_CASES:
     _, mutants, _ = mutate_sql(sql)
     report(any(d == direction and r == rule and fragment in m for d, r, m in mutants),
            '%-4s %-20s %s' % (direction, rule, sql))
+
+# the analysed fragment of LIKE / REGEXP: patterns outside it stay opaque predicates
+for sql in ["SELECT t.a FROM t WHERE t.c LIKE 'a\\_b'", "SELECT t.a FROM t WHERE t.c REGEXP '[ab]+'",
+            "SELECT t.a FROM t WHERE t.c LIKE t.d"]:
+    tr = Translation(sql)
+    report('(Atom 0)' in tr.term and 'Like' not in tr.term and 'Regex' not in tr.term, 'opaque pattern: %s' % sql)
+
+# LEFT JOIN pads with the width of its right input
+tr = Translation("SELECT x.a FROM t AS x LEFT JOIN (SELECT u.a, u.b FROM u) AS y ON x.a = y.a")
+report(tr.term.count('(Left 2 ') == 1, 'LEFT JOIN padding = width of the derived table')
 
 # the ON condition of a LEFT JOIN must never be mutated (Counter.v)
 _, mutants, _ = mutate_sql("SELECT t.a FROM t LEFT JOIN u ON t.a = u.a AND u.b > 1 WHERE t.c = 2")
@@ -70,6 +99,11 @@ for sql, relation, rule, column, fragment in VALUE_CASES:
     _, mutants, _ = mutate_value_sql(sql)
     report(any(rel == relation and r == rule and c == column and fragment in m for rel, r, c, m in mutants),
            '%-9s %-24s %s' % (relation, rule, sql))
+
+# an item that is not analysed is copied unchanged into every mutant
+_, mutants, _ = mutate_value_sql("SELECT VARIANCE(t.b) AS s, GROUP_CONCAT(t.c) AS g FROM t")
+report(any(r == 'VAR_SAMP->STDDEV_SAMP' for _, r, _, _ in mutants) and
+       all('(GROUP_CONCAT(t.c)) AS g' in m for _, _, _, m in mutants), 'opaque item GROUP_CONCAT copied')
 
 # FUNC(c * k) needs c >= 0: it must not fire when the argument can be negative
 _, mutants, _ = mutate_value_sql("SELECT FLOOR(AVG(t.x)) AS f FROM t")
@@ -107,9 +141,15 @@ REJECTED = [
     ("SELECT a FROM t NATURAL JOIN u", 'set', 'NATURAL JOIN'),
     ("SELECT t.a, SUM(t.b) AS s FROM t GROUP BY t.c", 'value', 'non-key column in a grouped select'),
     ("SELECT SUM(DISTINCT t.b) AS s FROM t", 'value', 'SUM(DISTINCT)'),
-    ("SELECT VARIANCE(t.b) AS s, GROUP_CONCAT(t.c) AS g FROM t", 'value', 'aggregate that is not modelled'),
     ("SELECT DISTINCT t.a AS a FROM t", 'value', 'DISTINCT in a value query'),
     ("SELECT t.a AS a FROM t HAVING t.a > 1", 'value', 'HAVING without aggregation'),
+    ("SELECT t.g AS g, SUM(t.x) AS s FROM t GROUP BY t.g HAVING s > 1", 'value', 'HAVING on a select alias'),
+    ("SELECT a FROM t WHERE b > random()", 'set', 'SQLite random()'),
+    ("SELECT a FROM t WHERE b < date('now')", 'set', "date('now')"),
+    ("SELECT a FROM t WHERE b IN (SELECT c FROM u LIMIT 2)", 'set', 'LIMIT without ORDER BY in a subquery'),
+    ("WITH RECURSIVE r AS (SELECT 1 AS n UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT n FROM r",
+     'set', 'recursive CTE'),
+    ("SELECT a, ROW_NUMBER() OVER () FROM t", 'set', 'window function'),
 ]
 for sql, kind, what in REJECTED:
     try:
@@ -120,7 +160,7 @@ for sql, kind, what in REJECTED:
 
 # every occurrence gets its own atom, even with identical text
 tr = Translation("SELECT t.a FROM t WHERE t.a > 1 AND EXISTS (SELECT t.a FROM u AS t WHERE t.a > 1)")
-report(len(tr.exprs) == len(tr.term.split('(Col ')) - 1 and tr.term.count('(Col 0)') == 1,
+report(len(tr.exprs) == len(tr.term.split('(EAtom ')) - 1 and tr.term.count('(EAtom 0)') == 1,
        'one atom per occurrence (%d atoms)' % len(tr.exprs))
 
 # IN forms that are not modelled stay opaque (one atom, never entered)

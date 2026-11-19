@@ -6,6 +6,32 @@ The mutators never look inside scalar expressions, table references or predicate
 they do not analyse; they only copy them.  The bridge replaces each of them by a
 numbered atom and puts the original SQL text back when printing.
 
+How a query is encoded, and why the theorems apply to it (the theorems hold in every
+world [db_t] that satisfies the laws of Semantics.v, so it suffices that SOME lawful
+world gives the term the meaning of the SQL text):
+
+- a stored table or an opaque derived table is (T i 1): in the world, each real row is
+  one value that stands for the whole tuple, and its equivalence [veq] is the DBMS's
+  equality of rows (with the column collations);
+- a scalar expression that is not analysed is (EAtom n): its value is a function of the
+  current row context (the concatenation of the rows of the joined inputs and of the
+  outer queries), which is what [eatoms] provides;
+- a predicate that is not analysed is (Atom n), a three-valued function of the context;
+- a derived table or a CTE reference whose body is in the fragment is (Named i q):
+  its rows are the rows of q, so it can be mutated inside;
+- an arm of a set operation that is outside the fragment (aggregation, LIMIT, ...) is
+  (QAtom i 1), an opaque query;
+- LEFT JOIN pads with as many NULLs as the right input has columns in the encoding
+  (1 for a table, the number of select items for a Named query);
+- LIKE and REGEXP with a literal pattern of the analysed fragment are (Like e hex) and
+  (Regex e hex); the character comparison (case-insensitivity) is the world's [ceq].
+
+The laws demand that every operation respects the collation equivalence.  Where the
+DBMS has operations that distinguish equivalent values (LENGTH('a ') vs LENGTH('a')
+under a PAD SPACE collation, or 'a ' LIKE 'a'), SQL itself does not determine which
+representative DISTINCT or UNION keep, and the result is not determined by the query;
+the checker treats such differences explicitly (see checker.py).
+
 This file is NOT verified.  Together with sqlglot it is the trusted base: the
 theorems are about the algebra term, and the bridge is responsible for the term
 meaning the same as the SQL text.  It is built to fail closed:
@@ -49,6 +75,8 @@ NONDETERMINISTIC = {
     'UTC_DATE', 'UTC_TIME', 'UTC_TIMESTAMP', 'CONNECTION_ID', 'LAST_INSERT_ID', 'FOUND_ROWS',
     'ROW_COUNT', 'SLEEP', 'BENCHMARK', 'GET_LOCK', 'RELEASE_LOCK', 'RANDOM_BYTES', 'USER',
     'CURRENT_USER', 'SESSION_USER', 'SYSTEM_USER', 'DATABASE', 'SCHEMA', 'VERSION',
+    # SQLite
+    'RANDOM', 'RANDOMBLOB', 'CHANGES', 'TOTAL_CHANGES', 'LAST_INSERT_ROWID',
 }
 NONDETERMINISTIC_NODES = (exp.Rand, exp.Uuid, exp.CurrentDate, exp.CurrentTime,
                           exp.CurrentTimestamp, exp.CurrentUser, exp.Parameter,
@@ -82,6 +110,14 @@ def _check_deterministic(tree):
             name = (node.name if isinstance(node, exp.Anonymous) else node.sql_name()).upper()
             if name in NONDETERMINISTIC:
                 raise Unsupported('non-deterministic function %s' % name)
+            # date('now'), datetime('now', ...): the current time (SQLite)
+            if any(isinstance(a, exp.Literal) and a.is_string and a.this.strip().lower() == 'now'
+                   for a in node.iter_expressions()):
+                raise Unsupported("non-deterministic: %s('now')" % name)
+        if isinstance(node, exp.Select) and node is not tree and \
+                (node.args.get('limit') or node.args.get('offset')) and not node.args.get('order'):
+            # which rows a LIMIT keeps is not determined without an ORDER BY
+            raise Unsupported('LIMIT without ORDER BY in a subquery')
 
 
 class Translation:
@@ -95,8 +131,10 @@ class Translation:
         self.kind = kind
         self.tables, self.aliases, self.exprs, self.preds = [], [], [], []
         self.item_alias, self.mono_ids = [], {}
+        self.named, self.qatoms, self.ctes, self.opaque_items = [], [], {}, []
         tree = sqlglot.parse_one(sql, read=dialect)
         _check_deterministic(tree)
+        tree = self._take_ctes(tree)
         self.term = self._query(tree) if kind == 'set' else self._value_query(tree)
 
     # ------------------------------------------------------------ SQL -> term
@@ -106,7 +144,49 @@ class Translation:
     def _expr(self, node):
         # one atom per occurrence: never identify two occurrences by their text
         self.exprs.append(self._text(node))
-        return '(Col %d)' % (len(self.exprs) - 1)
+        return '(EAtom %d)' % (len(self.exprs) - 1)
+
+    def _take_ctes(self, tree):
+        """Non-recursive CTEs are inlined: each reference becomes a derived table."""
+        w = tree.args.get('with_') or tree.args.get('with')
+        if w is None:
+            return tree
+        if w.args.get('recursive'):
+            raise Unsupported('recursive CTE')
+        for cte in w.expressions:
+            if cte.args.get('alias') is not None and cte.args['alias'].columns:
+                raise Unsupported('CTE with a column list')
+            self.ctes[cte.alias_or_name.lower()] = cte.this
+        tree = tree.copy()
+        tree.set('with_' if 'with_' in tree.args else 'with', None)
+        for sub in tree.find_all(exp.Select):
+            if sub.args.get('with_') or sub.args.get('with'):
+                raise Unsupported('nested WITH')
+        return tree
+
+    def _snapshot(self):
+        return [len(x) for x in (self.tables, self.aliases, self.exprs, self.preds,
+                                 self.named, self.qatoms)]
+
+    def _restore(self, snap):
+        for lst, n in zip((self.tables, self.aliases, self.exprs, self.preds,
+                           self.named, self.qatoms), snap):
+            del lst[n:]
+
+    def _arm(self, node):
+        """An operand of a set operation: translated if possible, else an opaque query."""
+        snap = self._snapshot()
+        try:
+            return self._query(node)
+        except Unsupported:
+            self._restore(snap)
+            inner = self._unwrap(node)
+            if isinstance(inner, (exp.Union, exp.Intersect, exp.Except)) or not isinstance(inner, exp.Select):
+                raise
+            if any(isinstance(n, exp.Window) for n in inner.walk()) or inner.find(exp.Star) is not None:
+                raise
+            self.qatoms.append(self._text(inner))
+            return '(QAtom %d 1)' % (len(self.qatoms) - 1)
 
     def _unwrap(self, node):
         while isinstance(node, (exp.Subquery, exp.Paren)):
@@ -128,7 +208,7 @@ class Translation:
                 raise Unsupported('INTERSECT ALL / EXCEPT ALL')
             else:
                 tag = 'Intersect' if isinstance(node, exp.Intersect) else 'Except'
-            return '(%s %s %s)' % (tag, self._query(node.this), self._query(node.expression))
+            return '(%s %s %s)' % (tag, self._arm(node.this), self._arm(node.expression))
         if isinstance(node, exp.Select):
             return self._select(node)
         raise Unsupported(type(node).__name__)
@@ -143,19 +223,21 @@ class Translation:
         return len(node.expressions)
 
     def _check_clauses(self, node, allowed=()):
+        # (row locks, FOR UPDATE / LOCK IN SHARE MODE, do not change the result)
         for key in ('group', 'having', 'limit', 'offset', 'qualify', 'windows', 'with_', 'with',
-                    'locks', 'sample', 'pivots', 'laterals', 'distinct', 'into', 'hint', 'kind'):
+                    'sample', 'pivots', 'laterals', 'distinct', 'into', 'hint', 'kind'):
             if key not in allowed and node.args.get(key):
                 raise Unsupported(key)
 
     def _select(self, node):
         self._check_clauses(node, allowed=('distinct',))
         for item in node.expressions:
-            for inner in item.walk():
-                if isinstance(inner, (exp.AggFunc, exp.Window, exp.Select)):
-                    raise Unsupported('aggregate, window or subquery in the select list')
-                if isinstance(inner, exp.Anonymous):
-                    raise Unsupported('unknown function in the select list')
+            # an aggregate or a window function depends on the whole input, not on the
+            # row; a scalar subquery is an ordinary (correlated) expression of the row
+            outside = [n for n in item.walk(prune=lambda n: isinstance(n, exp.Select))
+                       if not isinstance(n, exp.Select)]
+            if any(isinstance(n, (exp.AggFunc, exp.Window)) for n in outside):
+                raise Unsupported('aggregate or window function in the select list')
         term = self._source(node)
         # ORDER BY does not change the bag of rows and is dropped
         items = ' '.join(self._expr(item) for item in node.expressions)
@@ -171,16 +253,16 @@ class Translation:
         source = node.args.get('from_') or node.args.get('from')
         if source is None:
             raise Unsupported('SELECT without FROM')
-        term = self._table(source.this)
+        term, _ = self._table(source.this)
         for join in node.args.get('joins') or []:
             if join.args.get('using') or join.args.get('method'):
                 raise Unsupported('USING / NATURAL join')
             side = str(join.args.get('side') or '').upper()
             kind = str(join.args.get('kind') or '').upper()
-            right = self._table(join.this)
+            right, width = self._table(join.this)
             on = self._pred(join.args['on']) if join.args.get('on') is not None else 'True'
             if side == 'LEFT':
-                term = '(Left 0 %s %s %s)' % (on, term, right)
+                term = '(Left %d %s %s %s)' % (width, on, term, right)
             elif side == '' and kind in ('', 'INNER', 'CROSS'):
                 term = '(Inner %s %s %s)' % (on, term, right)
             else:
@@ -190,12 +272,42 @@ class Translation:
         return term
 
     def _table(self, node):
-        if isinstance(node, exp.Table) or (isinstance(node, exp.Subquery) and node.alias):
-            # a derived table is kept as an opaque table: it is not mutated
+        """A FROM item: (term, number of columns in the encoding)."""
+        body, alias = None, None
+        if isinstance(node, exp.Subquery) and node.alias:
+            body, alias = node.this, node.alias
+        elif isinstance(node, exp.Table) and not node.args.get('db') and node.name.lower() in self.ctes:
+            body, alias = self.ctes[node.name.lower()], node.alias_or_name
+        if body is not None:
+            if isinstance(node, exp.Subquery) and node.args['alias'].columns:
+                raise Unsupported('derived table with a column list')
+            width = self._column_count(body)
+            if width is not None:
+                snap = self._snapshot()
+                try:
+                    inner = self._query(body)
+                    self.named.append(alias)
+                    return '(Named %d %s)' % (len(self.named) - 1, inner), width
+                except Unsupported:
+                    self._restore(snap)
+            # kept as an opaque table: it is not mutated inside
+            text = '(%s) AS %s' % (self._text(body), alias) if isinstance(node, exp.Table) else self._text(node)
+            self.tables.append(text)
+            self.aliases.append(alias)
+            return '(T %d 1)' % (len(self.tables) - 1), 1
+        if isinstance(node, exp.Table):
+            if node.args.get('joins') or node.args.get('laterals'):
+                raise Unsupported('nested join')
             self.tables.append(self._text(node))
             self.aliases.append(node.alias_or_name)
-            return '(T %d 0)' % (len(self.tables) - 1)
+            return '(T %d 1)' % (len(self.tables) - 1), 1
         raise Unsupported('FROM item %s' % type(node).__name__)
+
+    def _pattern(self, node):
+        """The text of a string-literal pattern, or None."""
+        if isinstance(node, exp.Literal) and node.is_string:
+            return node.this
+        return None
 
     def _pred(self, node):
         if isinstance(node, exp.Paren):
@@ -214,17 +326,26 @@ class Translation:
         if isinstance(node, exp.Is) and isinstance(node.expression, exp.Null) \
                 and node.this.find(exp.Select) is None:
             return '(IsNull %s)' % self._expr(node.this)
+        if isinstance(node, exp.Like) and node.this.find(exp.Select) is None:
+            pat = self._pattern(node.expression)
+            # a backslash is an escape character in MySQL / MariaDB patterns
+            if pat is not None and '\\' not in pat and pat.isprintable() and pat.isascii():
+                return '(Like %s%s)' % (self._expr(node.this), ' ' + pat.encode().hex() if pat else '')
+        if isinstance(node, exp.RegexpLike) and node.this.find(exp.Select) is None \
+                and not node.args.get('flag'):
+            pat = self._pattern(node.expression)
+            if pat is not None and _regex_in_fragment(pat):
+                return '(Regex %s%s)' % (self._expr(node.this), ' ' + pat.encode().hex() if pat else '')
         if isinstance(node, exp.Exists) and isinstance(node.this, exp.Select):
-            saved = (len(self.tables), len(self.exprs), len(self.preds))
+            snap = self._snapshot()
             try:
                 return '(Exists %s)' % self._query(node.this)
             except Unsupported:
                 # roll back the atoms of the failed attempt and keep it opaque
-                del self.tables[saved[0]:], self.aliases[saved[0]:]
-                del self.exprs[saved[1]:], self.preds[saved[2]:]
+                self._restore(snap)
         if isinstance(node, exp.In) and node.args.get('query') is not None \
                 and not isinstance(node.this, exp.Tuple) and node.this.find(exp.Select) is None:
-            saved = (len(self.tables), len(self.exprs), len(self.preds))
+            snap = self._snapshot()
             try:
                 sub = self._unwrap(node.args['query'])
                 if self._column_count(sub) != 1:
@@ -232,8 +353,7 @@ class Translation:
                 left = self._expr(node.this)
                 return '(In %s %s)' % (left, self._query(sub))
             except Unsupported:
-                del self.tables[saved[0]:], self.aliases[saved[0]:]
-                del self.exprs[saved[1]:], self.preds[saved[2]:]
+                self._restore(snap)
         # anything else is an opaque predicate: it can only be replaced as a whole
         self.preds.append(self._text(node))
         return '(Atom %d)' % (len(self.preds) - 1)
@@ -250,6 +370,7 @@ class Translation:
             if any(group.args.get(k) for k in ('rollup', 'cube', 'grouping_sets', 'totals', 'all')):
                 raise Unsupported('ROLLUP / CUBE / GROUPING SETS')
             keys = list(group.expressions)
+        self._check_alias_references(node)
         key_texts = {self._text(k) for k in keys}
         has_agg = any(item.find(exp.AggFunc) is not None for item in node.expressions)
         source = self._source(node)
@@ -273,6 +394,24 @@ class Translation:
             return '(VGlobal (%s) %s %s)' % (' '.join(items), having, source)
         return '(VProj (%s) %s)' % (' '.join(items), source)
 
+    def _check_alias_references(self, node):
+        """A value mutant changes a select item; if WHERE, GROUP BY, HAVING or ORDER BY
+        refer to it through its alias, they would change with it, and the rows of the
+        mutant would no longer correspond to the rows of the original."""
+        aliases = set()
+        for item in node.expressions:
+            if isinstance(item, exp.Alias) and item.alias:
+                body = item.this
+                if not (isinstance(body, exp.Column) and body.name.lower() == item.alias.lower()):
+                    aliases.add(item.alias.lower())
+        for key in ('where', 'group', 'having', 'order'):
+            clause = node.args.get(key)
+            if clause is None:
+                continue
+            for col in clause.find_all(exp.Column):
+                if not col.table and col.name.lower() in aliases:
+                    raise Unsupported('%s refers to the select alias %s' % (key.upper(), col.name))
+
     def _agg_arg(self, node):
         arg = node.this
         if isinstance(arg, exp.Distinct) or arg is None:
@@ -286,9 +425,8 @@ class Translation:
         the grouping keys (a non-aggregated expression must be one of them)."""
         if isinstance(node, exp.Paren):
             return self._item(node.this, key_texts)
-        for inner in node.walk():
-            if isinstance(inner, (exp.Window, exp.Select, exp.Anonymous)):
-                raise Unsupported('window, subquery or unknown function in a select item')
+        if any(isinstance(inner, exp.Window) for inner in node.walk()):
+            raise Unsupported('window function in a select item')
         if isinstance(node, exp.Literal) and node.is_int:
             return '(AConst %s)' % node.this
         if isinstance(node, exp.Neg) and isinstance(node.this, exp.Literal) and node.this.is_int:
@@ -304,7 +442,8 @@ class Translation:
             return '(ACount %s)' % self._agg_arg(node)
         simple = {exp.Sum: 'ASum', exp.Min: 'AMin', exp.Max: 'AMax', exp.Avg: 'AAvg',
                   exp.Variance: 'AVar', exp.StddevSamp: 'AStd'}
-        if type(node) in simple:
+        if type(node) in simple and node.this is not None and not isinstance(node.this, exp.Distinct) \
+                and node.this.find(exp.Select) is None and node.this.find(exp.AggFunc) is None:
             return '(%s %s)' % (simple[type(node)], self._agg_arg(node))
         if isinstance(node, exp.Add):
             return '(AAdd %s %s)' % (self._item(node.this, key_texts), self._item(node.expression, key_texts))
@@ -314,8 +453,10 @@ class Translation:
             if type(node) is cls and len([v for v in node.args.values() if v is not None]) == 1:
                 fid = self.mono_ids.setdefault(name, len(self.mono_ids))
                 return '(AMono %d %s)' % (fid, self._item(node.this, key_texts))
-        if node.find(exp.AggFunc) is not None:
-            raise Unsupported('aggregate %s is not modelled' % type(node.find(exp.AggFunc)).__name__)
+        if node.find(exp.AggFunc) is not None or (key_texts is not None and node.find(exp.Select) is not None):
+            # a function of the group that is not analysed: copied, never mutated
+            self.opaque_items.append(self._text(node))
+            return '(AOpaque %d)' % (len(self.opaque_items) - 1)
         if key_texts is not None and self._text(node) not in key_texts:
             raise Unsupported('non-aggregated expression that is not a grouping key')
         return '(ACol %s)' % self._expr(node)
@@ -336,7 +477,7 @@ class Translation:
 
         def collect(t):
             if isinstance(t, list):
-                if t and t[0] == 'Col':
+                if t and t[0] == 'EAtom':
                     atoms.append(t)
                 else:
                     for x in t[1:]:
@@ -376,7 +517,7 @@ class Translation:
 
         def collect(t):
             if isinstance(t, list):
-                if t and t[0] == 'Col':
+                if t and t[0] == 'EAtom':
                     atoms.append(self._e_sql(t))
                 else:
                     for x in t[1:]:
@@ -406,7 +547,7 @@ class Translation:
 
     def _e_sql(self, e):
         tag = e[0]
-        if tag == 'Col':
+        if tag == 'EAtom':
             return self._atom_text(self.exprs[int(e[1])])
         if tag == 'Int':
             return e[1]
@@ -436,6 +577,9 @@ class Translation:
             return '%s IN (%s)' % (self._e_sql(p[1]), self._q_sql(p[2]))
         if tag == 'Atom':
             return '(%s)' % self.preds[int(p[1])]
+        if tag in ('Like', 'Regex'):
+            pat = bytes.fromhex(p[2]).decode() if len(p) > 2 else ''
+            return '%s %s %s' % (self._e_sql(p[1]), 'LIKE' if tag == 'Like' else 'REGEXP', _quote(pat))
         raise Unsupported('predicate %s' % tag)
 
     def _single_table(self, f):
@@ -444,8 +588,9 @@ class Translation:
 
         def walk(t):
             if isinstance(t, list):
-                if t and t[0] == 'T':
-                    found.append(int(t[1]))
+                if t and t[0] in ('T', 'Named'):
+                    found.append((t[0], int(t[1])))
+                    return
                 elif t and t[0] in ('Exists', 'In'):
                     return
                 else:
@@ -458,6 +603,8 @@ class Translation:
         tag = f[0]
         if tag == 'T':
             return self.tables[int(f[1])]
+        if tag == 'Named':
+            return '(%s) AS %s' % (self._q_sql(f[2]), self.named[int(f[1])])
         if tag in ('Inner', 'Left'):
             on, left, right = (f[1], f[2], f[3]) if tag == 'Inner' else (f[2], f[3], f[4])
             text = '%s %s JOIN %s ON %s' % (self._from_sql(left), 'INNER' if tag == 'Inner' else 'LEFT',
@@ -472,15 +619,21 @@ class Translation:
                 distinct, inner = True, inner[1]
             if inner[0] == 'Where':
                 where, inner = self._p_sql(inner[1]), inner[2]
-            if idx is not None and inner[0] == 'T':
-                sql = 'SELECT %s* FROM %s' % ('DISTINCT ' if distinct else '', self.tables[idx])
+            if idx is not None and inner[0] in ('T', 'Named') and (inner[0], int(inner[1])) == idx:
+                alias = self.aliases[idx[1]] if idx[0] == 'T' else self.named[idx[1]]
+                sql = 'SELECT %s* FROM %s' % ('DISTINCT ' if distinct else '', self._from_sql(inner))
                 if where:
                     sql += ' WHERE ' + where
-                return '(%s) AS %s' % (sql, self.aliases[idx])
+                return '(%s) AS %s' % (sql, alias)
         raise Unsupported('%s in FROM position' % tag)
 
     def _q_sql(self, q):
         tag = q[0]
+        if tag == 'QAtom':
+            text = self.qatoms[int(q[1])]
+            return 'SELECT * FROM (%s) AS qa%s' % (text, q[1]) if self.dialect == 'sqlite' else text
+        if tag == 'Named':
+            return self._q_sql(q[2])
         if tag in SET_SQL:
             if self.dialect == 'sqlite':
                 # no parentheses around compound operands in SQLite; compounds are
@@ -495,7 +648,7 @@ class Translation:
             distinct, q = True, q[1]
         if q[0] == 'Proj':
             # select-list atoms keep their exact text (it may end in "AS alias")
-            items, q = ', '.join(self.exprs[int(e[1])] if e[0] == 'Col' else self._e_sql(e)
+            items, q = ', '.join(self.exprs[int(e[1])] if e[0] == 'EAtom' else self._e_sql(e)
                                  for e in q[1]), q[2]
         if q[0] == 'Where':
             where, q = self._p_sql(q[1]), q[2]
@@ -518,6 +671,8 @@ class Translation:
         if tag == 'AMono':
             name = [n for n, i in self.mono_ids.items() if i == int(a[1])][0]
             return '%s(%s)' % (name, self._a_sql(a[2]))
+        if tag == 'AOpaque':
+            return self._atom_text(self.opaque_items[int(a[1])])
         raise Unsupported('select item %s' % tag)
 
     @staticmethod
@@ -543,6 +698,31 @@ class Translation:
         if having != 'True':
             sql += ' HAVING ' + self._p_sql(having)
         return sql
+
+
+REGEX_SPECIAL = set('^$.?*+()[]{}|\\')
+
+
+def _regex_in_fragment(pat):
+    """The analysed fragment of regular expressions: optional ^, then literal
+    characters or '.', each optionally followed by ?, * or +, then optional $."""
+    if not (pat.isascii() and pat.isprintable()):
+        return False
+    body = pat[1:] if pat.startswith('^') else pat
+    body = body[:-1] if body.endswith('$') else body
+    i = 0
+    while i < len(body):
+        c = body[i]
+        if c in REGEX_SPECIAL and c != '.':
+            return False
+        i += 1
+        if i < len(body) and body[i] in '?*+':
+            i += 1
+    return True
+
+
+def _quote(text):
+    return "'%s'" % text.replace("'", "''")
 
 
 def _run_cli(term, cli):

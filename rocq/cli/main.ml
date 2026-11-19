@@ -24,6 +24,7 @@
      item   ::= (ACol e) | (AConst n) | (ACount e) | (ACountD e) | (ASum e) | (AMin e)
               | (AMax e) | (AAvg e) | (AVar e) | (AStd e) | (AAdd item item)
               | (AMul item item) | (AMono id item)
+              | (AOpaque id)       an item that is not analysed (copied, never mutated)
    Each mutant is printed as
      <Le|Ge|AwayZero|TowardOne|AwayOne> TAB <rule name> TAB <column> TAB <vquery>
    where the relation says how the mutated column of the mutant relates to the original.
@@ -220,6 +221,7 @@ let rec item_of = function
   | L [A "AAdd"; a; b] -> AAdd (item_of a, item_of b)
   | L [A "AMul"; a; b] -> AMul (item_of a, item_of b)
   | L [A "AMono"; A f; a] -> AMono (int_of_string f, item_of a)
+  | L [A "AOpaque"; A i] -> AOpaque (int_of_string i)
   | _ -> failwith "bad select item"
 
 let rec item_to = function
@@ -236,6 +238,7 @@ let rec item_to = function
   | AAdd (a, b) -> Printf.sprintf "(AAdd %s %s)" (item_to a) (item_to b)
   | AMul (a, b) -> Printf.sprintf "(AMul %s %s)" (item_to a) (item_to b)
   | AMono (f, a) -> Printf.sprintf "(AMono %d %s)" f (item_to a)
+  | AOpaque i -> Printf.sprintf "(AOpaque %d)" i
 
 let items_to l = String.concat " " (List.map item_to l)
 

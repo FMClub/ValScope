@@ -104,7 +104,8 @@ Inductive aexpr : Type :=
   | AStdSamp : expr -> aexpr
   | AAdd     : aexpr -> aexpr -> aexpr
   | AMul     : aexpr -> aexpr -> aexpr
-  | AMono    : nat -> aexpr -> aexpr. (* a monotone (non-decreasing) scalar function *)
+  | AMono    : nat -> aexpr -> aexpr  (* a monotone (non-decreasing) scalar function *)
+  | AOpaque  : nat -> aexpr.         (* an item that is not analysed (VAR_POP, GROUP_CONCAT, ...) *)
 
 (** Interpretation of the monotone function symbols, and of the operands of a
     HAVING clause ([hrow g] gives their values for the group [g]; it is an arbitrary
@@ -113,7 +114,8 @@ Inductive aexpr : Type :=
 Record venv : Type := mk_venv {
   mfn : nat -> R -> R;
   mfn_mono : forall n x y, x <= y -> mfn n x <= mfn n y;
-  hrow : list row -> row
+  hrow : list row -> row;
+  magg : nat -> list row -> option R   (* the values of the opaque items, per group *)
 }.
 
 Fixpoint aeval (env : venv) (db : db_t) (g : list row) (a : aexpr) : option R :=
@@ -131,6 +133,7 @@ Fixpoint aeval (env : venv) (db : db_t) (g : list row) (a : aexpr) : option R :=
   | AAdd a b => olift2 Rplus (aeval env db g a) (aeval env db g b)
   | AMul a b => olift2 Rmult (aeval env db g a) (aeval env db g b)
   | AMono f a => match aeval env db g a with Some x => Some (mfn env f x) | None => None end
+  | AOpaque n => magg env n g
   end.
 
 (** ---------------- facts about the aggregates ---------------- *)

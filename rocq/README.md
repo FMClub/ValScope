@@ -315,7 +315,7 @@ MariaDB 10.11.14, sample schema of the Python generator (`generated_sql/schema.s
   no `GROUP BY`, while the result metadata says `BIT` and the same aggregate under a
   derived table, `UNION ALL` or `GROUP BY` returns the bit value (`0x02`). Minimal case:
   `CREATE TABLE b (x BIT(8)); INSERT INTO b VALUES (2), (242); SELECT MIN(x), MAX(x) FROM b;`
-  Written up in `issues/005-mariadb-bit-min-max-text.md` (separate PR).
+  Written up in `issues/005-mariadb-bit-min-max-text.md` (PR #8).
 - The value violation on generated queries is the known `HAVING COUNT(x) IN (subquery)`
   candidate (`issues/003-mariadb-having-count-in-subquery.md`).
 

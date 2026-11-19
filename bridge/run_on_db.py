@@ -228,6 +228,9 @@ def main():
     # mutants whose printed SQL did not parse back to the term of the verified engine
     if sql_bridge.STATS['roundtrip_rejected']:
         st['mutants_roundtrip_rejected'] = sql_bridge.STATS['roundtrip_rejected']
+    # mutants that apply a collation-sensitive operation above a de-duplication
+    if sql_bridge.STATS['outside_model']:
+        st['mutants_outside_model'] = sql_bridge.STATS['outside_model']
     print(dict(st))
     print('ok checks per rule:', dict(by_rule))
     if ERRORS:

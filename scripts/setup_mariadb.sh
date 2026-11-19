@@ -37,5 +37,8 @@ fi
 
 echo "server: $(sql -N -e 'SELECT VERSION()')"
 sql --default-character-set=utf8mb4 < "$here/data/mariadb/schema.sql"
-sql --default-character-set=utf8mb4 test < "$here/data/mariadb/indexes.sql"
+# indexes.sql collects the output of several generator runs: some indexes are created twice
+# or already exist in schema.sql.  As in the original tool, those statements are skipped.
+sql --force --default-character-set=utf8mb4 test < "$here/data/mariadb/indexes.sql" 2> /dev/null || true
+echo "indexes: $(sql -N test -e "SELECT COUNT(DISTINCT table_name, index_name) FROM information_schema.statistics WHERE table_schema = 'test'")"
 echo "loaded database test: $(sql -N test -e "SELECT GROUP_CONCAT(CONCAT(table_name, ' (', table_rows, ' rows)') SEPARATOR ', ') FROM information_schema.tables WHERE table_schema = 'test'")"

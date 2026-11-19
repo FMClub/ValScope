@@ -1,4 +1,4 @@
-# Open problems (status after the SQLite campaign)
+# Open problems (status after the second round of the Rocq version)
 
 > This repository has no issue tracker, so this document (submitted through a PR) collects
 > the problems that are known and not solved, so that they can be reviewed together.
@@ -33,92 +33,104 @@ fixes of PR #1 are merged; the design problems below are still open.
 
 ## B. The Rocq version (branch `claude/rocq-core`, PR #4)
 
+### Solved in the second round (kept here for reference)
+
+- Values are now NULL, integers, rationals and strings; comparison, arithmetic, the
+  collation equivalence used by DISTINCT and the set operations, LIKE / REGEXP character
+  comparison and the opaque atoms are parameters of a world record with laws. The theorems
+  hold for every lawful world; bags are compared modulo the collation.
+- Rules 7 (`LIKE`) and 14 (`REGEXP`) are proved and plugged in.
+- Derived tables and non-recursive CTEs are mutated inside; scalar subqueries, aggregated
+  set-operation arms and unanalysed select items are opaque atoms instead of rejecting the
+  query. 374 of the 870 sample queries of the Python generator are now accepted (6 of 511
+  before).
+- The checker compares modulo the database's real string equality (`WEIGHT_STRING` on
+  MariaDB / MySQL, exact `NOCASE` / `RTRIM` on SQLite) instead of a fixed casefold.
+- `HAVING` operands may take any value (integers, decimals, text).
+- Review findings fixed: `(Col n)` encoding replaced by opaque expression atoms with a
+  stated justification; LEFT JOIN padding uses the right input's width; exact comparison of
+  integers and decimals; float noise in HAVING / set checks; select-alias references in
+  value queries rejected; more nondeterminism rejected (SQLite `random()`, `'now'`, LIMIT
+  without ORDER BY in subqueries); table functions with column arguments rejected; a lost
+  server connection stops the run; errors are tallied instead of swallowed.
+
 ### B1. Coverage of SQL
 
-1. Not modelled: `LIKE` / `REGEXP` as analysed predicates (rules 7 and 14), scalar
-   subqueries, CTEs, window functions, `IN` with a row constructor, `RIGHT` / `FULL` /
-   `NATURAL` / `USING` joins, `INTERSECT ALL` / `EXCEPT ALL`, `LIMIT`.
-   Unanalysed predicates are kept as opaque atoms (sound, but never mutated inside).
-2. Derived tables are opaque to the bridge: they are carried through but not mutated.
-3. Value mutation applies to the select items of one top-level `SELECT`; a mutated value is
-   not followed through derived tables or `UNION ALL`.
-4. About 10% of the set-semantic mutants cannot be printed as SQL (`DISTINCT` around a join)
-   and are dropped.
-5. Of 511 queries from the Python generator, only 6 are inside the fragment. The campaigns
-   use separate generators (`rocq/bridge/gen_fragment.py`), so the Rocq version does not yet
-   test the queries the original tool produces.
+1. Not modelled: window functions, `IN` with a row constructor, `RIGHT` / `FULL` /
+   `NATURAL` / `USING` joins, `INTERSECT ALL` / `EXCEPT ALL`, `LIMIT`, recursive CTEs.
+   Unanalysed predicates and expressions are opaque atoms (sound, never mutated inside).
+2. Value mutation applies to the select items of one top-level `SELECT`; a mutated value is
+   not followed through derived tables or `UNION ALL`. Value queries with `SELECT DISTINCT`
+   are rejected. This is why only 69 of the 870 Python-generator queries are used by the
+   value rules.
+3. About 5% to 10% of the set-semantic mutants cannot be printed (`DISTINCT` around a join
+   below a projection). `DISTINCT` added around the table of a correlated subquery is
+   printed as a derived table, which MariaDB rejects; those mutants are lost.
+4. The Python generator emits `LIMIT` without `ORDER BY` inside subqueries (124 of 870
+   sample queries). Their result is not determined, so the Rocq version rejects them; the
+   Python tool mutates them, which can produce false alarms there.
 
 ### B2. Gap between the model and real DBMSs
 
-1. **Values.** The model has integers and NULL with exact arithmetic. Real columns hold
-   decimals, floats and (in SQLite) text in any column. Consequences seen in practice:
-   - SQLite: `AVG` converts text to a number while `MIN` / `MAX` order text above every
-     number, so `AVG -> MAX`, `MIN -> MAX` and `MAX -> MIN` fail on columns holding text.
-     Handled by `numeric_probe` (the query is skipped); the theorems themselves do not
-     cover dynamic typing.
-   - MariaDB: grouping by `FLOAT` / `DOUBLE` expressions gives a plan-dependent number of
-     groups. Handled by rejecting such queries.
-   - Floating-point aggregates differ in their last bits between plans; handled by a
-     tolerance and by rounded row keys.
-2. **Collation.** The model compares strings exactly. Under `COLLATE NOCASE`, `DISTINCT`
-   and set operations may keep a different representative; the checker classifies a
-   difference that disappears up to case and trailing spaces as `collation`, not as a
-   violation. This is a heuristic.
-3. **HAVING operands** take integer or NULL values in the model; real-valued aggregates are
-   not literally covered.
-4. **Axioms.** The value-semantic part depends on the three axioms of Coq's `Reals`
+1. **Laws of the world.** The theorems assume that every operation respects the collation
+   equivalence. Real functions break this (`LENGTH`, `HEX`, `BINARY` casts, `LIKE` against
+   trailing spaces under PAD SPACE). For such queries SQL does not determine the result;
+   the tool does not detect them and could report a difference as a violation.
+2. **Several collations in one database.** The result of a query does not say which
+   collation each column has; the checker applies the coarsest one to every column, so a
+   real case difference on a binary column can be missed.
+3. **Character-by-character LIKE / REGEXP.** Collations with contractions or expansions
+   (`'ss' = 'ß'`) are not covered.
+4. **Approximate numbers.** FLOAT / DOUBLE arithmetic is not exact; grouping keys of these
+   types are rejected (MariaDB), and results are compared with a tolerance.
+5. **SQLite dynamic typing.** Value queries whose aggregated inputs hold text are skipped
+   (`numeric_probe`); the model reads text as non-numeric, while SQLite's `AVG` converts it.
+6. **Axioms.** The value-semantic part depends on the three axioms of Coq's `Reals`
    library. The set-semantic part uses none.
 
 ### B3. Trusted, unverified parts
 
 1. The SQL bridge (`bridge/sql_bridge.py`), the command-line parser and printer
-   (`cli/main.ml`), sqlglot and Rocq's extraction. Translation validation (the query as
-   written and the query re-printed from its term must return the same rows) checks the
-   original, not the mutants: a printing error in a mutant is not caught by it (one such
-   error, a missing parenthesis, was found by running against MariaDB and fixed).
-2. The checker (`bridge/checker.py`): row matching by sorting within groups is justified
-   informally; tolerances are chosen by hand; the `collation` classification (a difference
-   that disappears up to case and trailing spaces is not counted) is a heuristic and could
-   hide a real violation.
-3. The list of monotone SQL functions (`EXP`, `FLOOR`, `CEIL`, `ROUND`, `ATAN`, `SIGN`;
-   `ROUND` only on SQLite) is an assumption of the bridge.
+   (`cli/main.ml`), sqlglot and Rocq's extraction. Translation validation checks the
+   original query, not the mutants. In this round it caught one bridge bug (`NOT LIKE`
+   printed as `LIKE`, through sqlglot's `negate` flag).
+2. The checker: row matching by sorting within groups is justified informally; tolerances
+   are chosen by hand.
+3. The list of monotone SQL functions is an assumption of the bridge.
 4. After extraction the proofs are erased; OCaml code could build an unproved rule record.
+5. Only the `mysql` and `sqlite` dialects of sqlglot were tested.
 
 ### B4. Tooling
 
 1. Built and tested with Coq 8.18.0 and OCaml 4.14.1 only; not built with Rocq 9.
-2. The checker re-runs every query once per mutant; there is no result cache and no
-   test-case reduction, so violations are reported with the full generated query.
+2. The command-line mutator is started once per query; there is no result cache and no
+   test-case reduction.
 
 ## C. Testing real DBMSs
 
-1. **Candidate MariaDB bugs not reported upstream** (PR #2: `HAVING MAX(enum) <> n`
-   depends on the select list; PR #5: `HAVING COUNT(x) IN (subquery)` finds no match).
-   Both were reproduced on MariaDB 10.11.14 only; other versions, MySQL, Percona, TiDB,
-   OceanBase and PolarDB were not tested; causes not analysed.
-2. **MariaDB `GROUP BY` on DOUBLE** (see B2.1): plan-dependent number of groups; not
-   analysed and not checked against the documentation.
-3. **SQLite: 37 confirmed violations, causes mostly not analysed.** The Rocq version found
-   37 distinct query pairs on SQLite 3.26.0 to 3.34.0 that violate the relation of their
-   rule and are consistent on SQLite 3.53.1 (`rocq/results/sqlite-campaign.md` on branch
-   `claude/rocq-core`). Open:
+1. **Candidate MariaDB bugs not reported upstream:** PR #2 (`HAVING MAX(enum) <> n` depends
+   on the select list), PR #5 (`HAVING COUNT(x) IN (subquery)` finds no match; reproduced
+   again in this round), PR #8 (new: `MIN` / `MAX` of a `BIT` column return decimal text
+   without `GROUP BY`). All were reproduced on MariaDB 10.11.14 only; other versions,
+   MySQL, Percona, TiDB, OceanBase and PolarDB were not tested; causes not analysed.
+2. **MariaDB `GROUP BY` on DOUBLE**: plan-dependent number of groups; not analysed.
+3. **SQLite: 42 confirmed violations, causes mostly not analysed.** 37 from the first
+   campaign (all re-confirmed with the exact collation check) and 5 from a second campaign
+   with the extended model (`rocq/results/sqlite-campaign.md`). Open:
    - root causes: one is analysed (the `DISTINCT` of a compound arm is ignored under `UNION`
-     when the column is `COLLATE NOCASE`); the `DISTINCT-add` pairs and the pairs that fail
-     on 3.31.1 only are not;
-   - the pairs are not reduced to minimal test cases, not grouped by root cause, and not
-     mapped to SQLite tickets or check-ins;
+     when the column is `COLLATE NOCASE`); the others are not;
+   - the pairs are not reduced, not grouped by root cause, and not mapped to SQLite tickets;
    - "confirmed" means inconsistent on the old version and consistent on 3.53.1; it does
      not establish which of the two old results is wrong;
-   - only the four releases bundled in npm packages could be built (`sqlite.org` is not
-     reachable).
-4. **Value-semantic and HAVING mutators found nothing on SQLite.** All 37 pairs come from
-   set-semantic rules. On SQLite the value rules are restricted (no `VAR_SAMP` /
-   `STDDEV_SAMP`, `ROUND` as the only monotone function) and many queries are skipped by
-   `numeric_probe`; whether the value side can find SQLite bugs at all is open.
-5. **Generator tuning is manual.** The focus mode (more compounds, `DISTINCT`, text and
-   `COLLATE NOCASE` columns) was added after looking at the first violations and found 24
-   of the 37 pairs. There is no feedback-driven or coverage-driven generation.
-6. No other DBMS (MySQL, TiDB, OceanBase, Percona, PolarDB, PostgreSQL) was run.
+   - the second campaign also saw 4 translation mismatches on the old releases only
+     (`CROSS JOIN` versus `INNER JOIN ... ON 1 = 1`), not counted and not analysed;
+   - only the four releases bundled in npm packages could be built.
+4. **Value-semantic and HAVING mutators found nothing on SQLite**; whether the value side
+   can find SQLite bugs at all is open.
+5. **Generator tuning is manual**; there is no feedback- or coverage-driven generation.
+6. No DBMS outside MariaDB and SQLite was run. The runner can now reach any MySQL-protocol
+   server and any SQLite file, and documents how to add another DBMS
+   (`rocq/docs/USAGE.md`, section 9), but no PostgreSQL target exists.
 
 ## D. Environment
 

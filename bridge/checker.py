@@ -170,22 +170,72 @@ def _round_float(v, digits):
     return float('%.*g' % (digits, v))
 
 
+def _sql_text(v):
+    """The SQL text of a date / time value, as a server prints it in a string column."""
+    if isinstance(v, datetime.timedelta):
+        sign, secs = ('-', -v) if v < datetime.timedelta(0) else ('', v)
+        total = int(secs.total_seconds())
+        frac = ('.%06d' % secs.microseconds) if secs.microseconds else ''
+        return '%s%02d:%02d:%02d%s' % (sign, total // 3600, total % 3600 // 60, total % 60, frac)
+    return str(v)
+
+
 def _norm(v, fold, digits):
-    """A hashable key for one value.  Only binary floating-point numbers are rounded
-    (to `digits` significant digits, when given); integers and decimals stay exact."""
+    """A hashable key for one value.
+
+    The two results of a check can type the same column differently (BIGINT vs DOUBLE,
+    TEXT vs BLOB, VARCHAR vs DATE) when a mutation changes how the server derives the
+    column type.  Values are therefore compared by what they denote: bytes that are
+    valid UTF-8 as text, dates and times as their SQL text, numbers by value.  With
+    `digits`, floats and decimals are compared rounded to that many significant digits
+    (last-bit differences between plans); integers are always exact."""
     if isinstance(v, (bytes, bytearray, memoryview)):
-        return ('b', bytes(v))
+        try:
+            v = bytes(v).decode('utf-8')
+        except UnicodeDecodeError:
+            return ('b', bytes(v))
     if isinstance(v, bool):
-        return ('n', int(v))
-    if isinstance(v, float):
-        return ('n', v if digits is None else _round_float(v, digits))
-    if isinstance(v, (int, Decimal)):
+        v = int(v)
+    if isinstance(v, int):
+        return ('n', v)               # exact; an integral float or decimal is equal to it
+    if isinstance(v, (float, Decimal)):
+        if digits is not None:
+            r = _round_float(float(v), digits)
+            return ('n', int(r) if r.is_integer() and abs(r) < 2 ** 53 else r)
         return ('n', v)
     if isinstance(v, (datetime.date, datetime.time, datetime.datetime, datetime.timedelta)):
-        return ('d', str(v))
+        return ('s', _sql_text(v))
     if isinstance(v, str):
         return ('s', fold(v))
     return ('o', v)
+
+
+# Families of MySQL protocol column types: two results can be compared column by column
+# when each column has types of the same family in both (or is NULL in one of them).
+_FAMILIES = {}
+for _codes, _family in (((0, 1, 2, 3, 4, 5, 8, 9, 13, 246), 'number'),
+                        ((15, 247, 248, 249, 250, 251, 252, 253, 254, 7, 10, 11, 12, 14), 'text'),
+                        ((16,), 'bit'), ((245,), 'json'), ((255,), 'geometry'), ((6,), 'null')):
+    for _c in _codes:
+        _FAMILIES[_c] = _family
+
+
+def comparable_types(types_a, types_b, rows_a, rows_b):
+    """None if the results can be compared column by column; otherwise the reason.
+    Types are compared by family (numbers; text, binary strings and dates; bit; JSON;
+    geometry); a column that holds only NULLs in one result fits any type."""
+    if types_a is None or types_b is None:
+        return None
+    if len(types_a) != len(types_b):
+        return 'different number of columns'
+    for i, (a, b) in enumerate(zip(types_a, types_b)):
+        fa, fb = _FAMILIES.get(a, 'other %s' % a), _FAMILIES.get(b, 'other %s' % b)
+        if fa == fb or 'null' in (fa, fb):
+            continue
+        if all(r[i] is None for r in rows_a) or all(r[i] is None for r in rows_b):
+            continue
+        return 'column %d: %s vs %s' % (i, fa, fb)
+    return None
 
 
 def _column_folds(fold, width):

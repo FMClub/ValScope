@@ -56,6 +56,21 @@ All on the table above; the values are the bytes received by the client.
 - An index on `x` does not change the result (the plan is "Select tables optimized away"
   with and without it, and the result is the same with `WHERE g = 1`).
 
+## A wider form: scalar subqueries
+
+Found later by the same tool (rule `DISTINCT-add`, after the type comparison of the checker
+was relaxed to type families). A `BIT` value returned by a scalar subquery in the select
+list is also sent as decimal text, and as the bit value under a derived table:
+
+```sql
+SELECT (SELECT s.c12 FROM t2 AS s ORDER BY s.c12 LIMIT 1) AS v;                    -- '14'
+SELECT * FROM (SELECT (SELECT s.c12 FROM t2 AS s ORDER BY s.c12 LIMIT 1) AS v) AS d; -- 0x0E
+```
+
+(`t2.c12` is `BIT(8)` in the sample database `data/mariadb/`.)  So the encoding depends on
+whether a `BIT` value is produced by an item computed at the top level of the query
+(aggregate, scalar subquery) or read from a derived table, not only on `MIN` / `MAX`.
+
 ## Why it matters
 
 A client that decodes a `BIT` column as raw bytes (as the protocol metadata says) reads the

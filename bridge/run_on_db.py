@@ -27,7 +27,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import sql_bridge  # noqa: E402
 from sql_bridge import mutate_sql, mutate_value, Unsupported  # noqa: E402
-from checker import check_inclusion, check_value, MariaDBColumns, sqlite_fold  # noqa: E402
+from checker import check_inclusion, check_value, comparable_types, MariaDBColumns, sqlite_fold  # noqa: E402
 
 
 ERRORS = collections.Counter()
@@ -50,6 +50,14 @@ class MySQLTarget:
         self.columns = MariaDBColumns(self.conn)
         self.name = 'per result column (server metadata)'
         self.last_collations = []
+        # table -> columns, for printing DISTINCT around a join (sql_bridge._join_columns)
+        with self.conn.cursor() as cur:
+            cur.execute('SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS '
+                        'WHERE TABLE_SCHEMA = %s ORDER BY TABLE_NAME, ORDINAL_POSITION', (args.database,))
+            self.schema = {}
+            for t, c in cur.fetchall():
+                t, c = (x.decode() if isinstance(x, bytes) else x for x in (t, c))
+                self.schema.setdefault(t, []).append('`%s`' % c if not c.isidentifier() else c)
 
     def folds(self, collations_a, collations_b):
         return self.columns.folds(collations_a, collations_b)
@@ -85,6 +93,7 @@ class SQLiteTarget:
         self.fallback = sqlite_fold(schema)
         self.name = 'per result column where SQLite reports it, else %s' % self.fallback.name
         self.last_collations = []
+        self.schema = sqlite_schema(self.db)
 
     def folds(self, collations_a, collations_b):
         return self.db.folds(collations_a, collations_b, self.fallback)
@@ -101,6 +110,14 @@ class SQLiteTarget:
 
 def same_rows(a, b):
     return check_inclusion('Up', a, b) == 'ok' and check_inclusion('Down', a, b) == 'ok'
+
+
+def sqlite_schema(db):
+    """table -> columns of an SQLite database (sqlite_exec.SQLiteLib)."""
+    schema = {}
+    for (t,) in db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"):
+        schema[t] = [r[1] for r in db.query("PRAGMA table_info('%s')" % t.replace("'", "''"))]
+    return schema
 
 
 FLIP_VALUE = {'Le': 'Ge', 'Ge': 'Le', 'TowardOne': 'AwayOne', 'AwayOne': 'TowardOne'}
@@ -134,11 +151,11 @@ def main():
         trs = []
         try:
             if args.value:
-                original, mutants, skipped, probe, having_mutants = mutate_value(sql, dialect=target.dialect,
-                                                                                translation=trs)
+                original, mutants, skipped, probe, having_mutants = mutate_value(
+                    sql, dialect=target.dialect, translation=trs, schema=target.schema)
                 mutants = mutants + having_mutants
             else:
-                original, mutants, skipped = mutate_sql(sql, dialect=target.dialect)
+                original, mutants, skipped = mutate_sql(sql, dialect=target.dialect, schema=target.schema)
         except Unsupported:
             st['unsupported'] += 1
             continue
@@ -203,7 +220,7 @@ def main():
                 direction, rule, _ = mutant
                 if args.value:
                     rule = 'HAVING ' + rule
-                if types != base_types:
+                if comparable_types(base_types, types, base, res):
                     st['type_mismatch_skipped'] += 1
                     continue
                 if args.flip:

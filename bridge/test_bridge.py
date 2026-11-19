@@ -43,6 +43,9 @@ SET_CASES = [
     ("SELECT t.a FROM t WHERE t.c LIKE 'a_c%'", 'Up', 'LIKE-generalise', "t.c LIKE 'a%c%'"),
     ("SELECT t.a FROM t WHERE t.c LIKE 'a_c%'", 'Down', 'LIKE-specialise', "t.c LIKE 'a_c_'"),
     ("SELECT t.a FROM t WHERE t.c LIKE 'it''s%'", 'Up', 'LIKE-generalise', "t.c LIKE 'it_s%'"),
+    # RIGHT JOIN is the LEFT JOIN with the operands swapped; its left input is mutated
+    ("SELECT x.a FROM t AS x RIGHT JOIN u AS y ON x.a = y.a WHERE y.b > 1", 'Up', 'cmp-weaken',
+     'FROM u AS y LEFT JOIN t AS x ON x.a = y.a WHERE y.b >= 1'),
     # NOT LIKE flips the direction (regression: the negation was lost)
     ("SELECT t.a FROM t WHERE t.c NOT LIKE 'a_c%'", 'Up', 'LIKE-specialise', "NOT (t.c LIKE 'a_c_')"),
     # rule 14: regular expressions of the fragment
@@ -142,6 +145,24 @@ report(not any('DISTINCT * FROM t' in m for _, _, m in mutants) and
        any(m.startswith('SELECT DISTINCT LENGTH') for _, _, m in mutants),
        'collation law: DISTINCT-add below LENGTH dropped, above kept')
 
+# DISTINCT around a join, printed with GROUP BY over every column of the joined tables
+# (needs the schema); the printed SQL parses back to the same term
+SCHEMA = {'t': ['a', 'b'], 'u': ['a', 'c']}
+for sql in ["SELECT x.a, y.c FROM t AS x INNER JOIN u AS y ON x.a = y.a WHERE x.b > 1",
+            "SELECT DISTINCT x.a FROM t AS x LEFT JOIN u AS y ON x.a = y.a"]:
+    before = sql_bridge.STATS['roundtrip_rejected']
+    _, mutants, skipped = mutate_sql(sql, schema=SCHEMA)
+    report(skipped == 0 and any('GROUP BY x.a, x.b, y.a, y.c' in m for _, _, m in mutants)
+           and sql_bridge.STATS['roundtrip_rejected'] == before, 'DISTINCT around a join printed: %s' % sql)
+_, _, skipped = mutate_sql("SELECT x.a, y.c FROM t AS x INNER JOIN u AS y ON x.a = y.a")
+report(skipped > 0, 'without the schema DISTINCT around a join stays unprintable')
+
+# a filter that refers to an outer table is lifted out of DISTINCT, so MySQL accepts it
+_, mutants, _ = mutate_sql("SELECT x.a FROM t AS x WHERE x.b IN (SELECT y.c FROM u AS y WHERE y.a = x.a)")
+report(any('FROM (SELECT DISTINCT * FROM u AS y) AS y WHERE y.a = x.a' in m for _, _, m in mutants) and
+       not any('FROM u AS y WHERE y.a = x.a) AS y' in m for _, _, m in mutants),
+       'correlated filter lifted out of a DISTINCT derived table')
+
 # the ON condition of a LEFT JOIN must never be mutated (Counter.v)
 _, mutants, _ = mutate_sql("SELECT t.a FROM t LEFT JOIN u ON t.a = u.a AND u.b > 1 WHERE t.c = 2")
 touched = [m for _, _, m in mutants if 'LEFT JOIN u ON' in m and 'ON (t.a = u.a) AND (u.b > 1)' not in m]
@@ -211,6 +232,8 @@ REJECTED = [
     ("SELECT a FROM t WHERE b > RAND()", 'set', 'non-deterministic function'),
     ("SELECT a FROM t WHERE b > @x", 'set', 'user variable'),
     ("SELECT a FROM t NATURAL JOIN u", 'set', 'NATURAL JOIN'),
+    ("SELECT * FROM t AS x RIGHT JOIN u AS y ON x.a = y.a", 'set', 'RIGHT JOIN with SELECT *'),
+    ("SELECT x.a FROM t AS x JOIN v ON 1 = 1 RIGHT JOIN u AS y ON x.a = y.a", 'set', 'RIGHT JOIN after a join'),
     ("SELECT t.a, SUM(t.b) AS s FROM t GROUP BY t.c", 'value', 'non-key column in a grouped select'),
     ("SELECT DISTINCT t.a AS a FROM t", 'value', 'DISTINCT in a value query'),
     ("SELECT t.a AS a FROM t HAVING t.a > 1", 'value', 'HAVING without aggregation'),
@@ -262,6 +285,17 @@ report(check_inclusion('Up', [('A',)], [('a',)], SQLiteFold('NOCASE')) == 'colla
 report(check_inclusion('Up', [('A',)], [('a ',)], SQLiteFold('NOCASE')) == 'violation', 'NOCASE does not ignore trailing spaces')
 report(check_inclusion('Up', [('\u00c9',)], [('\u00e9',)], SQLiteFold('NOCASE')) == 'violation', 'NOCASE folds ASCII letters only')
 report(check_inclusion('Up', [(0.1 + 0.2,)], [(0.3,)]) == 'ok', 'last-bit float noise is not a violation')
+# values are compared by what they denote when the server types a column differently
+import datetime  # noqa: E402
+from checker import comparable_types  # noqa: E402
+report(check_inclusion('Up', [(b'x', 23)], [('x', Decimal('23'))]) == 'ok', 'BLOB vs TEXT, BIGINT vs DECIMAL')
+report(check_inclusion('Up', [('2024-12-09', '00:00:00')], [(datetime.date(2024, 12, 9), datetime.timedelta(0))]) == 'ok',
+       'VARCHAR vs DATE / TIME')
+report(check_inclusion('Up', [(60.54,)], [(Decimal('60.54'),)]) == 'ok', 'DOUBLE vs DECIMAL (rounded attempt)')
+report(check_inclusion('Up', [(b'\x02',)], [(b'2',)]) == 'violation', 'BIT value vs its decimal text stays different')
+report(comparable_types([3, 252], [5, 253], [(1, 'a')], [(1.0, 'a')]) is None, 'type families: number, text')
+report(comparable_types([3], [253], [(82,)], [('82',)]) is not None, 'type families: number vs text is refused')
+report(comparable_types([253], [3], [(None,)], [(82,)]) is None, 'a column that is NULL only fits any type')
 # one fold per result column: a case difference is a representative choice only in a
 # case-insensitive column
 two = [SQLiteFold('BINARY'), SQLiteFold('NOCASE')]

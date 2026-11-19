@@ -32,6 +32,7 @@ from sqlite_exec import SQLiteLib  # noqa: E402
 import sql_bridge  # noqa: E402
 from sql_bridge import mutate_sql, mutate_value, Unsupported  # noqa: E402
 from checker import check_inclusion, check_value, sqlite_fold  # noqa: E402
+from run_on_db import sqlite_schema  # noqa: E402
 
 ERRORS = collections.Counter()
 
@@ -95,6 +96,7 @@ def main():
             db.fallback = sqlite_fold(build(db, seed, args.focus))
             dbs.append(db)
         latest = dbs.pop()
+        schema = sqlite_schema(latest)
         rng = random.Random(seed)
         queries = [('set', gen_fragment.query(rng)) for _ in range(args.queries)]
         queries += [('value', gen_fragment.value_query(rng)) for _ in range(args.queries)]
@@ -103,11 +105,12 @@ def main():
             numeric_probe = None
             try:
                 if kind == 'set':
-                    original, mutants, skipped = mutate_sql(sql, dialect='sqlite')
+                    original, mutants, skipped = mutate_sql(sql, dialect='sqlite', schema=schema)
                     work = [('set', m) for m in mutants]
                 else:
                     trs = []
-                    original, mutants, skipped, _, having = mutate_value(sql, dialect='sqlite', translation=trs)
+                    original, mutants, skipped, _, having = mutate_value(sql, dialect='sqlite', translation=trs,
+                                                                         schema=schema)
                     work = [('value', m) for m in mutants] + [('having', m) for m in having]
                     numeric_probe = trs[0].numeric_probe()
             except Unsupported:

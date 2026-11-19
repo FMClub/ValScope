@@ -326,8 +326,11 @@ class Translation:
     kind is 'set' (set-semantic term, mutate with direction Up / Down) or
     'value' (value query, one select item is mutated)."""
 
-    def __init__(self, sql, dialect='mysql', kind='set'):
+    def __init__(self, sql, dialect='mysql', kind='set', schema=None):
         self.dialect = dialect
+        # table name (lower case) -> column names; optional, used to print DISTINCT around
+        # a join (see _join_columns)
+        self.schema = {k.lower(): v for k, v in (schema or {}).items()}
         self.kind = kind
         self.tables, self.aliases, self.exprs, self.preds = [], [], [], []
         self.item_alias, self.mono_ids = [], {}
@@ -479,6 +482,17 @@ class Translation:
                 self._restore(snap)
                 inner = self._opaque_query(body)
             return '(Distinct %s)' % inner if distinct else inner
+        group = node.args.get('group')
+        if group is not None and self.schema and not node.args.get('having') and self._group_is_distinct(node):
+            # SELECT [DISTINCT] items FROM j WHERE p GROUP BY <every column of j>: DISTINCT
+            # around the join
+            self._check_clauses(node, allowed=('group', 'distinct'))
+            if isinstance(distinct, exp.Distinct) and distinct.args.get('on'):
+                raise Unsupported('DISTINCT ON')
+            term = self._source(node)
+            items = ' '.join(self._expr(item) for item in node.expressions)
+            term = '(Proj (%s) (Distinct %s))' % (items, term)
+            return '(Distinct %s)' % term if distinct else term
         self._check_clauses(node, allowed=('distinct',))
         for item in node.expressions:
             # an aggregate or a window function depends on the whole input, not on the
@@ -497,13 +511,32 @@ class Translation:
             term = '(Distinct %s)' % term
         return term
 
+    def _group_is_distinct(self, node):
+        """Does the GROUP BY list every column of the FROM tables (all base tables of the
+        schema), with no aggregate or window in the select list?"""
+        if any(n.find(exp.AggFunc) or n.find(exp.Window) for n in node.expressions):
+            return False
+        group = node.args['group']
+        if any(group.args.get(k) for k in ('rollup', 'cube', 'grouping_sets', 'totals', 'all')):
+            return False
+        source = node.args.get('from_') or node.args.get('from')
+        items = [source.this] + [j.this for j in node.args.get('joins') or []]
+        cols = []
+        for item in items:
+            if not isinstance(item, exp.Table) or not isinstance(item.this, exp.Identifier) \
+                    or item.name.lower() not in self.schema:
+                return False
+            cols += ['%s.%s' % (item.alias_or_name, c) for c in self.schema[item.name.lower()]]
+        keys = [_strip_parens(k).sql(dialect=self.dialect).lower() for k in group.expressions]
+        return len(node.args.get('joins') or []) > 0 and sorted(keys) == sorted(c.lower() for c in cols)
+
     def _source(self, node):
         """FROM, JOINs and WHERE of a SELECT."""
         source = node.args.get('from_') or node.args.get('from')
         if source is None:
             raise Unsupported('SELECT without FROM')
-        term, _ = self._table(source.this)
-        for join in node.args.get('joins') or []:
+        term, first_width = self._table(source.this)
+        for k, join in enumerate(node.args.get('joins') or []):
             if join.args.get('using') or join.args.get('method'):
                 raise Unsupported('USING / NATURAL join')
             side = str(join.args.get('side') or '').upper()
@@ -512,6 +545,16 @@ class Translation:
             on = self._pred(join.args['on']) if join.args.get('on') is not None else 'True'
             if side == 'LEFT':
                 term = '(Left %d %s %s %s)' % (width, on, term, right)
+            elif side == 'RIGHT' and kind in ('', 'OUTER'):
+                # a RIGHT JOIN b ON p returns the rows of b LEFT JOIN a ON p, with the columns
+                # in the other order: fine when the select list names its columns, and when
+                # a is a single FROM item (later joins would need nested parentheses)
+                if k > 0:
+                    raise Unsupported('RIGHT JOIN after another join')
+                if any(isinstance(i, exp.Star) or (isinstance(i, exp.Column) and isinstance(i.this, exp.Star))
+                       for i in node.expressions):
+                    raise Unsupported('RIGHT JOIN with SELECT *')
+                term = '(Left %d %s %s %s)' % (first_width, on, right, term)
             elif side == '' and kind in ('', 'INNER', 'CROSS'):
                 term = '(Inner %s %s %s)' % (on, term, right)
             else:
@@ -736,8 +779,93 @@ class Translation:
         return '(ACol %s)' % self._expr(node)
 
     # ------------------------------------------------------------ term -> SQL
+    # ------------------------------------------------ DISTINCT around a join
+    def _join_columns(self, j):
+        """All columns of the joined base tables of j, qualified by their aliases, or None
+        if a table is not a base table of the known schema."""
+        if not isinstance(j, list) or not j:
+            return None
+        if j[0] == 'T':
+            tree = _cached_parse(self._law_cache, self.tables[int(j[1])], self.dialect, 'table')
+            if tree is None:
+                return None
+            node = (tree.args.get('from_') or tree.args.get('from')).this
+            if not isinstance(node, exp.Table) or not isinstance(node.this, exp.Identifier):
+                return None
+            cols = self.schema.get(node.name.lower())
+            return ['%s.%s' % (node.alias_or_name, c) for c in cols] if cols else None
+        if j[0] == 'Inner':
+            a, b = self._join_columns(j[2]), self._join_columns(j[3])
+        elif j[0] == 'Left':
+            a, b = self._join_columns(j[3]), self._join_columns(j[4])
+        else:
+            return None
+        return a + b if a is not None and b is not None else None
+
+    # ------------------------------------------------ lifting correlated filters
+    def _qualifiers(self, x):
+        """Table qualifiers used by the atoms of x, minus the aliases x defines itself."""
+        used, defined = set(), set()
+
+        def walk(t):
+            if not isinstance(t, list) or not t:
+                return
+            if isinstance(t[0], list):
+                for y in t:
+                    walk(y)
+                return
+            tag = t[0]
+            if tag in ('EAtom', 'Atom'):
+                text = (self.exprs if tag == 'EAtom' else self.preds)[int(t[1])]
+                tree = _cached_parse(self._law_cache, text, self.dialect)
+                if tree is None:
+                    used.add(None)
+                    return
+                inner = {n.alias_or_name for n in tree.find_all(exp.Table, exp.Subquery)}
+                defined.update(inner)
+                used.update(c.table for c in tree.find_all(exp.Column) if c.table)
+            elif tag == 'T':
+                defined.add(self.aliases[int(t[1])])
+            elif tag == 'Named':
+                defined.add(self.named[int(t[1])])
+            for y in t[1:]:
+                walk(y)
+        walk(x)
+        return used - defined
+
+    def lift(self, t):
+        """Distinct(Where p X), X a table, as the input of a projection or a filter, with p
+        referring to tables outside X (a correlated subquery): rewritten to
+        Where p (Distinct X), and merged with an enclosing filter.  Same rows modulo the
+        collation (Approx.compat: p gives equal truth values on equivalent rows); SQL can
+        print it, while a derived table cannot see the outer tables."""
+        if not isinstance(t, list) or not t or isinstance(t[0], list):
+            return [self.lift(y) for y in t] if isinstance(t, list) else t
+        t = [t[0]] + [self.lift(y) for y in t[1:]]
+        if t[0] == 'Where' and isinstance(t[2], list) and t[2][0] == 'Distinct':
+            # a filter above DISTINCT around a join is moved below it (same rows modulo the
+            # collation, by Approx.compat), so that it is printed as one WHERE ... GROUP BY
+            inner = t[2][1]
+            if isinstance(inner, list) and inner[0] == 'Where' and inner[2][0] in ('Inner', 'Left'):
+                return ['Distinct', ['Where', ['And', inner[1], t[1]], inner[2]]]
+            if isinstance(inner, list) and inner[0] in ('Inner', 'Left'):
+                return ['Distinct', ['Where', t[1], inner]]
+        if t[0] in ('Proj', 'Where'):
+            x = t[2]
+            if isinstance(x, list) and x[0] == 'Distinct' and isinstance(x[1], list) and x[1][0] == 'Where' \
+                    and isinstance(x[1][2], list) and x[1][2][0] in ('T', 'Named'):
+                p, inner = x[1][1], x[1][2]
+                alias = (self.aliases if inner[0] == 'T' else self.named)[int(inner[1])]
+                if self._qualifiers(p) - {alias}:
+                    lifted = ['Where', p, ['Distinct', inner]]
+                    if t[0] == 'Where':
+                        return ['Where', ['And', t[1], p], ['Distinct', inner]]
+                    return ['Proj', t[1], lifted]
+        return t
+
     def to_sql(self, term):
         tree = parse_sexp(term) if isinstance(term, str) else term
+        tree = self.lift(tree)
         if tree[0] in ('VProj', 'VGroup', 'VGlobal'):
             return self._v_sql(tree)
         return self._q_sql(tree)
@@ -933,6 +1061,18 @@ class Translation:
             # select-list atoms keep their exact text (it may end in "AS alias")
             items, q = ', '.join(self.exprs[int(e[1])] if e[0] == 'EAtom' else self._e_sql(e)
                                  for e in q[1]), q[2]
+            if q[0] == 'Distinct':
+                # DISTINCT around a join: GROUP BY every column of the joined tables keeps
+                # one row per distinct joined row, which is what the projection then reads
+                inner, pred = q[1], None
+                if inner[0] == 'Where':
+                    pred, inner = inner[1], inner[2]
+                cols = self._join_columns(inner) if inner[0] in ('Inner', 'Left') else None
+                if cols:
+                    sql = 'SELECT %s%s FROM %s' % ('DISTINCT ' if distinct else '', items, self._from_sql(inner))
+                    if pred is not None:
+                        sql += ' WHERE ' + self._p_sql(pred)
+                    return sql + ' GROUP BY ' + ', '.join(cols)
         if q[0] == 'Where':
             where, q = self._p_sql(q[1]), q[2]
         sql = 'SELECT %s%s FROM %s' % ('DISTINCT ' if distinct else '', items, self._from_sql(q))
@@ -1100,24 +1240,25 @@ def canonical(tr, t):
     return (tag,) + tuple(canonical(tr, x) for x in t[1:])
 
 
-def _roundtrip_ok(tr, term, sql, kind):
+def _roundtrip_ok(tr, term, sql, kind):  # noqa: C901
     """Does the SQL text `sql`, printed from `term`, parse back to the same term?"""
-    tree = parse_sexp(term) if isinstance(term, str) else term
+    tree = tr.lift(parse_sexp(term) if isinstance(term, str) else term)
     if tree[0] == 'QAtom' and tr.dialect != 'sqlite':
         # the whole mutant is one opaque query (e.g. INTERSECT->operand): it is printed
         # as its own text
         return _parse_key(sql, tr.dialect) == canonical(tr, tree)[1]
     try:
-        back = Translation(sql, tr.dialect, kind=kind)
+        back = Translation(sql, tr.dialect, kind=kind, schema=tr.schema)
     except Exception:
         return False
-    return canonical(tr, tree) == canonical(back, parse_sexp(back.term))
+    return canonical(tr, tree) == canonical(back, back.lift(parse_sexp(back.term)))
 
 
 def _validated(tr, term, kind):
     """The SQL of `term`, or None if it does not survive the round trip or is outside
     the collation law."""
-    if outside_collation_law(tr, term):
+    if outside_collation_law(tr, term) or \
+            outside_collation_law(tr, tr.lift(parse_sexp(term) if isinstance(term, str) else term)):
         STATS['outside_model'] += 1
         return None
     sql = tr.to_sql(term)
@@ -1127,24 +1268,25 @@ def _validated(tr, term, kind):
     return None
 
 
-def mutate_sql(sql, cli=DEFAULT_CLI, dialect='mysql'):
+def mutate_sql(sql, cli=DEFAULT_CLI, dialect='mysql', schema=None):
     """Set-semantic mutation.
 
     Returns (reprinted_original, [(direction, rule, mutant_sql), ...], skipped).
     direction is 'Up' (the mutant returns a super-bag) or 'Down' (a sub-bag).
     `skipped` counts mutants the bridge cannot print as SQL."""
-    tr = Translation(sql, dialect, kind='set')
+    tr = Translation(sql, dialect, kind='set', schema=schema)
     original = _validated(tr, tr.term, 'set')
     if original is None:
         raise Unsupported('the re-printed query does not parse back to its term')
-    mutants, skipped = [], 0
+    mutants, skipped, seen = [], 0, set()
     for direction, rule, term in _run_cli(tr.term, cli):
         try:
             text = _validated(tr, term, 'set')
         except Unsupported:
             skipped += 1
             continue
-        if text is not None:
+        if text is not None and (direction, text) not in seen:
+            seen.add((direction, text))        # two rules can give the same SQL
             mutants.append((direction, rule, text))
     return original, mutants, skipped
 
@@ -1163,12 +1305,12 @@ def mutate_value_sql(sql, cli=DEFAULT_CLI, dialect='mysql'):
     return mutate_value(sql, cli, dialect)[:3]
 
 
-def mutate_value(sql, cli=DEFAULT_CLI, dialect='mysql', translation=None):
+def mutate_value(sql, cli=DEFAULT_CLI, dialect='mysql', translation=None, schema=None):
     """Like mutate_value_sql, with two more components: the result of
     Translation.type_probe, and the mutants of the HAVING predicate as
     (direction, rule, mutant_sql).  For those, 'Up' means the mutant returns the
     same rows and possibly more, 'Down' a subset."""
-    tr = Translation(sql, dialect, kind='value')
+    tr = Translation(sql, dialect, kind='value', schema=schema)
     if translation is not None:
         translation.append(tr)
     original = _validated(tr, tr.term, 'value')

@@ -455,8 +455,11 @@ bridge/build_old_sqlite.sh /tmp/sqlite-libs
 ```
 
 It builds `libsqlite3-3260000.so` (3.26.0), `-3300100` (3.30.1), `-3310100` (3.31.1) and
-`-3340000` (3.34.0). Any other `libsqlite3.so` works too; `python` stands for the SQLite
-that Python ships.
+`-3340000` (3.34.0), with `SQLITE_ENABLE_COLUMN_METADATA`: with it, SQLite reports for
+every result column the table column it comes from, and the checker uses that column's
+declared collation (section 10.2). Libraries built earlier without it are rebuilt. Any other
+`libsqlite3.so` works too (without the metadata API the checker falls back to the coarsest
+collation of the database); `python` stands for the SQLite that Python ships (no metadata).
 
 ### 8.2 Run the campaign
 
@@ -501,7 +504,13 @@ class PostgresTarget:
         self.conn = psycopg2.connect(host=args.host, port=args.port, user=args.user,
                                      password=args.password, dbname=args.database)
         self.conn.autocommit = True
-        self.fold = ExactFold()   # the equality of the text columns (checker.py)
+        self.name = 'exact'           # printed at the start of a run
+        self.last_collations = []     # collation of each column of the last result
+
+    def folds(self, collations_a, collations_b):
+        """The equality of values when comparing two results (checker.py): one fold
+        for all columns, or one per column."""
+        return ExactFold()
 
     def run(self, sql):
         """(rows, column types or None), or (None, None) when the query fails."""
@@ -520,10 +529,12 @@ things must be checked for a new DBMS:
    tested with `mysql` and `sqlite`; for another dialect, run the tests of
    `bridge/test_bridge.py` with that dialect and check that translation validation
    (section 6.2) passes on real queries.
-2. **The equality of text values** (`fold`). If the database compares strings with a
-   case- or accent-insensitive collation, write a fold that maps a string to its collation
-   key (see `MariaDBFold`, which asks the server). With `ExactFold`, a correct result that
-   only picks a different representative of equal strings would be reported as a violation.
+2. **The equality of text values** (`folds`). If the database compares strings with a
+   case- or accent-insensitive collation, return folds that map a string to its collation
+   key, ideally one per result column from the driver's column metadata (see
+   `MariaDBColumns` and `MariaDBFold`, which ask the server). With `ExactFold`, a correct
+   result that only picks a different representative of equal strings would be reported as
+   a violation.
 3. **The monotone functions** used by rule 26 (`MONO_FUNCS` in `bridge/sql_bridge.py`) must
    be non-decreasing and must not turn a number into NULL in that DBMS.
 
@@ -542,6 +553,8 @@ At the end of a run, `run_on_db.py` prints a dictionary of counters:
 | `TRANSLATION_MISMATCH` | the query as written and as re-printed returned different rows |
 | `supported` | queries that passed translation validation and were mutated |
 | `mutants_not_printable` | mutants the bridge cannot print as SQL (dropped) |
+| `mutants_roundtrip_rejected` | mutants whose printed SQL does not parse back to the term the verified engine produced (dropped; should be 0, anything else is a bridge bug) |
+| `mutants_outside_model` | mutants that apply a collation-sensitive operation (`LENGTH`, `LIKE`, ...) to the output of a de-duplication; their result is not determined by SQL (dropped) |
 | `mutant_failed` | mutants the database rejected (dropped) |
 | `type_mismatch_skipped` | set mutants whose result column types differ from the original's |
 | `approximate_group_key` | value queries grouped by FLOAT / DOUBLE (outside the model) |
@@ -561,16 +574,24 @@ Then `ok checks per rule` and the most frequent database errors.
   collation holds `'a'` and `'A'`; `SELECT DISTINCT` must return one of them, and SQL does
   not say which. The original may return `'a'` and the mutant `'A'`. The theorem promises
   inclusion up to the database's equality, so this is not a violation. The equality is
-  computed exactly: for MariaDB / MySQL by the server (`WEIGHT_STRING` under the column
-  collation; trailing spaces are ignored for PAD SPACE collations), for SQLite from the
-  declared collations (`NOCASE` folds only the 26 ASCII letters, `RTRIM` ignores trailing
-  spaces). When a database uses several collations, the coarsest one is applied to every
-  column (the result does not say which column came from where). That choice can miss a real
-  difference in case on a binary column; it never reports a false one.
+  computed exactly, **per result column**:
+  - MariaDB / MySQL: the connection sets `character_set_results = NULL`, so the server
+    reports the real collation of every result column (also of expressions, derived tables
+    and set operations); strings are compared by `WEIGHT_STRING` under that collation, with
+    trailing spaces removed for PAD SPACE collations;
+  - SQLite: the column metadata API gives the table column a result column comes from, and
+    its declared collation (`NOCASE` folds only the 26 ASCII letters, `RTRIM` ignores
+    trailing spaces). For an expression column, or with a library without the API, the
+    coarsest collation of the database is used; that can miss a real case difference in
+    such a column, but never reports a false one.
 - `violation` (set rules): the mutant misses a row the relation requires (`Up`), or
   returns a row the original does not have (`Down`), even modulo the collation.
 - Value rules: `row count a vs b`, `other columns changed`, `NULL-ness changed`, or
-  `<relation> violated: x vs y`.
+  `<relation> violated: ...`. The theorem says that the rows of the two results can be put
+  in one-to-one correspondence so that corresponding rows agree outside the mutated column
+  and satisfy the relation in it. The checker searches for such a correspondence
+  (bipartite matching within each group of rows that agree outside the column) and reports
+  a violation only when none exists.
 
 ### 10.3 Triage a violation
 

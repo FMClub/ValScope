@@ -412,14 +412,29 @@ in which the term means what the SQL text means.
 - **Translation validation** (`run_on_db.py`, `campaign_sqlite.py`): the query as written
   and the query re-printed from its term must return the same rows, otherwise the query is
   not used and the mismatch is reported.
+- **Round-trip validation of every printed query** (`sql_bridge.py`): the original and every
+  mutant are printed, parsed back into a term and compared with the term the verified
+  engine produced (atoms are compared as syntax trees, parentheses ignored). A mutant that
+  does not survive is dropped and counted (`mutants_roundtrip_rejected`). Tests inject
+  printer bugs (lost parentheses, lost `NOT`) and check that they are caught.
+- **The collation law** (`outside_collation_law`): the theorems need every operation to
+  respect the collation equivalence. An operation that tells equivalent strings apart
+  (`LENGTH`, `HEX`, `CONCAT`, `LIKE`, `BINARY` casts, ...; division in SQLite, where `1`
+  and `1.0` are equal) applied to the output of a de-duplication (`DISTINCT`, `UNION`,
+  `INTERSECT`, `EXCEPT`; `GROUP BY`, `MIN`, `MAX` inside opaque parts) makes the result
+  depend on which representative was kept. Such queries are rejected and such mutants
+  dropped (`mutants_outside_model`).
+- **Determined `LIMIT` only:** a `LIMIT` in a subquery is accepted when every output column
+  is an `ORDER BY` key (tied rows are then identical) or the input is a single row.
 - **Type guards:** a set-semantic check is skipped when the column types of the two results
   differ; a value check is `incomparable` when the mutated column is not numeric; value
   queries with FLOAT / DOUBLE grouping keys (MariaDB) or text inputs (SQLite) are skipped;
   single-precision inputs are compared with a looser tolerance (1e-4 relative instead of
   1e-9); integers and decimals are compared exactly.
-- **Collation:** inclusion is checked modulo the database's own string equality, computed
-  exactly (`WEIGHT_STRING` on MariaDB / MySQL; `NOCASE` / `RTRIM` on SQLite). A result
-  that is included only modulo that equality is reported as `collation`, not as a violation.
+- **Collation:** inclusion is checked modulo the database's own string equality, per
+  result column: MariaDB / MySQL report each column's collation (`WEIGHT_STRING` gives the
+  key), SQLite reports the source column and its declared collation. A result that is
+  included only modulo that equality is reported as `collation`, not as a violation.
 - **Failing mutants** are skipped, never treated as empty results; a lost server connection
   stops the run.
 
@@ -450,21 +465,23 @@ root-cause notes and how to reproduce: [`results/sqlite-campaign.md`](results/sq
   sqlglot, Rocq's extraction, and the checker. The bridge is responsible for the algebra
   term meaning the same as the SQL text; it rejects what it does not model instead of
   approximating.
-- The world's laws are assumptions about the DBMS. Known places where a real DBMS breaks
-  them: functions that tell apart strings the collation treats as equal (`LENGTH`, `HEX`,
-  `LIKE` against trailing spaces under PAD SPACE, `BINARY` casts); approximate (FLOAT /
-  DOUBLE) arithmetic, which is not exact and not associative; errors and overflow (the
-  model has none); plan-dependent behaviour such as grouping by DOUBLE values.
+- The world's laws are assumptions about the DBMS. Functions that tell apart strings the
+  collation treats as equal are handled by the collation-law check above; its list of
+  such functions is maintained by hand and may be incomplete. Other known gaps:
+  approximate (FLOAT / DOUBLE) arithmetic, which is not exact and not associative; errors
+  and overflow (the model has none); plan-dependent behaviour such as grouping by DOUBLE
+  values.
 - `LIKE` and `REGEXP` are modelled as character-by-character matching with the world's
   character comparison. Collations with contractions or expansions (`'ss' = 'ß'` in some
   Unicode collations) do not compare character by character.
 - The list of monotone functions (`EXP`, `FLOOR`, `CEIL`, `ROUND`, `ATAN`, `SIGN`; `ROUND`
   only on SQLite) is an assumption of the bridge. In the model a monotone function is any
   non-decreasing function on the reals.
-- The checker matches rows of a value check by sorting the mutated column within groups of
-  rows that agree outside it. This is justified because the rule functions are
-  non-decreasing and keep the side of the pivot (0 or 1); it is not proved.
-- When a database uses several collations, the checker applies the coarsest one to every
-  result column; a real difference only in case on a binary column is then missed.
+- The value checker decides whether a one-to-one correspondence between the result rows
+  exists that satisfies the relation (bipartite matching); this is exactly the statement of
+  `vmutate_sound` for results returned in any order. Floats are compared with a relative
+  tolerance chosen by hand.
+- SQLite does not report the collation of an expression column; for those the checker uses
+  the coarsest collation of the database and can miss a case difference.
 - After extraction the proofs are erased, so OCaml code can build an unproved rule record.
   Plug-ins should be written and registered in Rocq.

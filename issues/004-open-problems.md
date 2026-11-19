@@ -66,19 +66,25 @@ fixes of PR #1 are merged; the design problems below are still open.
 3. About 5% to 10% of the set-semantic mutants cannot be printed (`DISTINCT` around a join
    below a projection). `DISTINCT` added around the table of a correlated subquery is
    printed as a derived table, which MariaDB rejects; those mutants are lost.
-4. The Python generator emits `LIMIT` without `ORDER BY` inside subqueries (124 of 870
+4. `LIMIT` in a subquery is accepted only when its result is determined (every output
+   column ordered, or one input row). The Python generator emits `LIMIT` without `ORDER BY`
+   inside subqueries (106 of 870
    sample queries). Their result is not determined, so the Rocq version rejects them; the
    Python tool mutates them, which can produce false alarms there.
 
 ### B2. Gap between the model and real DBMSs
 
-1. **Laws of the world.** The theorems assume that every operation respects the collation
-   equivalence. Real functions break this (`LENGTH`, `HEX`, `BINARY` casts, `LIKE` against
-   trailing spaces under PAD SPACE). For such queries SQL does not determine the result;
-   the tool does not detect them and could report a difference as a violation.
-2. **Several collations in one database.** The result of a query does not say which
-   collation each column has; the checker applies the coarsest one to every column, so a
-   real case difference on a binary column can be missed.
+1. **Laws of the world (partly solved).** The theorems assume that every operation respects
+   the collation equivalence. Since the third round the bridge rejects (or drops mutants
+   with) operations that break it above a de-duplication (`outside_collation_law`). Open:
+   the list of such operations is maintained by hand and may be incomplete; the check is
+   static, so it also rejects queries whose data cannot actually hit the problem (2 of the
+   42 SQLite pairs fall under it, and their data was checked by hand: the affected
+   columns hold integers only).
+2. **Several collations in one database (mostly solved).** The checker now uses the
+   collation of each result column: reported by MariaDB / MySQL, and by SQLite through its
+   column metadata for columns that come from a table. Open: SQLite expression columns
+   and Python's built-in SQLite (no metadata API) fall back to the coarsest collation.
 3. **Character-by-character LIKE / REGEXP.** Collations with contractions or expansions
    (`'ss' = 'ß'`) are not covered.
 4. **Approximate numbers.** FLOAT / DOUBLE arithmetic is not exact; grouping keys of these
@@ -91,11 +97,12 @@ fixes of PR #1 are merged; the design problems below are still open.
 ### B3. Trusted, unverified parts
 
 1. The SQL bridge (`bridge/sql_bridge.py`), the command-line parser and printer
-   (`cli/main.ml`), sqlglot and Rocq's extraction. Translation validation checks the
-   original query, not the mutants. In this round it caught one bridge bug (`NOT LIKE`
-   printed as `LIKE`, through sqlglot's `negate` flag).
-2. The checker: row matching by sorting within groups is justified informally; tolerances
-   are chosen by hand.
+   (`cli/main.ml`), sqlglot and Rocq's extraction. Since the third round every printed
+   mutant is round-trip validated (parsed back and compared with the engine's term), so a
+   printing error is caught; the parser and sqlglot are still trusted (the round trip uses
+   them on both sides).
+2. The checker: value checks now search for a one-to-one correspondence (bipartite
+   matching), which is what the theorem states; tolerances for floats are chosen by hand.
 3. The list of monotone SQL functions is an assumption of the bridge.
 4. After extraction the proofs are erased; OCaml code could build an unproved rule record.
 5. Only the `mysql` and `sqlite` dialects of sqlglot were tested.

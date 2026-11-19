@@ -113,6 +113,18 @@ first campaign used a fixed approximation instead (case folding and trailing spa
 column). All 37 pairs of the first campaign were re-checked with the exact equality and all
 are still confirmed.
 
+## Re-checks after the third round
+
+The checker and bridge were tightened again (round-trip validation of every mutant, the
+collation-law check, determined `LIMIT` only, per-column collations from SQLite's column
+metadata, exact correspondence search in value checks). The libraries were rebuilt with
+`SQLITE_ENABLE_COLUMN_METADATA`. All 42 pairs were re-confirmed with these changes.
+
+Two pairs (#37, seed 515, and #41, seed 2022) apply `GLOB` or `||` to a column of a
+`SELECT DISTINCT` derived table, which the collation-law check now rejects statically. In
+both databases the affected column (`t2.c3`, `t3.c3`) holds integers only, so the
+representative kept by `DISTINCT` cannot change the result; the two pairs remain valid.
+
 ## The second campaign
 
 Run with the extended model and bridge: opaque expressions as `EAtom`, analysed `LIKE`,

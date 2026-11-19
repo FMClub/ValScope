@@ -126,7 +126,8 @@ class MariaDBColumns:
         self.conn, self.cache = conn, {}
         with conn.cursor() as cur:
             cur.execute('SET character_set_results = NULL')
-            cur.execute('SELECT ID, COLLATION_NAME FROM information_schema.COLLATIONS')
+            # (MariaDB 10.10+ also lists collation aliases without an ID)
+            cur.execute('SELECT ID, COLLATION_NAME FROM information_schema.COLLATIONS WHERE ID IS NOT NULL')
             self.names = {int(i): n for i, n in cur.fetchall()}
 
     def name(self, cid):

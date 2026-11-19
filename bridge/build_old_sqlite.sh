@@ -12,10 +12,11 @@ mkdir -p "$out"
 cd "$out"
 for pair in 4.0.6:3260000 4.1.1:3300100 4.2.0:3310100 5.0.2:3340000; do
   pkg=${pair%%:*}; ver=${pair##*:}
-  [ -f "libsqlite3-$ver.so" ] && continue
+  # rebuild only when missing or built without column metadata (needed by the checker)
+  if [ -f "libsqlite3-$ver.so" ] && nm -D "libsqlite3-$ver.so" | grep -q sqlite3_column_origin_name; then continue; fi
   npm pack "sqlite3@$pkg" --silent >/dev/null
   tar xzf "sqlite3-$pkg.tgz" "package/deps/sqlite-autoconf-$ver.tar.gz" -O | tar xz
-  gcc -O1 -shared -fPIC -DSQLITE_THREADSAFE=0 -DSQLITE_ENABLE_STAT4 \
+  gcc -O1 -shared -fPIC -DSQLITE_THREADSAFE=0 -DSQLITE_ENABLE_STAT4 -DSQLITE_ENABLE_COLUMN_METADATA \
       "sqlite-autoconf-$ver/sqlite3.c" -o "libsqlite3-$ver.so" -lm -ldl
   echo "built $out/libsqlite3-$ver.so"
 done

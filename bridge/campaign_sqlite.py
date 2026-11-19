@@ -29,6 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gen_fragment  # noqa: E402
 from gen_sqlite_db import build  # noqa: E402
 from sqlite_exec import SQLiteLib  # noqa: E402
+import sql_bridge  # noqa: E402
 from sql_bridge import mutate_sql, mutate_value, Unsupported  # noqa: E402
 from checker import check_inclusion, check_value, sqlite_fold  # noqa: E402
 
@@ -89,7 +90,9 @@ def main():
             if os.path.exists(path):
                 os.remove(path)
             db = SQLiteLib(lib, path)
-            fold = sqlite_fold(build(db, seed, args.focus))
+            # the coarsest collation of this database, for result columns whose
+            # collation SQLite does not report (expressions, or a library without metadata)
+            db.fallback = sqlite_fold(build(db, seed, args.focus))
             dbs.append(db)
         latest = dbs.pop()
         rng = random.Random(seed)
@@ -123,6 +126,7 @@ def main():
                         st['non_numeric_input'] += 1
                         continue
                 written, base = run(db, sql), run(db, original)
+                base_collations = db.last_collations
                 if written is None or base is None:
                     st['original_failed'] += 1
                     continue
@@ -146,6 +150,7 @@ def main():
                             m = (flipped[m[0]],) + tuple(m[1:])
                         else:
                             m = ('Down' if m[0] == 'Up' else 'Up',) + tuple(m[1:])
+                    fold = db.folds(base_collations, db.last_collations, db.fallback)
                     verdict, label = verdict_for(mk, m, base, res, fold)
                     rule = ('HAVING ' if mk == 'having' else '') + m[1]
                     if verdict == 'ok':
@@ -159,8 +164,11 @@ def main():
                     if args.flip:
                         continue
                     # re-check on the latest SQLite
-                    lb, lr = run(latest, original), run(latest, mutant[-1])
-                    on_latest = None if lb is None or lr is None else verdict_for(mk, m, lb, lr, fold)[0]
+                    lb = run(latest, original)
+                    lb_collations = latest.last_collations
+                    lr = run(latest, mutant[-1])
+                    on_latest = None if lb is None or lr is None else verdict_for(
+                        mk, m, lb, lr, latest.folds(lb_collations, latest.last_collations, latest.fallback))[0]
                     fixed = on_latest in ('ok', 'collation')     # the relation holds on the latest
                     st['violations_fixed_in_latest' if fixed else 'violations_also_in_latest'] += 1
                     rec = {'version': db.version, 'seed': seed, 'focus': args.focus, 'kind': mk,
@@ -173,6 +181,9 @@ def main():
                         out.write(json.dumps(rec) + '\n')
                         out.flush()
         print('-- seed %d done: %s' % (seed, dict(st)), file=sys.stderr)
+    # mutants whose printed SQL did not parse back to the term of the verified engine
+    if sql_bridge.STATS['roundtrip_rejected']:
+        st['mutants_roundtrip_rejected'] = sql_bridge.STATS['roundtrip_rejected']
     print(dict(st))
     print('ok checks per rule:', dict(by_rule))
     if ERRORS:

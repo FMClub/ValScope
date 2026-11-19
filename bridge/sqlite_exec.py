@@ -16,9 +16,11 @@ class SQLiteLib:
     """One SQLite version loaded from a shared library, with one open database."""
 
     def __init__(self, lib_path, db_path, step_limit=20_000_000):
+        self.last_collations = []
         if lib_path is None:
             self._py = sqlite3.connect(db_path, isolation_level=None)
             self.version = sqlite3.sqlite_version
+            self.metadata = False
             return
         self._py = None
         lib = ctypes.CDLL(lib_path)
@@ -46,6 +48,18 @@ class SQLiteLib:
         lib.sqlite3_exec.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_void_p,
                                      ctypes.c_void_p, ctypes.POINTER(ctypes.c_char_p)]
         lib.sqlite3_progress_handler.argtypes = [ctypes.c_void_p, ctypes.c_int, PROGRESS, ctypes.c_void_p]
+        # column metadata (only in libraries built with SQLITE_ENABLE_COLUMN_METADATA):
+        # where a result column comes from, and that column's declared collation
+        self.metadata = hasattr(lib, 'sqlite3_column_origin_name')
+        if self.metadata:
+            for name in ('sqlite3_column_database_name', 'sqlite3_column_table_name',
+                         'sqlite3_column_origin_name'):
+                getattr(lib, name).argtypes = [ctypes.c_void_p, ctypes.c_int]
+                getattr(lib, name).restype = ctypes.c_char_p
+            pp = ctypes.POINTER(ctypes.c_char_p)
+            ip = ctypes.POINTER(ctypes.c_int)
+            lib.sqlite3_table_column_metadata.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p,
+                                                          ctypes.c_char_p, pp, pp, ip, ip, ip]
         self.db = ctypes.c_void_p()
         if lib.sqlite3_open(db_path.encode(), ctypes.byref(self.db)) != 0:
             raise RuntimeError('cannot open %s' % db_path)
@@ -67,16 +81,51 @@ class SQLiteLib:
         if self.lib.sqlite3_exec(self.db, sql.encode(), None, None, ctypes.byref(err)) != 0:
             raise RuntimeError(err.value.decode() if err.value else 'exec failed')
 
+    def _collation(self, stmt, i):
+        """The declared collation of the table column that result column i comes from
+        ('BINARY', 'NOCASE', 'RTRIM', ...), or None when it is an expression or unknown."""
+        if not self.metadata:
+            return None
+        lib = self.lib
+        origin = lib.sqlite3_column_origin_name(stmt, i)
+        if origin is None:
+            return None
+        dtype, coll = ctypes.c_char_p(), ctypes.c_char_p()
+        a, b, c = ctypes.c_int(), ctypes.c_int(), ctypes.c_int()
+        rc = lib.sqlite3_table_column_metadata(self.db, lib.sqlite3_column_database_name(stmt, i),
+                                               lib.sqlite3_column_table_name(stmt, i), origin,
+                                               ctypes.byref(dtype), ctypes.byref(coll),
+                                               ctypes.byref(a), ctypes.byref(b), ctypes.byref(c))
+        return coll.value.decode().upper() if rc == 0 and coll.value else None
+
+    def folds(self, collations_a, collations_b, fallback):
+        """Folds (checker.py) for comparing results whose columns have these collations;
+        `fallback` (the coarsest collation of the database) where one is unknown."""
+        from checker import SQLiteFold
+        out = []
+        for a, b in zip(collations_a or [], collations_b or []):
+            if a is None or b is None or a not in ('BINARY', 'NOCASE', 'RTRIM') or \
+                    b not in ('BINARY', 'NOCASE', 'RTRIM'):
+                out.append(fallback)
+            else:
+                parts = sorted({a, b} - {'BINARY'})
+                out.append(SQLiteFold('+'.join(parts) or 'BINARY'))
+        return out or fallback
+
     def query(self, sql):
         """Rows of a SELECT as a list of tuples; raises on error or step limit."""
         if self._py is not None:
-            return [tuple(r) for r in self._py.execute(sql).fetchall()]
+            cur = self._py.execute(sql)
+            rows = [tuple(r) for r in cur.fetchall()]
+            self.last_collations = [None] * len(cur.description or [])
+            return rows
         lib, stmt, tail = self.lib, ctypes.c_void_p(), ctypes.c_char_p()
         self._budget[0] = 0
         if lib.sqlite3_prepare_v2(self.db, sql.encode(), -1, ctypes.byref(stmt), ctypes.byref(tail)) != 0:
             raise RuntimeError(lib.sqlite3_errmsg(self.db).decode())
         try:
             n = lib.sqlite3_column_count(stmt)
+            self.last_collations = [self._collation(stmt, i) for i in range(n)]
             rows = []
             while True:
                 rc = lib.sqlite3_step(stmt)

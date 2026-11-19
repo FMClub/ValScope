@@ -25,8 +25,9 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import sql_bridge  # noqa: E402
 from sql_bridge import mutate_sql, mutate_value, Unsupported  # noqa: E402
-from checker import check_inclusion, check_value, mariadb_fold, sqlite_fold  # noqa: E402
+from checker import check_inclusion, check_value, MariaDBColumns, sqlite_fold  # noqa: E402
 
 
 ERRORS = collections.Counter()
@@ -45,14 +46,23 @@ class MySQLTarget:
         self.pymysql = pymysql
         self.conn = pymysql.connect(host=args.host, port=args.port, user=args.user, password=args.password,
                                     database=args.database, charset='utf8mb4', autocommit=True)
-        self.fold = mariadb_fold(self.conn, args.database)
+        # the collation of every result column, reported by the server (checker.py)
+        self.columns = MariaDBColumns(self.conn)
+        self.name = 'per result column (server metadata)'
+        self.last_collations = []
+
+    def folds(self, collations_a, collations_b):
+        return self.columns.folds(collations_a, collations_b)
 
     def run(self, sql):
-        """(rows, column types), or (None, None) when the query fails."""
+        """(rows, column types), or (None, None) when the query fails.  The collations
+        of the result columns are left in self.last_collations."""
         try:
             with self.conn.cursor() as cur:
                 cur.execute(sql)
-                return list(cur.fetchall()), [d[1] for d in cur.description]
+                rows = list(cur.fetchall())
+                self.last_collations = [self.columns.name(f.charsetnr) for f in cur._result.fields]
+                return rows, [d[1] for d in cur.description]
         except self.pymysql.err.MySQLError as e:
             code = e.args[0] if e.args else None
             if code in self.CONNECTION_LOST or isinstance(e, self.pymysql.err.InterfaceError):
@@ -71,11 +81,19 @@ class SQLiteTarget:
             sys.exit('no such database file: %s' % args.sqlite)
         self.db = SQLiteLib(args.sqlite_lib, args.sqlite)
         schema = [r[0] for r in self.db.query("SELECT sql FROM sqlite_master WHERE sql IS NOT NULL")]
-        self.fold = sqlite_fold(schema)
+        # the coarsest collation of the database, for columns whose collation is unknown
+        self.fallback = sqlite_fold(schema)
+        self.name = 'per result column where SQLite reports it, else %s' % self.fallback.name
+        self.last_collations = []
+
+    def folds(self, collations_a, collations_b):
+        return self.db.folds(collations_a, collations_b, self.fallback)
 
     def run(self, sql):
         try:
-            return self.db.query(sql), None
+            rows = self.db.query(sql)
+            self.last_collations = self.db.last_collations
+            return rows, None
         except Exception as e:      # RuntimeError (ctypes library) or sqlite3.Error
             ERRORS[str(e)[:70]] += 1
             return None, None
@@ -105,7 +123,7 @@ def main():
                     help='negative control: expect the opposite relation (must report violations)')
     args = ap.parse_args()
     target = SQLiteTarget(args) if args.sqlite else MySQLTarget(args)
-    print('comparing modulo collation %s' % target.fold.name)
+    print('comparing modulo collation: %s' % target.name)
     out = open(args.out, 'a') if args.out else None
     st, by_rule = collections.Counter(), collections.Counter()
     for line in open(args.queries, encoding='utf-8'):
@@ -154,6 +172,7 @@ def main():
                     continue
         as_written, _ = target.run(sql)
         base, base_types = target.run(original)
+        base_collations = target.last_collations
         if as_written is None or base is None:
             st['original_failed'] += 1
             continue
@@ -169,6 +188,7 @@ def main():
             if res is None:
                 st['mutant_failed'] += 1
                 continue
+            fold = target.folds(base_collations, target.last_collations)
             if args.value and len(mutant) == 4:
                 relation, rule, column, _ = mutant
                 if args.flip:
@@ -176,7 +196,7 @@ def main():
                         continue
                     relation = FLIP_VALUE[relation]
                 loose = single or (types is not None and target.SINGLE in (base_types[column], types[column]))
-                verdict = check_value(relation, column, base, res, single_precision=loose, fold=target.fold)
+                verdict = check_value(relation, column, base, res, single_precision=loose, fold=fold)
                 label = '%s col %d' % (relation, column)
             else:
                 # set-semantic mutant, or a mutant of the HAVING predicate
@@ -188,7 +208,7 @@ def main():
                     continue
                 if args.flip:
                     direction = 'Down' if direction == 'Up' else 'Up'
-                verdict = check_inclusion(direction, base, res, target.fold)
+                verdict = check_inclusion(direction, base, res, fold)
                 label = direction
             if verdict == 'ok':
                 st['checked_ok'] += 1
@@ -205,6 +225,9 @@ def main():
                                               'query': sql, 'original': original, 'mutant': text,
                                               'original_rows': len(base), 'mutant_rows': len(res)}) + '\n')
                         out.flush()
+    # mutants whose printed SQL did not parse back to the term of the verified engine
+    if sql_bridge.STATS['roundtrip_rejected']:
+        st['mutants_roundtrip_rejected'] = sql_bridge.STATS['roundtrip_rejected']
     print(dict(st))
     print('ok checks per rule:', dict(by_rule))
     if ERRORS:

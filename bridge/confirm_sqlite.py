@@ -20,11 +20,15 @@ from sqlite_exec import SQLiteLib  # noqa: E402
 from checker import check_inclusion, check_value, sqlite_fold  # noqa: E402
 
 
-def recheck(rec, db, fold):
+def recheck(rec, db, fallback):
     try:
-        base, res = db.query(rec['original']), db.query(rec['mutant'])
+        base = db.query(rec['original'])
+        base_collations = db.last_collations
+        res = db.query(rec['mutant'])
     except Exception as e:
         return 'error: %s' % e, None, None
+    # per result column where the library reports the collation, else the coarsest one
+    fold = db.folds(base_collations, db.last_collations, fallback)
     if rec['kind'] == 'value':
         relation, _, column = rec['expect'].split()
         return check_value(relation, int(column), base, res, fold=fold), base, res

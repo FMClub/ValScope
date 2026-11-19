@@ -66,6 +66,17 @@ for sql, direction, rule, fragment in SET_CASES:
     report(any(d == direction and r == rule and fragment in m for d, r, m in mutants),
            '%-4s %-20s %s' % (direction, rule, sql))
 
+# LIMIT whose result is determined: every output column is ordered, or one row
+for sql in ["SELECT (SELECT u.c FROM u ORDER BY u.c LIMIT 1) AS x FROM t",
+            "SELECT (SELECT u.c AS k FROM u ORDER BY k DESC LIMIT 1) AS x FROM t",
+            "SELECT (SELECT u.c, u.d FROM u ORDER BY 2, 1 LIMIT 1) AS x FROM t",
+            "SELECT (SELECT MAX(u.c) FROM u LIMIT 1) AS x FROM t"]:
+    try:
+        Translation(sql)
+        report(True, 'determined LIMIT accepted: %s' % sql)
+    except Unsupported as e:
+        report(False, 'determined LIMIT rejected (%s): %s' % (e, sql))
+
 # the analysed fragment of LIKE / REGEXP: patterns outside it stay opaque predicates
 for sql in ["SELECT t.a FROM t WHERE t.c LIKE 'a\\_b'", "SELECT t.a FROM t WHERE t.c REGEXP '[ab]+'",
             "SELECT t.a FROM t WHERE t.c LIKE t.d"]:
@@ -75,6 +86,61 @@ for sql in ["SELECT t.a FROM t WHERE t.c LIKE 'a\\_b'", "SELECT t.a FROM t WHERE
 # LEFT JOIN pads with the width of its right input
 tr = Translation("SELECT x.a FROM t AS x LEFT JOIN (SELECT u.a, u.b FROM u) AS y ON x.a = y.a")
 report(tr.term.count('(Left 2 ') == 1, 'LEFT JOIN padding = width of the derived table')
+
+# round-trip validation: every printed query must parse back to its term.  Inject the
+# two printer bugs found earlier and check that the mutants they spoil are dropped.
+import sql_bridge  # noqa: E402
+_atom, _p = Translation.__dict__['_atom_text'], Translation._p_sql
+try:
+    Translation._atom_text = staticmethod(lambda text: text)          # parentheses lost
+    before = sql_bridge.STATS['roundtrip_rejected']
+    _, mutants, _ = mutate_value_sql("SELECT SUM(t.x - 50) AS s FROM t")
+    report(not any('t.x - 50 * 2' in m for _, _, _, m in mutants) and
+           sql_bridge.STATS['roundtrip_rejected'] > before, 'round trip drops a mutant printed without parentheses')
+
+    def lose_not(self, p):
+        return _p(self, p[1]) if p != 'True' and p != 'False' and p[0] == 'Not' else _p(self, p)
+    Translation._atom_text = _atom
+    Translation._p_sql = lose_not                                    # NOT lost
+    try:
+        mutate_sql("SELECT t.a FROM t WHERE NOT (t.b > 1)")
+        report(False, 'round trip rejects an original whose NOT is lost')
+    except Unsupported:
+        report(True, 'round trip rejects an original whose NOT is lost')
+finally:
+    Translation._atom_text, Translation._p_sql = _atom, _p
+
+# the collation law: an operation that tells collation-equivalent values apart must
+# not be applied to the representative chosen by a de-duplication
+LAW = [
+    ("SELECT LENGTH(d.c) AS n FROM (SELECT DISTINCT t.c FROM t) AS d", 'mysql', False,
+     'LENGTH above DISTINCT'),
+    ("SELECT d.c FROM (SELECT DISTINCT t.c FROM t) AS d WHERE d.c LIKE 'a%'", 'mysql', False,
+     'LIKE above DISTINCT'),
+    ("SELECT HEX(d.m) AS h FROM (SELECT MAX(t.c) AS m FROM t) AS d", 'mysql', False,
+     'HEX above an opaque MAX'),
+    ("SELECT d.c / 2 AS h FROM (SELECT DISTINCT t.c FROM t) AS d", 'sqlite', False,
+     'SQLite division above DISTINCT (1 and 1.0 are equal)'),
+    ("SELECT d.c / 2 AS h FROM (SELECT DISTINCT t.c FROM t) AS d", 'mysql', True,
+     'division above DISTINCT on MySQL'),
+    ("SELECT LENGTH(t.c) AS n FROM t WHERE t.a > 1", 'mysql', True, 'LENGTH without de-duplication'),
+    ("SELECT LENGTH(t.c) AS n FROM t UNION SELECT LENGTH(u.c) FROM u", 'mysql', True,
+     'LENGTH below the UNION'),
+    ("SELECT d.c FROM (SELECT DISTINCT t.c FROM t) AS d WHERE d.c = 'a'", 'mysql', True,
+     'comparison above DISTINCT (respects the collation)'),
+]
+for sql, dialect, accepted, what in LAW:
+    try:
+        Translation(sql, dialect)
+        ok = accepted
+    except Unsupported as e:
+        ok = not accepted and 'outside the model' in str(e)
+    report(ok, 'collation law: %s %s' % ('accepted' if accepted else 'rejected', what))
+# a mutant that adds DISTINCT below LENGTH is dropped; DISTINCT above it is kept
+_, mutants, _ = mutate_sql("SELECT LENGTH(t.c) AS n FROM t WHERE t.a > 1")
+report(not any('DISTINCT * FROM t' in m for _, _, m in mutants) and
+       any(m.startswith('SELECT DISTINCT LENGTH') for _, _, m in mutants),
+       'collation law: DISTINCT-add below LENGTH dropped, above kept')
 
 # the ON condition of a LEFT JOIN must never be mutated (Counter.v)
 _, mutants, _ = mutate_sql("SELECT t.a FROM t LEFT JOIN u ON t.a = u.a AND u.b > 1 WHERE t.c = 2")
@@ -152,6 +218,9 @@ REJECTED = [
     ("SELECT a FROM t WHERE b > random()", 'set', 'SQLite random()'),
     ("SELECT a FROM t WHERE b < date('now')", 'set', "date('now')"),
     ("SELECT a FROM t WHERE b IN (SELECT c FROM u LIMIT 2)", 'set', 'LIMIT without ORDER BY in a subquery'),
+    ("SELECT a FROM t WHERE b IN (SELECT u.c FROM u ORDER BY u.d LIMIT 2)", 'set', 'LIMIT with ties (c not ordered)'),
+    ("SELECT a FROM t WHERE b IN (SELECT u.c FROM u UNION SELECT v.c FROM v LIMIT 2)", 'set', 'LIMIT on a compound without ORDER BY'),
+    ("SELECT (SELECT u.c FROM u ORDER BY u.d LIMIT 1) AS x FROM t", 'set', 'scalar subquery with LIMIT over ties'),
     ("WITH RECURSIVE r AS (SELECT 1 AS n UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT n FROM r",
      'set', 'recursive CTE'),
     ("SELECT a, ROW_NUMBER() OVER () FROM t", 'set', 'window function'),
@@ -193,6 +262,11 @@ report(check_inclusion('Up', [('A',)], [('a',)], SQLiteFold('NOCASE')) == 'colla
 report(check_inclusion('Up', [('A',)], [('a ',)], SQLiteFold('NOCASE')) == 'violation', 'NOCASE does not ignore trailing spaces')
 report(check_inclusion('Up', [('\u00c9',)], [('\u00e9',)], SQLiteFold('NOCASE')) == 'violation', 'NOCASE folds ASCII letters only')
 report(check_inclusion('Up', [(0.1 + 0.2,)], [(0.3,)]) == 'ok', 'last-bit float noise is not a violation')
+# one fold per result column: a case difference is a representative choice only in a
+# case-insensitive column
+two = [SQLiteFold('BINARY'), SQLiteFold('NOCASE')]
+report(check_inclusion('Up', [('x', 'A')], [('x', 'a')], two) == 'collation', 'per column: NOCASE column folds')
+report(check_inclusion('Up', [('A', 'x')], [('a', 'x')], two) == 'violation', 'per column: BINARY column does not fold')
 report(check_inclusion('Up', [(2**60 + 1,)], [(2**60,)]) == 'violation', 'big integers are compared exactly')
 report(check_value('Le', 0, [(2**60 + 1, 1)], [(2**60, 1)]) != 'ok', 'big integers: exact value relation')
 report(check_value('Le', 0, [(1, 'A')], [(2, 'a')], fold=SQLiteFold('NOCASE')) == 'ok', 'group key representative may differ modulo collation')
@@ -210,8 +284,32 @@ report(check_value('Le', 0, [(1, 0.30000000000000004)], [(2, 0.3)]) == 'ok',
        'floating-point noise in another column does not break the row matching')
 report(check_value('Le', 0, [(1, 0.31)], [(2, 0.3)]) != 'ok', 'a real change in another column is reported')
 report(check_value('Le', 1, rows(Decimal('82.160004')), rows(82.16)) != 'ok', 'strict tolerance by default')
+# the check asks whether SOME one-to-one correspondence satisfies the relation
+report(check_value('TowardOne', 1, rows(0.5, 2), rows(3, 1.5)) == 'ok',
+       'TowardOne: a correspondence exists that sorting does not find (0.5->3, 2->1.5)')
+report(check_value('TowardOne', 1, rows(0.5, 0.6), rows(0.25, 3)) != 'ok',
+       'TowardOne: no correspondence exists (0.5 and 0.6 both need the value 3)')
+report(check_value('AwayZero', 1, rows(-1, 0, 1), rows(-2, 0, 2)) == 'ok', 'AwayZero: 0 stays 0, signs kept')
+report(check_value('AwayZero', 1, rows(-1, 0, 1), rows(-2, 0.5, 2)) != 'ok', 'AwayZero: 0 must stay 0')
+report(check_value('Le', 1, rows(None, 1), rows(5, None)) == 'ok', 'NULL corresponds to NULL in any row order')
+report(check_value('Le', 1, rows(None, 1), rows(5, 6)) != 'ok', 'a NULL that disappears is reported')
+report(check_value('Le', 0, [(1, 'x'), (5, 'y')], [(6, 'x'), (2, 'y')]) != 'ok',
+       'values correspond only within rows that agree outside the column')
 report(check_value('Le', 1, rows(Decimal('82.160004')), rows(82.16), single_precision=True) == 'ok',
        'single-precision tolerance when asked')
+
+# SQLite reports the collation of each result column (libraries built with
+# SQLITE_ENABLE_COLUMN_METADATA, see build_old_sqlite.sh); the checker uses it
+import glob  # noqa: E402
+from sqlite_exec import SQLiteLib  # noqa: E402
+libs = sorted(glob.glob(os.environ.get('SQLITE_LIBS', '/tmp/sqlite-libs') + '/libsqlite3-*.so'))
+if libs:
+    db = SQLiteLib(libs[0], ':memory:')
+    db.executescript("CREATE TABLE t (a TEXT COLLATE NOCASE, b TEXT); INSERT INTO t VALUES ('A', 'a')")
+    db.query("SELECT a, b, a || '' FROM t")
+    report(db.last_collations == ['NOCASE', 'BINARY', None], 'SQLite column collations %r' % db.last_collations)
+else:
+    print('skip  SQLite column metadata (no library in $SQLITE_LIBS)')
 
 print('%d failures' % failures)
 sys.exit(1 if failures else 0)

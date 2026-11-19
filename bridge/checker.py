@@ -115,6 +115,42 @@ class MariaDBFold:
         return self.cache[value]
 
 
+class MariaDBColumns:
+    """Per-column folds for MariaDB / MySQL results.
+
+    With `character_set_results = NULL` the server sends strings without conversion and
+    reports, for every result column, its real collation (also for expressions, derived
+    tables and set operations).  `folds(collation_ids)` turns those ids into folds."""
+
+    def __init__(self, conn):
+        self.conn, self.cache = conn, {}
+        with conn.cursor() as cur:
+            cur.execute('SET character_set_results = NULL')
+            cur.execute('SELECT ID, COLLATION_NAME FROM information_schema.COLLATIONS')
+            self.names = {int(i): n for i, n in cur.fetchall()}
+
+    def name(self, cid):
+        return self.names.get(cid, 'binary')
+
+    def fold(self, name):
+        if name == 'binary' or name is None:
+            return ExactFold()
+        if name not in self.cache:
+            self.cache[name] = MariaDBFold(self.conn, name)
+        return self.cache[name]
+
+    def folds(self, names_a, names_b=None):
+        """Folds for comparing a result whose columns have collations names_a with one
+        whose columns have names_b: where they differ, the coarser (case- or
+        accent-insensitive) one."""
+        names_b = names_b or names_a
+        out = []
+        for a, b in zip(names_a, names_b):
+            pick = a if a == b else next((n for n in (a, b) if n and ('_ci' in n or '_ai' in n)), a)
+            out.append(self.fold(pick))
+        return out
+
+
 def mariadb_fold(conn, database):
     """The fold for the text columns of `database`: their collation when there is one;
     with several, the first case-insensitive one (the coarsest in practice)."""
@@ -151,11 +187,35 @@ def _norm(v, fold, digits):
     return ('o', v)
 
 
+def _column_folds(fold, width):
+    """One fold per column.  `fold` is None, one fold for every column, or a list with
+    one fold per column (the collation of each result column)."""
+    if fold is None:
+        return [ExactFold()] * width
+    if isinstance(fold, (list, tuple)):
+        return [f or ExactFold() for f in fold] + [ExactFold()] * (width - len(fold))
+    return [fold] * width
+
+
+def nontrivial(fold):
+    """Does the fold identify any two different strings?"""
+    if fold is None:
+        return False
+    if isinstance(fold, (list, tuple)):
+        return any(nontrivial(f) for f in fold)
+    return not isinstance(fold, ExactFold) and not (isinstance(fold, SQLiteFold) and not fold.parts)
+
+
 def bag(rows, fold=None, digits=None):
     if fold is None and digits is None:
         return collections.Counter(rows)
-    fold = fold or ExactFold()
-    return collections.Counter(tuple(_norm(v, fold, digits) for v in row) for row in rows)
+    folds = None
+    out = collections.Counter()
+    for row in rows:
+        if folds is None or len(folds) != len(row):
+            folds = _column_folds(fold, len(row))
+        out[tuple(_norm(v, f, digits) for v, f in zip(row, folds))] += 1
+    return out
 
 
 def included(small, large):
@@ -175,7 +235,7 @@ def check_inclusion(direction, original_rows, mutant_rows, fold=None):
     for digits in (12, 9):
         if included(bag(small, None, digits), bag(large, None, digits)):
             return 'ok'
-    if fold is not None and not isinstance(fold, ExactFold):
+    if nontrivial(fold):
         for digits in (None, 12, 9):
             if included(bag(small, fold, digits), bag(large, fold, digits)):
                 return 'collation'
@@ -236,7 +296,8 @@ def relation_holds(relation, a, b, tol=REL_TOL):
 
 def _key(row, column, fold, digits):
     """The columns other than the mutated one, as a dictionary key."""
-    return tuple(_norm(v, fold, digits) for i, v in enumerate(row) if i != column)
+    folds = _column_folds(fold, len(row))
+    return tuple(_norm(v, f, digits) for i, (v, f) in enumerate(zip(row, folds)) if i != column)
 
 
 def check_value(relation, column, original_rows, mutant_rows, single_precision=False, fold=None):
@@ -249,7 +310,7 @@ def check_value(relation, column, original_rows, mutant_rows, single_precision=F
     another."""
     tol = REL_TOL_SINGLE if single_precision else REL_TOL
     attempts = [(ExactFold(), None), (ExactFold(), 12), (ExactFold(), 9)]
-    if fold is not None and not isinstance(fold, ExactFold):
+    if nontrivial(fold):
         attempts += [(fold, None), (fold, 9)]
     verdict = None
     for f, digits in attempts:
@@ -260,11 +321,18 @@ def check_value(relation, column, original_rows, mutant_rows, single_precision=F
 
 
 def _check_value(relation, column, original_rows, mutant_rows, fold, digits, tol):
-    """Rows are matched within each group of rows that agree outside the mutated
-    column, by sorting the mutated column.  The rule functions are non-decreasing in
-    the original value and keep the side of the pivot (0 or 1), so if the DBMS is
-    correct, the i-th smallest original value corresponds to the i-th smallest
-    mutated value."""
+    """The theorem (vmut_sound) says: the rows of the original and of the mutant can be
+    put in one-to-one correspondence so that corresponding rows agree outside the
+    mutated column and their values in it satisfy the relation (NULL only with NULL).
+    The DBMS returns rows in any order, so the check is whether SUCH a correspondence
+    exists.
+
+    Rows that agree outside the mutated column form a group; only rows of the same
+    group can correspond.  Within a group, NULLs must correspond to NULLs, and for the
+    other values a perfect bipartite matching (edge: the relation holds) must exist.
+    It is first tried by sorting (which finds one whenever the rule function is
+    non-decreasing), and otherwise searched exhaustively with augmenting paths, so
+    the verdict does not depend on any property of the rule."""
     if len(original_rows) != len(mutant_rows):
         return 'row count %d vs %d' % (len(original_rows), len(mutant_rows))
     groups = collections.defaultdict(lambda: ([], []))
@@ -278,10 +346,38 @@ def _check_value(relation, column, original_rows, mutant_rows, fold, digits, tol
         for values in (orig, mut):
             if any(v is not None and (isinstance(v, bool) or not isinstance(v, NUMERIC)) for v in values):
                 return 'incomparable'
-        order = lambda values: sorted(values, key=lambda v: (v is not None, float(v) if v is not None else 0.0))
-        for a, b in zip(order(orig), order(mut)):
-            if (a is None) != (b is None):
-                return 'NULL-ness changed (%r vs %r)' % (a, b)
-            if a is not None and not relation_holds(relation, a, b, tol):
-                return '%s violated: %r vs %r' % (relation, a, b)
+        nulls_o, nulls_m = orig.count(None), mut.count(None)
+        if nulls_o != nulls_m:
+            return 'NULL-ness changed (%d NULLs vs %d)' % (nulls_o, nulls_m)
+        a = [v for v in orig if v is not None]
+        b = [v for v in mut if v is not None]
+        unmatched = _perfect_matching(a, b, lambda x, y: relation_holds(relation, x, y, tol))
+        if unmatched is not None:
+            return '%s violated: no mutant value corresponds to %r (mutant values %r)' % (
+                relation, unmatched, sorted(b, key=float)[:8])
     return 'ok'
+
+
+def _perfect_matching(a, b, ok):
+    """None if every element of a can be paired with a distinct element of b such that
+    ok(x, y) holds (len(a) == len(b)); otherwise an element of a left unmatched."""
+    key = lambda v: float(v)
+    sa, sb = sorted(a, key=key), sorted(b, key=key)
+    if all(ok(x, y) for x, y in zip(sa, sb)):
+        return None
+    # Kuhn's augmenting-path algorithm on the bipartite graph of related pairs
+    adj = [[j for j, y in enumerate(b) if ok(x, y)] for x in a]
+    match_b = [-1] * len(b)
+
+    def augment(i, seen):
+        for j in adj[i]:
+            if not seen[j]:
+                seen[j] = True
+                if match_b[j] < 0 or augment(match_b[j], seen):
+                    match_b[j] = i
+                    return True
+        return False
+    for i in range(len(a)):
+        if not augment(i, [False] * len(b)):
+            return a[i]
+    return None

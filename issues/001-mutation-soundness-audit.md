@@ -200,7 +200,7 @@ The original code did not check these preconditions (`k` is always positive and 
 
 - The preconditions of rules 21 and 22 in the documentation need to be corrected.
 - A per-row run-time check turns "rule + precondition" into "two rules with opposite directions". Does that match the paper's definition of a mutator?
-- Rule 26 is implemented only for `SUM` and `AVG`; the set of "monotone functions" is not defined.
+- Rule 26 as defined (`FUNC(c * k)` for a monotone scalar `FUNC`) is not implemented. Scalar functions get `FUNC(c) * k` or `FUNC(c) + k` (rules 25 and 24), and only `SUM` and `AVG` get their argument multiplied (`SUM(c * 2)`, `AVG(c * 3)`). The set of "monotone functions" is not defined. (An earlier version of this document said rule 26 was implemented for `SUM` and `AVG`; that was inaccurate.)
 
 ---
 
@@ -211,6 +211,8 @@ These are not soundness problems, but they affect reproducibility:
 - **The default configuration only runs the value-semantic mutator.** With `use_value_mutator = True` in `main.py`, `changeAST.py` calls `ValueMutator` only, and the set-semantic rules 1–17 never run. The README does not say that two runs are needed.
 - **Rule 2 is disabled in the code.** The branch that handles `UNION → UNION ALL` in `set_mutator.py` is commented out, yet `trigger bug rules.md` attributes three MySQL bugs to rule 2.
 - **Rules 7–11 and 14 never took effect before the fixes.** The node class names and argument names were wrong (see below), so the code was dead. No bug in the bug table is attributed to these rules, which is consistent with that.
+- **Not every rule in the table is reachable.** Set-semantic mutators implement 14 of the 17 rules. Rules 6, 13 and 16 (`WHERE FALSE → WHERE cond`, `ON 1=0 → ON cond`, `HAVING 1=0 → HAVING cond`) have no reachable code path: their branches exist (`direction == 0`) but the direction is always set to 1 when the node is registered, and a seed query practically never contains a literal `FALSE` condition. The reverse of rule 1 (adding `DISTINCT`) is also unreachable, because `SELECT` nodes are registered only when `DISTINCT` is present. Value-semantic mutators implement rules 18 to 25 (8 of 9).
+- **`documents/mutation.md` lists mutators that do not exist.** For example `AggM_AvgToMin` (`AVG(c) → MIN(c)`) has no counterpart in `ValueMutator.mutate`.
 - **Source code is incomplete.** `sql_generation/` contains only `__init__.py` and `.pyc` files; `mutator/__pycache__` holds `.pyc` files for modules such as `aggregate_mutation` and `optimized_aggregate_mutation` that have no `.py` counterpart.
 - **Dependency versions are not pinned.** `requirements.txt` only requires `sqlglot>=18.0.0`, but the code depends on specific node class names and argument names (for example `with` versus `with_`), which differ between versions. This audit used sqlglot 30.33.0.
 

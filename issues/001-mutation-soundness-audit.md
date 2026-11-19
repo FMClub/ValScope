@@ -1,233 +1,233 @@
-# 变异规则可靠性审计:待讨论的设计问题
+# Mutation rule soundness audit: design problems to discuss
 
-> 本仓库没有开启 Issues,所以用这份文档(通过 PR 提交)代替 issue,记录需要讨论的设计层面问题。
-> 实现细节上的问题已经在同一分支直接修复,见文末"已直接修复的实现问题"。
+> This repository has no issue tracker, so this document (submitted through a PR) stands in for issues. It records the design-level problems that need discussion.
+> Implementation-level problems were fixed directly on the same branch; see "Implementation problems fixed directly" at the end.
 
-## 审计方法
+## Audit method
 
-- 通读 `mutator/set_mutator.py`、`mutator/value_mutator.py`、`changeAST.py`、`get_seedQuery.py`、`main.py`。
-- 在本地 **MariaDB 10.11.14**(未打任何补丁的发行版)上实际运行整条流程:生成 SQL → 筛选种子 → 变异 → 判定。
-- 逐类查看工具报出的"bug",判断是数据库真的算错,还是变异规则或判定逻辑本身不成立。
+- Read `mutator/set_mutator.py`, `mutator/value_mutator.py`, `changeAST.py`, `get_seedQuery.py` and `main.py` in full.
+- Ran the whole pipeline (generate SQL → select seeds → mutate → check) against a local, unpatched **MariaDB 10.11.14**.
+- Inspected the "bugs" the tool reported, by category, to decide whether the database was wrong or the mutation rule or the checking logic was.
 
-**局限:**
+**Limitations:**
 
-- OSDI 2026 论文没有读到(本环境无法访问 usenix.org),下面所有结论只基于代码和实测,没有和论文里的定义逐条对照。
-- 只在 MariaDB 10.11 上实测,没有在 MySQL、TiDB、OceanBase、Percona、PolarDB 上跑。
-- 报告是按类别抽查的(每类看 1–3 条),不是逐条核对。抽查到的全部是误报。
+- The OSDI 2026 paper could not be read (usenix.org is unreachable from the audit environment). Every conclusion below is based on the code and on measurements, not on a rule-by-rule comparison with the paper's definitions.
+- Only MariaDB 10.11 was tested. MySQL, TiDB, OceanBase, Percona and PolarDB were not.
+- Reports were sampled per category (1–3 per category), not checked one by one. Every sampled report was a false positive.
 
-## 实测结果
+## Measured results
 
-| 模式 | 规模 | 修复前报告数 | 修复后报告数 |
+| Mode | Scale | Reports before fixes | Reports after fixes |
 | --- | --- | --- | --- |
-| 值语义变异器(`use_value_mutator = True`,默认) | 6 个随机种子 × 800 条生成查询 | 97 | 52 |
-| 集合语义变异器(`use_value_mutator = False`) | 4 个随机种子 × 500 条生成查询 | 2 | 2 |
+| Value-semantic mutator (`use_value_mutator = True`, the default) | 6 random seeds × 800 generated queries | 97 | 52 |
+| Set-semantic mutator (`use_value_mutator = False`) | 4 random seeds × 500 generated queries | 2 | 2 |
 
-修复后剩下的 54 条报告都属于下面问题 1 和问题 2,是设计层面的,不是改几行能解决的。
+The 54 reports that remain after the fixes all fall under Problem 1 and Problem 2. They are design-level and cannot be solved by changing a few lines.
 
-修复前 97 条的构成:
+Breakdown of the 97 reports before the fixes:
 
-| 类别 | 条数 | 归属 |
+| Category | Count | Status |
 | --- | --- | --- |
-| `SIN/COS/TAN/LOG(x) * k`,原值为负时乘正数反而变小 | 56 | 已修复 |
-| 被变异的值流到外层多个输出列,只识别出其中一列 | 约 28 | 问题 1 |
-| 被变异的内层列被外层用作 JOIN 键或 WHERE 条件,行数改变 | 约 11 | 问题 1 |
-| 没有做任何变异却仍然比较两次执行结果 | 2 | 已修复 |
+| `SIN/COS/TAN/LOG(x) * k`: multiplying a negative value by a positive constant makes it smaller | 56 | Fixed |
+| The mutated value reaches several outer output columns, only one of which is recognised | about 28 | Problem 1 |
+| The mutated inner column is used by the outer query as a join key or in WHERE, so the row count changes | about 11 | Problem 1 |
+| No mutation was applied, yet the results of two executions were still compared | 2 | Fixed |
 
 ---
 
-## 问题 1:值语义的"近似传播分析"没有可靠的依据
+## Problem 1: the value-semantic "approximation propagation analysis" has no sound basis
 
-**现象。** 值语义变异器会改写任意 `Alias` 下的列、标量函数或聚合(包括子查询和 CTE 里的),然后假设"原查询和变异查询的结果行一一对应,只有某一列的值单调变化"。这个假设在很多上下文里不成立。
+**Symptom.** The value-semantic mutator rewrites any column, scalar function or aggregate directly under an `Alias` (including those in subqueries and CTEs). It then assumes that the rows of the original and the mutated result correspond one to one and that only one column changes monotonically. In many contexts this assumption does not hold.
 
-实测到的两类反例(MariaDB 结果完全正确,工具报 bug):
+Two classes of counterexamples were observed (MariaDB's results are correct; the tool reports a bug):
 
 ```sql
--- 原查询返回 8 行,变异后返回 0 行
+-- the original query returns 8 rows, the mutated query returns 0
 SELECT subq.c2 AS c2, subq.c6 AS c6
-FROM (SELECT s.c2 AS c2, s.c1 /* 变异为 s.c1 * 2 */ AS c1, s.c6 AS c6 FROM t1 AS s) AS subq
+FROM (SELECT s.c2 AS c2, s.c1 /* mutated to s.c1 * 2 */ AS c1, s.c6 AS c6 FROM t1 AS s) AS subq
 CROSS JOIN t3 ON (t3.c2 = subq.c1)
 ```
 
-内层的 `c1` 被外层当作连接键,值一变,连接结果就变了。
+The inner `c1` is used as a join key by the outer query, so changing its value changes the join result.
 
 ```sql
--- 内层 SUM(c4) 变异为 SUM(c4 * 2),外层有两列都引用它
+-- inner SUM(c4) is mutated to SUM(c4 * 2); two outer columns reference it
 SELECT subq.sum_c4 AS sum_c4, subq.c6 AS c6, subq.sum_c4 AS col_1_2
 FROM (SELECT SUM(s.c4) AS sum_c4, s.c6 AS c6 FROM t1 AS s GROUP BY s.c6) AS subq
 ```
 
-`get_branch_type` 只找到一个引用位置,另一列被当成"不应变化的列"参与行签名比较,于是判定失败。
+`get_branch_type` finds only one reference. The other column is treated as "must not change" and takes part in the row-signature comparison, so the check fails.
 
-**根因。** `get_branch_type` 和 `_compare_by_branch` 是按 AST 路径上的节点名做的启发式判断,没有真正的列血缘(lineage)和单调性分析:
+**Root cause.** `get_branch_type` and `_compare_by_branch` are heuristics over the names of the nodes on the AST path. There is no real column lineage or monotonicity analysis:
 
-- 被变异的值用在外层 `JOIN ON`、`WHERE`、`HAVING`、`GROUP BY`、`DISTINCT`、集合运算里时,影响的是行集合,不是某一列的值。
-- 被变异的值经过非单调表达式(`a - x`、`-x`、`MOD`、`COS(x)`、`BIT_XOR`)再输出时,方向不确定。
-- 同一个值被多个输出列引用时,需要找出全部受影响的列。
-- `where_affected` 分支只看路径上第一个比较运算符的类型,不区分被变异的值在运算符的左边还是右边。`x > (子查询)` 和 `(子查询) > x` 的期望方向相反。
-- 行配对靠"先按未变异列排序、再按变异列排序",未变异列有重复值时配对可能错位。
+- When the mutated value is used in an outer `JOIN ON`, `WHERE`, `HAVING`, `GROUP BY`, `DISTINCT` or set operation, it affects the set of rows, not the value of one column.
+- When the mutated value passes through a non-monotone expression (`a - x`, `-x`, `MOD`, `COS(x)`, `BIT_XOR`) before it is output, the direction is undetermined.
+- When several output columns reference the same value, all affected columns have to be found.
+- The `where_affected` branch only looks at the type of the first comparison operator on the path. It does not distinguish whether the mutated value is on the left or the right of the operator. `x > (subquery)` and `(subquery) > x` have opposite expected directions.
+- Rows are paired by sorting on the non-mutated columns first and the mutated column second. When the non-mutated columns contain duplicates, the pairing can be wrong.
 
-**需要讨论。**
+**To discuss.**
 
-- 是否给每个表达式定义一个四值的传播结果(不变、单调增、单调减、未知),按算子逐层传播,遇到"未知"就跳过这次变异?
-- 行对应关系怎么定义:要求查询带唯一键再比较,还是改成多重集上的匹配?
-- 这部分和论文里的 approximation propagation analysis 是什么关系,代码是否只实现了其中一部分?
+- Should every expression get a four-valued propagation result (unchanged, increasing, decreasing, unknown), propagated operator by operator, with the mutation skipped on "unknown"?
+- How should row correspondence be defined: require queries to carry a unique key, or match on multisets?
+- How does this code relate to the approximation propagation analysis in the paper? Does it implement only part of it?
 
 ---
 
-## 问题 2:规则 3、规则 4 缺少"列类型一致"的前提
+## Problem 2: rules 3 and 4 lack the precondition "column types are identical"
 
-**现象。** `A EXCEPT B → A` 和 `A INTERSECT B → A UNION B` 假设变异前后结果的列类型不变。但集合运算会把两侧的列类型统一,去掉或换掉一侧后,结果类型就变了。
+**Symptom.** `A EXCEPT B → A` and `A INTERSECT B → A UNION B` assume that the column types of the result do not change. A set operation unifies the column types of its two operands, so removing or replacing one operand changes the result type.
 
-实测(修复后集合模式剩下的 2 条报告都是这一类):
+Measured (both reports left in set mode after the fixes are of this kind):
 
 ```sql
-SELECT a.c4 AS col_1, a.c4 AS col_2 FROM t1 AS a          -- c4 是 INT
+SELECT a.c4 AS col_1, a.c4 AS col_2 FROM t1 AS a          -- c4 is INT
 EXCEPT
-SELECT c.col_1, c.col_2 FROM cte AS c                      -- col_1 是 TINYBLOB
+SELECT c.col_1, c.col_2 FROM cte AS c                      -- col_1 is TINYBLOB
 ```
 
-- 原查询第一列返回 `b'3'`、`b'16'`(被统一成二进制串)。
-- 变异查询(去掉 `EXCEPT` 右侧)返回 `3`、`16`。
-- Python 侧逐值比较不相等,判定"原结果不是变异结果的子集"。
+- The first column of the original query returns `b'3'`, `b'16'` (unified to a binary string).
+- The mutated query (right operand of `EXCEPT` removed) returns `3`, `16`.
+- The value-by-value comparison in Python finds them unequal and reports "the original result is not a subset of the mutated result".
 
-`BIT(8)` 列与整数列做集合运算时同理,一边是 `b'\xe3'`,另一边是 `b'227'`。
+The same happens when a `BIT(8)` column meets an integer column in a set operation: one side is `b'\xe3'`, the other `b'227'`.
 
-我在判定前加了数值、日期、时间的归一化,能消掉 `DATE` 对字符串、`FLOAT` 对 `DECIMAL` 这类差异,但二进制和 `BIT` 类型没法靠归一化解决。
+Values are now normalised (numbers, dates, times) before the check. That removes differences such as `DATE` versus string and `FLOAT` versus `DECIMAL`, but binary and `BIT` types cannot be handled by normalisation.
 
-**需要讨论。** 两个方向:
+**To discuss.** Two directions:
 
-- 给规则加前提,只在两侧对应列类型相同时才应用。这需要类型推导。
-- 改规则的形式,保留集合运算本身,只把一侧变成空集,例如 `A EXCEPT (SELECT * FROM (B) AS x WHERE 1 = 0)`。这样类型统一的行为不变,但被测的优化路径和原规则不完全一样。
-
----
-
-## 问题 3:结果比较用的是 Python 语义,不是 DBMS 语义
-
-判定逻辑把结果取回 Python 再比较,和数据库自己的比较规则不一致的地方都可能产生误报或漏报:
-
-- **排序规则(collation)。** `MIN(c) → MAX(c)` 对字符串列也会应用,然后用 `str.lower()` 后的码点顺序判断大小。实测在 MariaDB 默认的 `utf8mb4_general_ci` 下,`MIN('ax', '_x') = 'ax'`、`MAX = '_x'`,而 Python 认为 `'_x' < 'ax'`,会判定"MAX 比 MIN 小"。
-- **两位小数舍入。** 值语义比较统一 `round(float(x), 2)`。小于 0.005 的差异看不到,大整数和高精度 `DECIMAL` 转 `float` 会丢精度。
-- **类型转换。** 字符串能转成数字就按数字比,`bytes` 先 `str()` 再尝试转数字。
-- **查询出错。** 值语义模式里,原查询和变异查询都报错时记为"符合预期"。
-
-**需要讨论。** 是否把比较下推到数据库里做(例如用 `EXCEPT ALL` 或自连接让 DBMS 自己判断包含关系和大小关系),或者至少按列类型选择比较方式。
+- Add a precondition to the rules and apply them only when the corresponding columns of both operands have the same type. This requires type inference.
+- Change the shape of the rule: keep the set operation and make one operand empty, for example `A EXCEPT (SELECT * FROM (B) AS x WHERE 1 = 0)`. Type unification then behaves the same, but the optimizer path under test is not exactly the one the original rule exercises.
 
 ---
 
-## 问题 4:预处理改写了被测查询,实际覆盖面比规则表小
+## Problem 3: results are compared with Python semantics, not DBMS semantics
 
-变异之前,两个模式都会先大幅改写种子查询:
+The checker fetches the results into Python and compares them there. Wherever this differs from the database's own comparison rules, false positives or false negatives are possible:
 
-- 集合模式的 `detailsolve`:
-  - 删除所有 `GROUP BY` 和 `LIMIT`。
-  - 把聚合函数替换成它的参数,窗口函数和标量子查询替换成常量 `1`。
-  - 把所有 `LEFT/RIGHT/CROSS JOIN` 强制改成 `INNER JOIN`。
-- 值语义模式的 `_preprocess_ast`:
-  - 去掉所有 `DISTINCT` 和大部分 `LIMIT`。
-  - 把目标之外的所有带别名的表达式替换成它的第一个参数(`ABS(c)` 变成 `c`,`a + b` 变成 `a`)。
+- **Collation.** `MIN(c) → MAX(c)` is also applied to string columns, and the order is then decided by code-point order after `str.lower()`. Measured under MariaDB's default `utf8mb4_general_ci`: `MIN('ax', '_x') = 'ax'` and `MAX = '_x'`, while Python considers `'_x' < 'ax'` and would conclude that "MAX is smaller than MIN".
+- **Rounding to two decimals.** The value-semantic comparison applies `round(float(x), 2)` everywhere. Differences below 0.005 are invisible, and large integers and high-precision `DECIMAL` values lose precision when converted to `float`.
+- **Type conversion.** A string that parses as a number is compared as a number; `bytes` goes through `str()` and is then tried as a number.
+- **Failing queries.** In value-semantic mode, when both the original and the mutated query fail, the outcome is recorded as "as expected".
 
-后果:
-
-- 实际送去执行的"原查询"已经不是生成器生成的查询。外连接、聚合、`LIMIT` 相关的优化路径在集合模式下基本测不到。
-- 改写后的查询常常不合法。实测集合模式 1801 次执行里有 67 次报错,典型原因是删掉 `GROUP BY` 后 `HAVING` 引用了不在选择列表里的列。
-- sqlglot 的往返会悄悄改函数:`VAR_SAMP(c)` 被解析成 `Variance` 节点,再输出成 `VARIANCE(c)`,在 MySQL 系里这是总体方差,不是样本方差。原查询和变异查询都被改了,所以不会误报,但 `VAR_SAMP` 实际上没有被测到。
-
-**需要讨论。** 预处理的目的是让规则成立,但代价是改变了被测对象。是否改成"不改写查询,规则不适用就跳过"?
+**To discuss.** Should the comparison be pushed down into the database (for example with `EXCEPT ALL` or a self-join, so that the DBMS decides inclusion and ordering itself), or at least be chosen per column type?
 
 ---
 
-## 问题 5:集合语义的极性(polarity)规则需要完整定义
+## Problem 4: preprocessing rewrites the query under test, so real coverage is smaller than the rule table suggests
 
-**原状。** 原实现只在 `NOT` 和 `EXCEPT` 右侧翻转方向,其他上下文一律当作正向。下面这些位置里的变异方向其实是不确定的:
+Before mutating, both modes heavily rewrite the seed query:
 
-- 标量子查询(`x > (SELECT ...)`、选择列表里的子查询)。
-- `CASE WHEN`、函数参数里的谓词或子查询。
-- 带 `LIMIT` 的查询,或带聚合、窗口函数的 `SELECT`。
-- 外连接的 `ON` 条件(把 `ON cond` 改成 `ON TRUE` 后,原来补 NULL 的行会消失)。
-- CTE 的定义体(原实现固定当作正向,但 CTE 可能在 `EXCEPT` 右侧或 `NOT IN` 里被引用)。
+- `detailsolve` in set mode:
+  - removes every `GROUP BY` and `LIMIT`;
+  - replaces aggregate functions with their argument, and window functions and scalar subqueries with the constant `1`;
+  - forces every `LEFT/RIGHT/CROSS JOIN` to `INNER JOIN`.
+- `_preprocess_ast` in value-semantic mode:
+  - removes every `DISTINCT` and most `LIMIT`s;
+  - replaces every aliased expression other than the target with its first argument (`ABS(c)` becomes `c`, `a + b` becomes `a`).
 
-**现在的做法。** 我在这个分支里改成了三值:正向、反向、未知。未知上下文下面的节点一律不变异;CTE 定义体取它所有引用位置的极性,引用位置极性不一致或没有被引用就跳过。
+Consequences:
 
-**需要讨论。** 这是保守做法,会损失覆盖面。可以进一步细化的地方:
+- The "original query" that is actually executed is no longer the query the generator produced. In set mode, optimizer paths for outer joins, aggregation and `LIMIT` are essentially never exercised.
+- The rewritten query is often invalid. In set mode, 67 of 1801 executions failed, typically because `HAVING` references a column that is not in the select list once `GROUP BY` is removed.
+- The sqlglot round trip silently changes functions: `VAR_SAMP(c)` is parsed into a `Variance` node and printed as `VARIANCE(c)`, which is the population variance in the MySQL family, not the sample variance. Both the original and the mutated query are changed, so there is no false positive, but `VAR_SAMP` is in fact never tested.
 
-- `x > ALL (子查询)` 对子查询是反向的,`x > ANY (子查询)` 是正向的,现在都当未知跳过。
-- `LEFT JOIN` 对左表是正向的,只有 `ON` 条件和右表不确定,现在整体跳过。
-- `SELECT COUNT(*) FROM (子查询)` 这类聚合可以接到值语义那一侧去(结果集变大则 `COUNT` 变大),这正是"统一模型"应该覆盖的地方。
+**To discuss.** Preprocessing exists to make the rules hold, at the price of changing what is tested. Should it be replaced by "do not rewrite the query; skip the rule when it does not apply"?
 
 ---
 
-## 问题 6:带数据相关前提的规则怎么表达
+## Problem 5: the polarity rules of the set-semantic mutator need a complete definition
 
-`mutation.md` 里有几条规则的前提取决于运行时的数据:
+**Before.** The original implementation flipped the direction only under `NOT` and on the right side of `EXCEPT`, and treated every other context as positive. In the following positions the direction of a mutation is in fact undetermined:
 
-| 规则 | 前提 |
+- Scalar subqueries (`x > (SELECT ...)`, subqueries in the select list).
+- Predicates or subqueries inside `CASE WHEN` or function arguments.
+- Queries with `LIMIT`, and `SELECT`s with aggregates or window functions.
+- The `ON` condition of an outer join (after `ON cond → ON TRUE`, the rows that used to be NULL-padded disappear).
+- CTE bodies (the original implementation always treated them as positive, but a CTE can be referenced on the right side of `EXCEPT` or inside `NOT IN`).
+
+**Now.** On this branch polarity is three-valued: positive, negative, unknown. Nothing below an unknown context is mutated. A CTE body takes the polarity of all its references and is skipped when the references disagree or when it is not referenced.
+
+**To discuss.** This is conservative and costs coverage. Possible refinements:
+
+- `x > ALL (subquery)` is negative in the subquery and `x > ANY (subquery)` is positive; both are currently skipped as unknown.
+- `LEFT JOIN` is positive in its left table; only the `ON` condition and the right table are undetermined. The whole join is currently skipped.
+- Aggregates such as `SELECT COUNT(*) FROM (subquery)` could be handed to the value-semantic side (a larger result set gives a larger `COUNT`). This is exactly what a "unified model" should cover.
+
+---
+
+## Problem 6: how to express rules with data-dependent preconditions
+
+Several rules in `mutation.md` have preconditions that depend on run-time data:
+
+| Rule | Precondition |
 | --- | --- |
-| 21:`VAR_SAMP(c) → STDDEV_SAMP(c)` | 文档写 `c < 1`,实际取决于方差值是否小于 1,与 `c` 本身无关 |
-| 22:`STDDEV_SAMP(c) → VAR_SAMP(c)` | 文档写 `c > 1`,实际取决于标准差是否大于 1 |
-| 23:`SUM(c) → SUM(c * k)` | `k` 与 `c` 同号 |
-| 25:`expr → expr * k` | `k` 与 `expr` 同号 |
-| 26:`FUNC(c) → FUNC(c * k)` | `FUNC` 单调且 `k > 0`,另外还需要 `c ≥ 0` |
+| 21: `VAR_SAMP(c) → STDDEV_SAMP(c)` | Documented as `c < 1`; it actually depends on whether the variance is below 1, not on `c` |
+| 22: `STDDEV_SAMP(c) → VAR_SAMP(c)` | Documented as `c > 1`; it actually depends on whether the standard deviation is above 1 |
+| 23: `SUM(c) → SUM(c * k)` | `k` has the same sign as `c` |
+| 25: `expr → expr * k` | `k` has the same sign as `expr` |
+| 26: `FUNC(c) → FUNC(c * k)` | `FUNC` is monotone and `k > 0`; `c ≥ 0` is also required |
 
-原代码没有检查这些前提(`k` 固定取正数,不看 `expr` 的符号)。我改成了运行时按行判断:原值为负就期望变小,规则 22 按原值是否小于 1 决定期望方向。
+The original code did not check these preconditions (`k` is always positive and the sign of `expr` is ignored). They are now checked per row at run time: a negative original value is expected to decrease, and rule 22 picks the expected direction from whether the original value is below 1.
 
-**需要讨论。**
+**To discuss.**
 
-- 文档里规则 21、22 的前提写法需要更正。
-- 运行时按行判断等于把"规则 + 前提"变成了"两条方向相反的规则",这是否符合论文里对变异算子的定义?
-- 规则 26 目前只对 `SUM` 和 `AVG` 实现了,"单调函数"的集合没有定义。
-
----
-
-## 问题 7:代码与文档、成果表不一致的地方
-
-这些不是可靠性问题,但影响复现:
-
-- **默认配置只跑值语义变异器。** `main.py` 里 `use_value_mutator = True` 时,`changeAST.py` 只调用 `ValueMutator`,集合语义的规则 1–17 完全不会运行。README 没有说明要分两次跑。
-- **规则 2 在代码里是关掉的。** `set_mutator.py` 里处理 `UNION → UNION ALL` 的分支被注释掉了,`trigger bug rules.md` 却把 3 个 MySQL bug 归到规则 2。
-- **规则 7–11、14 在修复前从未生效。** 原因是节点类名和参数名写错(见下文),相当于死代码。成果表里没有 bug 归到这几条规则,与此吻合。
-- **源码不全。** `sql_generation/` 目录只有 `__init__.py` 和 `.pyc`;`mutator/__pycache__` 里有 `aggregate_mutation`、`optimized_aggregate_mutation` 等模块的 `.pyc`,没有对应的 `.py`。
-- **依赖版本没有固定。** `requirements.txt` 只要求 `sqlglot>=18.0.0`,但代码依赖具体的节点类名和参数名(例如 `with` 和 `with_`),不同版本行为不同。本次审计用的是 sqlglot 30.33.0。
-
-**需要讨论。** 发现 67 个 bug 时用的是不是这份代码?如果不是,建议把当时的版本补上。
+- The preconditions of rules 21 and 22 in the documentation need to be corrected.
+- A per-row run-time check turns "rule + precondition" into "two rules with opposite directions". Does that match the paper's definition of a mutator?
+- Rule 26 is implemented only for `SUM` and `AVG`; the set of "monotone functions" is not defined.
 
 ---
 
-## 问题 8(规划):用 Rocq 形式化并证明规则
+## Problem 7: inconsistencies between the code, the documentation and the bug table
 
-上面的问题 1、2、5、6 本质上都是"规则的前提没有写清楚,也没有被证明"。建议的方向:
+These are not soundness problems, but they affect reproducibility:
 
-1. 在 Rocq 里定义一个 SQL 片段的语法,以及多重集加三值逻辑的语义。
-2. 定义近似关系:集合语义用多重集包含,值语义用标量上的序,谓词用真值序 `FALSE < NULL < TRUE`。
-3. 证明极性定理:正上下文保持近似关系,负上下文反转。
-4. 给 26 条规则逐条写可靠性引理,把缺失的前提(符号、类型一致、连接类型)在证明里固定下来。
-5. 把验证过的变异器和判定器提取成 OCaml,现有 Python 只负责生成 SQL 和连接数据库。
+- **The default configuration only runs the value-semantic mutator.** With `use_value_mutator = True` in `main.py`, `changeAST.py` calls `ValueMutator` only, and the set-semantic rules 1–17 never run. The README does not say that two runs are needed.
+- **Rule 2 is disabled in the code.** The branch that handles `UNION → UNION ALL` in `set_mutator.py` is commented out, yet `trigger bug rules.md` attributes three MySQL bugs to rule 2.
+- **Rules 7–11 and 14 never took effect before the fixes.** The node class names and argument names were wrong (see below), so the code was dead. No bug in the bug table is attributed to these rules, which is consistent with that.
+- **Source code is incomplete.** `sql_generation/` contains only `__init__.py` and `.pyc` files; `mutator/__pycache__` holds `.pyc` files for modules such as `aggregate_mutation` and `optimized_aggregate_mutation` that have no `.py` counterpart.
+- **Dependency versions are not pinned.** `requirements.txt` only requires `sqlglot>=18.0.0`, but the code depends on specific node class names and argument names (for example `with` versus `with_`), which differ between versions. This audit used sqlglot 30.33.0.
 
-**需要讨论。** 范围是只做证明,还是证明加提取内核,还是连生成器一起重写。
+**To discuss.** Is this the code that found the 67 bugs? If not, the version used at the time should be added.
 
 ---
 
-## 已直接修复的实现问题
+## Problem 8 (plan): formalise and prove the rules in Rocq
 
-这些是实现细节,已在本分支提交,不需要讨论。
+Problems 1, 2, 5 and 6 all come down to rule preconditions that were neither written down precisely nor proved. Proposed direction:
 
-集合语义变异器(`mutator/set_mutator.py`、`changeAST.py`):
+1. Define in Rocq the syntax of a SQL fragment and its semantics over multisets with three-valued logic.
+2. Define the approximation relations: multiset inclusion for set semantics, an order on scalars for value semantics, and the truth order `FALSE < NULL < TRUE` for predicates.
+3. Prove the polarity theorem: positive contexts preserve the approximation relation, negative contexts reverse it.
+4. Write a soundness lemma for each of the 26 rules and pin down the missing preconditions (sign, identical types, join kind) in the proofs.
+5. Extract the verified mutator and checker to OCaml; the existing Python code only generates SQL and talks to the database.
 
-- 规则 8–10(比较运算符放宽):代码匹配的类名是 `Gt/Lt/Eq`,sqlglot 实际是 `GT/LT/EQ`,从未命中。已改为 `a < b → a <= b`、`a > b → a >= b`、`a = b → a >= b`。
-- 规则 7、14(`LIKE`、`REGEXP`):代码找 `pattern` 参数,sqlglot 存在 `expression` 里;`REGEXP` 的类名是 `RegexpLike`。已修正。
-- 规则 11(去掉一个 `AND` 条件):代码改的是不存在的 `expressions` 参数,变异前后 SQL 相同。已改为保留左操作数。
-- `NOT LIKE` 在 sqlglot 里是 `Like(negate=True)`,不是 `Not(Like)`,方向需要翻转。
-- `REGEXP` 模式的文本替换只在不含字符类、分组、转义、交替和惰性量词时才做(`[^abc]` 里的 `^` 是取反,不能删)。
-- 根节点上 `node.replace()` 不生效,`A EXCEPT B → A` 在最外层时变异前后 SQL 相同。已显式替换根节点,并保留 `WITH` 子句。
-- 查询执行失败原来被当成空结果集。原查询为空时所有检查自动通过,变异查询"为空"时可能误报。已改为跳过。
-- 没有连接条件的 `INNER JOIN` 改成 `LEFT JOIN` 是语法错误。已跳过。
-- `detailsolve` 给所有单列 `SELECT` 都加了 `ORDER BY ... LIMIT 1`,包括最外层查询。已限制为只对标量位置的子查询添加。
-- 判定前对数值、日期、时间做归一化。
-- 极性分析改为三值,见问题 5。
+**To discuss.** Scope: proofs only, proofs plus an extracted core, or a full rewrite including the generator.
 
-值语义变异器(`mutator/value_mutator.py`):
+---
 
-- `expr * k`、`SUM(c * k)`、`AVG(c * k)`:原值为负时期望方向取反。
-- `STDDEV_SAMP → VAR_SAMP`:原代码只对函数名 `Stddev` 做了"小于 1"的特殊处理,`StddevSamp` 没有覆盖到。
-- `AVG(c) → MAX(c)` 只对数值列应用。对 `TIME` 列,`AVG` 返回 `41852.0000` 这样的数字,`MAX` 返回 `10:11:12`,换算成秒是 36672,会被判为"MAX 小于 AVG"。
-- `_mutate_monotonic_multiplication` 对 `AVG` 会引用未赋值的变量,异常被上层吞掉,导致该查询剩余的变异全部跳过。
-- 没有应用任何变异(例如非数值列)时不再比较两次执行的结果。
+## Implementation problems fixed directly
+
+These are implementation details. They are committed on this branch and need no discussion.
+
+Set-semantic mutator (`mutator/set_mutator.py`, `changeAST.py`):
+
+- Rules 8–10 (weakening comparison operators): the code matched the class names `Gt/Lt/Eq`, while sqlglot uses `GT/LT/EQ`, so nothing ever matched. Now `a < b → a <= b`, `a > b → a >= b`, `a = b → a >= b`.
+- Rules 7 and 14 (`LIKE`, `REGEXP`): the code looked for a `pattern` argument, while sqlglot stores it in `expression`; the class name for `REGEXP` is `RegexpLike`. Corrected.
+- Rule 11 (dropping one `AND` operand): the code modified a non-existent `expressions` argument, so the SQL was identical before and after. The left operand is now kept.
+- `NOT LIKE` is `Like(negate=True)` in sqlglot, not `Not(Like)`, so the direction has to be flipped.
+- `REGEXP` patterns are rewritten textually only when they contain no character classes, groups, escapes, alternation or lazy quantifiers (the `^` in `[^abc]` is a negation and must not be removed).
+- `node.replace()` has no effect on the root node, so `A EXCEPT B → A` at the top level left the SQL unchanged. The root is now replaced explicitly and the `WITH` clause is kept.
+- A failed query used to be treated as an empty result set. An empty original made every check pass, and an "empty" mutated query could cause a false positive. Such cases are now skipped.
+- Turning an `INNER JOIN` without a join condition into a `LEFT JOIN` is a syntax error. Skipped.
+- `detailsolve` added `ORDER BY ... LIMIT 1` to every single-column `SELECT`, including the top-level query. It is now added only to subqueries in scalar position.
+- Numbers, dates and times are normalised before the check.
+- Polarity analysis is three-valued; see Problem 5.
+
+Value-semantic mutator (`mutator/value_mutator.py`):
+
+- `expr * k`, `SUM(c * k)`, `AVG(c * k)`: the expected direction is reversed when the original value is negative.
+- `STDDEV_SAMP → VAR_SAMP`: the original code special-cased "below 1" only for the function name `Stddev`; `StddevSamp` was not covered.
+- `AVG(c) → MAX(c)` is applied to numeric columns only. For a `TIME` column, `AVG` returns a number such as `41852.0000` while `MAX` returns `10:11:12`, which is 36672 in seconds and would be judged as "MAX is smaller than AVG".
+- `_mutate_monotonic_multiplication` referenced an unassigned variable for `AVG`; the exception was swallowed further up and all remaining mutations of that query were skipped.
+- Results are no longer compared when no mutation was applied (for example for non-numeric columns).

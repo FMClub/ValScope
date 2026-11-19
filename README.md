@@ -286,6 +286,14 @@ value cannot be read off the result.
   (`Down`) of the original rows. The operands of `HAVING` are opaque: the theorem holds for
   any function from groups to values (integers, decimals, text), so it does not depend on
   which aggregates are used.
+- `tmut_sound` / `thmut_sound` (instances `tmutate_sound`, `thmutate_sound`, `VUnion.v`):
+  the same two statements for a `UNION ALL` of value queries whose arms have the same
+  number of columns; one arm is mutated, the other arm's rows correspond to themselves.
+- `INTERSECT ALL` / `EXCEPT ALL` (`Bag.v`): an element occurs `min(a, b)` times in
+  `INTERSECT ALL` and `a - b` times in `EXCEPT ALL`, modulo the collation; `EXCEPT ALL` is
+  antitone on the right; `INTERSECT <= INTERSECT ALL` and `EXCEPT <= EXCEPT ALL`.
+- `(e1, ..., en) IN (subquery)` (`Semantics.int3`) is row comparison in three-valued logic
+  and is monotone in the subquery.
 
 Axioms: the set-semantic part uses none. The value-semantic part uses real numbers
 (AVG needs division, STDDEV a square root) and therefore depends on the three axioms of
@@ -312,6 +320,8 @@ as reported by `Print Assumptions vmutate_sound`.
 | `INTERSECT->UNION` / `UNION->INTERSECT` | Up / Down | 4 |
 | `INNER->LEFT-JOIN` / `LEFT->INNER-JOIN` | Up / Down | 17 |
 | `INTERSECT->operand` | Up | not in the table |
+| `INTERSECT->INTERSECT-ALL` / `INTERSECT-ALL->INTERSECT` | Up / Down | not in the table (analogue of 2) |
+| `EXCEPT->EXCEPT-ALL` / `EXCEPT-ALL->EXCEPT` | Up / Down | not in the table (analogue of 2) |
 
 Value plug-ins:
 
@@ -334,34 +344,39 @@ is non-negative by construction (counts, non-negative constants, their sums and 
 
 ## Measured
 
-MariaDB 10.11.14, sample database `data/mariadb/` (from the original Python generator).
+MariaDB 10.11.14, sample database `data/mariadb/` (from the original Python generator), with
+all checks of the current version (round trip, collation law, per-column collations).
 
 | Run | Queries | Supported | Checks passed | Violations |
 | --- | --- | --- | --- | --- |
-| Set-semantic, Python generator queries (`data/python-generator-queries.sql`) | 870 | 327 | 4005 | 1 (candidate bug, below) |
-| Value-semantic and HAVING, same queries | 870 | 69 | 671 | 0 |
-| Set-semantic, `gen_fragment.py 300 7` | 300 | 300 | 10726 | 0 |
-| Value-semantic and HAVING, `gen_fragment.py --value 300 11` | 300 | 277 | 3388 | 1 (known candidate, PR #5) |
-| Earlier runs: set seeds 7-9 / value seeds 11-16 | 1200 / 3000 | all / 2736 | 40736 / 37572 | 0 / 1 |
+| Set-semantic, Python generator queries (`data/python-generator-queries.sql`) | 870 | 302 | 4110 | 2 (the `BIT` candidate, `issues/005`) |
+| Set-semantic, `gen_fragment.py 200 1` (`scripts/demo.sh mariadb`) | 200 | 200 | 7841 | 0 |
+| Value-semantic and HAVING, `gen_fragment.py --value 200 2` | 200 | 183 | 2516 | 0 |
+| Set-semantic with `INTERSECT ALL`, `EXCEPT ALL`, row `IN`, `gen_fragment.py 300 21` | 300 | 300 | 10233 | 0 |
 
-- Negative controls (`--flip`) report violations by the thousand (for example 1018 on the
-  300 value queries above).
-- Of the queries of the original Python generator, 374 of 870 are now inside the fragment
-  (6 of 511 before derived tables, CTEs, opaque set-operation arms, opaque select items,
-  `LIKE` and `REGEXP` were added). The rest use `LIMIT` without `ORDER BY` in a subquery
-  (nondeterministic, rejected), `SELECT DISTINCT` with aggregates, `RIGHT JOIN` and window
-  functions.
-- Translation validation rejected 2 queries: one with `ORDER BY ... LIMIT` over ties (its
-  result is not determined), and one that exposed a bridge bug (`NOT LIKE` lost its
-  negation; fixed).
-- **Candidate MariaDB bug** (set-semantic, Python generator query): `MIN` / `MAX` over a
-  `BIT(8)` column return the decimal text of the value (`'2'`, `'242'`) when the query has
-  no `GROUP BY`, while the result metadata says `BIT` and the same aggregate under a
-  derived table, `UNION ALL` or `GROUP BY` returns the bit value (`0x02`). Minimal case:
+How the audit fixes changed the numbers on the same inputs:
+
+| | Before | After |
+| --- | --- | --- |
+| Set mutants skipped because the result types differed (Python queries) | 247 | 2 |
+| Set mutants that MariaDB rejected (out-of-scope correlation, 200 generated queries) | 108 | 0 |
+| Set mutants that could not be printed (200 generated queries) | 480 | 91 |
+| Python generator queries usable by the value rules | 69 | 138 |
+| Translation mismatches (MariaDB / SQLite campaign) | 1 / 4 | 0 / 0 |
+
+- Negative controls (`--flip`) report violations by the hundred on every run (for example
+  772 on the 200 generated set queries).
+- Of the queries of the original Python generator, 307 of 870 are translated for the set
+  rules and 138 for the value rules. The rest use `LIMIT` whose kept rows are not
+  determined (113), `SELECT DISTINCT` with aggregates, window functions and similar.
+- **Candidate MariaDB bug** (set-semantic, Python generator queries): a `BIT(8)` value
+  produced by `MIN` / `MAX` without `GROUP BY`, or by a scalar subquery, is sent as decimal
+  text (`'2'`, `'14'`) while the result metadata says `BIT`; under a derived table or
+  `UNION ALL` the bit value (`0x02`) is sent. Minimal case:
   `CREATE TABLE b (x BIT(8)); INSERT INTO b VALUES (2), (242); SELECT MIN(x), MAX(x) FROM b;`
   Written up in `issues/005-mariadb-bit-min-max-text.md` (PR #8).
-- The value violation on generated queries is the known `HAVING COUNT(x) IN (subquery)`
-  candidate (`issues/003-mariadb-having-count-in-subquery.md`).
+- Earlier value runs found the `HAVING COUNT(x) IN (subquery)` candidate
+  (`issues/003-mariadb-having-count-in-subquery.md`).
 
 Testing found defects in the unverified bridge and checker, all fixed and covered by
 tests: an atom put back without parentheses (`t.c - 5000 * 2`); FLOAT results compared
@@ -404,8 +419,9 @@ in which the term means what the SQL text means.
   are opaque predicates; select items that are not analysed are opaque items.
 - **Rejected, not approximated:** `LIMIT` at the top or without `ORDER BY` in a subquery,
   aggregates and window functions in set-semantic select lists, `HAVING` without
-  aggregation, window functions in value queries, `RIGHT` / `FULL` / `USING` / `NATURAL`
-  joins, `INTERSECT ALL` / `EXCEPT ALL`, recursive CTEs, table functions with column
+  aggregation, window functions in value queries, `FULL` / `USING` / `NATURAL` joins, a
+  `RIGHT JOIN` after another join or with `SELECT *` (a first `RIGHT JOIN` is translated as
+  the swapped `LEFT JOIN`), recursive CTEs, table functions with column
   arguments, non-aggregated select items that are not grouping keys, value queries whose
   clauses refer to a select alias, non-deterministic functions (`RAND`, `NOW`, SQLite
   `random()`, `date('now')`, ...) and user variables.
@@ -447,14 +463,17 @@ root-cause notes and how to reproduce: [`results/sqlite-campaign.md`](results/sq
 
 ## Not done yet
 
-- Value mutation applies to the select items of one top-level `SELECT`. Following a
-  mutated value through derived tables or `UNION ALL` (what the Python lineage analysis
-  does) is not modelled; value queries with `SELECT DISTINCT` are rejected.
-- Window functions and `IN` with a row constructor are opaque or rejected.
-- About 5% to 10% of the set-semantic mutants cannot be printed as SQL (`DISTINCT` around a
-  join below a projection) and are dropped. `DISTINCT` added around the table of a
-  correlated subquery is printed as a derived table, which MySQL / MariaDB reject (the
-  correlation is out of scope); those mutants fail and are dropped.
+- Value mutation applies to the select items of a `SELECT` or of the arms of a `UNION ALL`.
+  Following a mutated value through derived tables (what the Python lineage analysis does)
+  is not modelled; value queries with `SELECT DISTINCT` are rejected (a mutation can make
+  two rows equal, so rows would no longer correspond one to one).
+- Window functions are rejected, and `IN` with a value list stays an opaque predicate.
+- Some set-semantic mutants cannot be printed as SQL and are dropped (91 of about 9000 on
+  200 generated queries): `DISTINCT` around a join that is itself an operand of another
+  join (a derived table would need renamed columns), and `DISTINCT` around a join of
+  derived tables. `DISTINCT` around a join of base tables needs the schema (the runners
+  read it from the database).
+- SQLite has no `INTERSECT ALL` / `EXCEPT ALL`; those mutants are not printed for SQLite.
 - Only the MySQL and SQLite dialects of sqlglot were tested.
 
 ## Trusted base and caveats

@@ -56,16 +56,19 @@ fixes of PR #1 are merged; the design problems below are still open.
 
 ### B1. Coverage of SQL
 
-1. Not modelled: window functions, `IN` with a row constructor, `RIGHT` / `FULL` /
-   `NATURAL` / `USING` joins, `INTERSECT ALL` / `EXCEPT ALL`, `LIMIT`, recursive CTEs.
-   Unanalysed predicates and expressions are opaque atoms (sound, never mutated inside).
-2. Value mutation applies to the select items of one top-level `SELECT`; a mutated value is
-   not followed through derived tables or `UNION ALL`. Value queries with `SELECT DISTINCT`
-   are rejected. This is why only 69 of the 870 Python-generator queries are used by the
-   value rules.
-3. About 5% to 10% of the set-semantic mutants cannot be printed (`DISTINCT` around a join
-   below a projection). `DISTINCT` added around the table of a correlated subquery is
-   printed as a derived table, which MariaDB rejects; those mutants are lost.
+1. Not modelled: window functions, `FULL` / `NATURAL` / `USING` joins, a `RIGHT JOIN` that
+   is not the first join, `LIMIT` at the top, recursive CTEs. (Since the fourth round:
+   `INTERSECT ALL` / `EXCEPT ALL` and `IN` with a row constructor are modelled and proved,
+   and a first `RIGHT JOIN` is translated as the swapped `LEFT JOIN`.) Unanalysed predicates
+   and expressions are opaque atoms (sound, never mutated inside).
+2. Value mutation applies to the select items of a `SELECT` or of the arms of a `UNION ALL`
+   (`VUnion.v`, fourth round); a mutated value is not followed through derived tables.
+   Value queries with `SELECT DISTINCT` are rejected. 138 of the 870 Python-generator
+   queries are used by the value rules (69 before the fourth round).
+3. Some set-semantic mutants cannot be printed: `DISTINCT` around a join that is an operand
+   of another join, or around a join of derived tables (91 of about 9000 mutants on 200
+   generated queries; 480 before the fourth round, when `DISTINCT` around any join was
+   unprintable). Printing `DISTINCT` around a join of base tables needs the schema.
 4. `LIMIT` in a subquery is accepted only when its result is determined (every output
    column ordered, or one input row). The Python generator emits `LIMIT` without `ORDER BY`
    inside subqueries (106 of 870

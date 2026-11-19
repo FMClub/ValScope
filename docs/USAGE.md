@@ -208,8 +208,8 @@ echo "(Proj ((EAtom 0)) (Where (Cmp gt (EAtom 1) (Int 5)) (T 0 1)))" | ./cli/val
 ```
 
 A query the bridge cannot translate faithfully is rejected with `Unsupported` and a reason
-(for example `LIMIT`, window functions in the select list, `RIGHT JOIN`); it is never
-approximated.
+(for example `LIMIT` whose kept rows are not determined, window functions in the select
+list, `FULL JOIN`); it is never approximated.
 
 ## 5. Get queries to test
 
@@ -303,10 +303,10 @@ mariadb -uroot -p123456 test < /tmp/valscope-vanilla/generated_sql/indexes.sql
 grep -E '^(SELECT|WITH|\()' /tmp/valscope-vanilla/generated_sql/queries.sql > py_queries.sql
 ```
 
-About 40% of these queries are inside the fragment the bridge translates (374 of the 870
-sample queries); the rest use `LIMIT` without `ORDER BY` in subqueries, `RIGHT JOIN`,
-window functions, `SELECT DISTINCT` with aggregates and similar features, and are reported
-as `unsupported`.
+About a third of these queries are inside the fragment the bridge translates (307 of the
+870 sample queries for the set rules, 138 for the value rules); the rest use `LIMIT` whose
+kept rows are not determined, window functions, `SELECT DISTINCT` with aggregates and
+similar features, and are reported as `unsupported`.
 
 ### 5.3 Your own queries
 
@@ -505,6 +505,7 @@ class PostgresTarget:
                                      password=args.password, dbname=args.database)
         self.conn.autocommit = True
         self.name = 'exact'           # printed at the start of a run
+        self.schema = {}              # table -> columns (information_schema), optional
         self.last_collations = []     # collation of each column of the last result
 
     def folds(self, collations_a, collations_b):

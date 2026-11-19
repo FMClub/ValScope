@@ -13,94 +13,214 @@ class SetMutator:
         self.mutated = False  # Flag indicating whether mutation has been performed
         self.temp_original_nodes = {}  # Temporarily store original node information
 
+    # ------------------------------------------------------------------
+    # Polarity analysis
+    #
+    # flag == 1    : the node sits in a monotone (positive) context, i.e. growing
+    #                the node's result can only grow the result of the whole query
+    # flag == 0    : antitone (negative) context (under NOT, right side of EXCEPT)
+    # flag is None : the effect on the whole query is unknown (scalar subquery,
+    #                CASE, function argument, LIMIT, aggregate, window, ALL, ...).
+    #                Nothing below such a node may be mutated, because no
+    #                inclusion relation can be asserted for the outer query.
+    # ------------------------------------------------------------------
+    _TABLE_POSITION_PARENTS = ('From', 'Join', 'In', 'Exists', 'Union', 'Intersect',
+                               'Except', 'CTE', 'Subquery', 'Lateral')
+    _COMPARISONS = ('GT', 'LT', 'GTE', 'LTE', 'EQ')
+
+    @staticmethod
+    def _cls(node):
+        return node.__class__.__name__
+
+    def _own_scope_nodes(self, select_node, arg_names):
+        """Yield nodes of the given clauses of a SELECT without entering nested queries."""
+        stack = []
+        for arg_name in arg_names:
+            value = select_node.args.get(arg_name)
+            if isinstance(value, list):
+                stack.extend(v for v in value if hasattr(v, 'args'))
+            elif hasattr(value, 'args'):
+                stack.append(value)
+        while stack:
+            current = stack.pop()
+            yield current
+            if self._cls(current) in ('Select', 'Subquery', 'Union', 'Intersect', 'Except'):
+                continue
+            for value in current.args.values():
+                if isinstance(value, list):
+                    stack.extend(v for v in value if hasattr(v, 'args'))
+                elif hasattr(value, 'args'):
+                    stack.append(value)
+
+    def _select_is_row_preserving(self, select_node):
+        """A SELECT can only be reasoned about with result-set inclusion if every
+        output row stems from one input row: no LIMIT/OFFSET, no aggregate and no
+        window function in its own scope."""
+        for key in ('limit', 'offset', 'group', 'qualify'):
+            if select_node.args.get(key):
+                return False
+        for inner in self._own_scope_nodes(select_node, ('expressions', 'having', 'order')):
+            if isinstance(inner, (sqlglot.expressions.AggFunc, sqlglot.expressions.Window)):
+                return False
+            if self._cls(inner) == 'Anonymous' and str(inner.name).upper() in (
+                    'STD', 'STDDEV', 'VAR', 'VARIANCE', 'BIT_AND', 'BIT_OR', 'BIT_XOR',
+                    'AVG', 'COUNT', 'MAX', 'MIN', 'SUM', 'GROUP_CONCAT', 'VAR_SAMP',
+                    'VAR_POP', 'STDDEV_SAMP', 'STDDEV_POP', 'JSON_ARRAYAGG', 'JSON_OBJECTAGG'):
+                return False
+        return True
+
     def findnode(self, ast):
         """Identify all mutable nodes in the AST"""
         if not ast:
             return
 
-        # Clear previous results
         self.mutable_nodes = []
-        # Root node default flag is 1 (positive)
+        # CTE name -> set of polarities under which the CTE is referenced
+        self._cte_ref_flags = {}
+        cte_nodes = []
+        with_node = ast.args.get('with_') or ast.args.get('with') if hasattr(ast, 'args') else None
+        if with_node is not None:
+            cte_nodes = list(with_node.expressions)
+        self._cte_names = {cte.alias.lower() for cte in cte_nodes if cte.alias}
+
+        # Main query first (the WITH clause is skipped), root flag is 1 (positive)
         self._find_mutable_nodes(ast, parent_flag=1)
+        # A CTE body inherits the polarity of its references. It is processed only
+        # if every reference agrees on one known polarity; CTEs are visited from
+        # last to first because a later CTE may reference an earlier one.
+        for cte in reversed(cte_nodes):
+            flags = self._cte_ref_flags.get((cte.alias or '').lower(), set())
+            if len(flags) == 1 and None not in flags:
+                self._find_mutable_nodes(cte.this, parent_flag=next(iter(flags)))
         return self.mutable_nodes
 
-    def _find_mutable_nodes(self, node, parent_flag=1, is_in_on_condition=False):
-        """Recursively find mutable nodes, supporting flag passing and inversion"""
-        if not node:
+    def _find_mutable_nodes(self, node, parent_flag=1, is_in_on_condition=False, in_predicate=False):
+        """Recursively find mutable nodes while propagating the polarity flag"""
+        if node is None or not hasattr(node, 'args'):
+            return
+        name = self._cls(node)
+
+        # References to CTEs are recorded even in unknown contexts
+        if name == 'Table':
+            table_name = str(node.name).lower()
+            if table_name in getattr(self, '_cte_names', ()):
+                self._cte_ref_flags.setdefault(table_name, set()).add(parent_flag)
             return
 
-        # Current node's flag initially inherits from parent node
+        if parent_flag is None:
+            # Unknown context: nothing below may be mutated, but CTE references
+            # still have to be recorded so that the CTE body is not mutated either.
+            for value in node.args.values():
+                for child in (value if isinstance(value, list) else [value]):
+                    if hasattr(child, 'args'):
+                        self._find_mutable_nodes(child, None)
+            return
+
         current_flag = parent_flag
-        
-        # Process Not node, invert flag
-        if node.__class__.__name__ == 'Not':
-            current_flag = parent_flag ^ 1  # Invert flag
-        # Process Except node, invert flag
+        if name == 'Not':
+            current_flag = parent_flag ^ 1
 
-        # Process various node types, passing current flag value
-        if node.__class__.__name__ == 'Select':
+        def visit(child, flag, on=False, pred=False):
+            for item in (child if isinstance(child, (list, tuple)) else [child]):
+                if hasattr(item, 'args'):
+                    self._find_mutable_nodes(item, flag, on, pred)
+
+        def visit_rest(skip):
+            for arg_name, value in node.args.items():
+                if arg_name not in skip:
+                    visit(value, None)
+
+        if name == 'Select':
+            if not self._select_is_row_preserving(node):
+                visit_rest(())
+                return
             self._process_select(node, current_flag)
-        elif node.__class__.__name__ == 'Where':
-            self._process_where(node, current_flag)
-        elif node.__class__.__name__ == 'Having':
-            self._process_having(node, current_flag)
-        elif node.__class__.__name__ == 'Join':
-            # First process INNER JOIN mutation
-            if hasattr(node, 'args') and node.args.get('kind') == 'INNER':
-                self._process_inner_join(node, current_flag)
-            # Then process general JOIN node (ON condition mutation)
-            self._process_join(node, current_flag)
-        elif node.__class__.__name__ == 'Like':
-            self._process_like(node, current_flag)
-        elif node.__class__.__name__ == 'RegExp':
+            visit(node.args.get('from_') or node.args.get('from'), current_flag)
+            visit(node.args.get('joins'), current_flag)
+            visit(node.args.get('where'), current_flag)
+            visit(node.args.get('having'), current_flag)
+            # select list, ORDER BY, ... : scalar positions, polarity unknown
+            visit_rest(('from_', 'from', 'joins', 'where', 'having', 'with_', 'with'))
+        elif name in ('Where', 'Having'):
+            if name == 'Where':
+                self._process_where(node, current_flag)
+            else:
+                self._process_having(node, current_flag)
+            visit(node.args.get('this'), current_flag, False, True)
+        elif name == 'From':
+            visit(node.args.get('this'), current_flag)
+            visit_rest(('this',))
+        elif name == 'Join':
+            side = node.args.get('side')
+            kind = node.args.get('kind')
+            has_condition = bool(node.args.get('on') or node.args.get('using'))
+            plain_inner = not side and (not kind or str(kind).upper() in ('INNER', 'CROSS'))
+            if plain_inner:
+                # INNER JOIN -> LEFT JOIN needs a join condition to stay valid SQL
+                if has_condition and kind and str(kind).upper() == 'INNER':
+                    self._process_inner_join(node, current_flag)
+                if node.args.get('on'):
+                    self._process_join(node, current_flag)
+                visit(node.args.get('this'), current_flag)
+                visit(node.args.get('on'), current_flag, True, True)
+                visit_rest(('this', 'on'))
+            else:
+                # Outer joins are not monotone in their ON condition / inner side
+                visit_rest(())
+        elif name == 'Subquery':
+            parent = node.parent
+            if parent is None or self._cls(parent) in self._TABLE_POSITION_PARENTS:
+                visit(node.args.get('this'), current_flag)
+                visit_rest(('this',))
+            else:
+                # scalar subquery: its value feeds an arbitrary expression
+                visit_rest(())
+        elif name in ('And', 'Or', 'Paren', 'Not'):
+            if name == 'And' and in_predicate:
+                self._process_logical_and(node, current_flag)
+            visit(node.args.get('this'), current_flag, is_in_on_condition, in_predicate)
+            visit(node.args.get('expression'), current_flag, is_in_on_condition, in_predicate)
+        elif name == 'In':
+            if in_predicate and node.args.get('query') is not None and not is_in_on_condition:
+                visit(node.args.get('query'), current_flag)
+                visit_rest(('query',))
+            else:
+                visit_rest(())
+        elif name == 'Exists':
+            if in_predicate:
+                visit(node.args.get('this'), current_flag)
+                visit_rest(('this',))
+            else:
+                visit_rest(())
+        elif name in ('Union', 'Intersect', 'Except'):
+            if node.args.get('limit') or node.args.get('offset'):
+                visit_rest(())
+                return
+            if name == 'Intersect':
+                self._process_intersect(node, current_flag)
+            elif name == 'Except':
+                self._process_except(node, current_flag)
+            visit(node.args.get('this'), current_flag)
+            # The right operand of EXCEPT is an antitone position
+            visit(node.args.get('expression'), current_flag ^ 1 if name == 'Except' else current_flag)
+            visit_rest(('this', 'expression', 'with_', 'with'))
+        elif name in ('CTE', 'With'):
+            # handled by findnode once the polarity of all references is known
+            return
+        elif name == 'Like' and in_predicate:
+            # sqlglot keeps NOT LIKE as Like(negate=True) instead of Not(Like)
+            self._process_like(node, current_flag ^ 1 if node.args.get('negate') else current_flag)
+            visit_rest(())
+        elif name == 'RegexpLike' and in_predicate:
             self._process_regexp(node, current_flag)
-        elif node.__class__.__name__ == 'Gt' or node.__class__.__name__ == 'Lt' or \
-             node.__class__.__name__ == 'Gte' or node.__class__.__name__ == 'Lte' or \
-             node.__class__.__name__ == 'Eq':
+            visit_rest(())
+        elif name in self._COMPARISONS and in_predicate:
             self._process_comparison(node, current_flag)
-        elif node.__class__.__name__ == 'And':
-            self._process_logical_and(node, current_flag)
-        elif node.__class__.__name__ == 'Intersect':
-            self._process_intersect(node, current_flag)
-        elif node.__class__.__name__ == 'Except':
-            self._process_except(node, current_flag)
-        #elif node.__class__.__name__ == 'Union':
-        #    self._process_union(node, current_flag)
+            visit_rest(())
+        else:
+            # Any other expression (function call, CASE, arithmetic, ALL/ANY, ...)
+            visit_rest(())
 
-        # Manually check node attributes to recursively process child nodes, ensuring correct flag passing
-        if hasattr(node, 'args'):
-            # Manually iterate through values in the node's args dictionary
-            for arg_name, arg_value in node.args.items():
-                # Special handling for the expression attribute of Except nodes
-                if node.__class__.__name__ == 'Except' and arg_name == 'expression':
-                    # The right expression of Except nodes needs to reverse the flag again
-                    right_flag = current_flag ^ 1
-                    self._process_node_recursive(arg_value, right_flag)
-                # Special handling for the this attribute (usually conditional expressions)
-                elif arg_name == 'this':
-                    # Check if it's an IN node and in an ON condition
-                    is_in_node = node.__class__.__name__ == 'In'
-                    # For the right attribute of IN nodes, do not recursively search if in an ON condition
-                    if is_in_node and is_in_on_condition and arg_name == 'this' and 'query' in node.args:
-                        # Do not process queries on the right side of IN nodes
-                        continue
-                    self._process_node_recursive(arg_value, current_flag)
-                # Process the expressions attribute (usually contains selection lists, expression lists, etc.)
-                elif arg_name == 'expressions' and isinstance(arg_value, (list, tuple)):
-                    for expr in arg_value:
-                        self._process_node_recursive(expr, current_flag)
-                # Process the on attribute of Join nodes, marking as ON condition
-                elif node.__class__.__name__ == 'Join' and arg_name == 'on':
-                    # For the on condition of Join nodes, pass the marker
-                    self._process_node_recursive(arg_value, current_flag, is_in_on_condition=True)
-                # Process the right attribute of IN nodes, do not recursively search if in an ON condition
-                elif node.__class__.__name__ == 'In' and is_in_on_condition and arg_name == 'query':
-                    # Do not process queries after IN operators in ON conditions
-                    continue
-                # Process other attributes that may contain child nodes
-                elif arg_name not in ['distinct', 'by_name', 'side', 'kind', 'alias', 'join_type']:
-                    # Pass the current state of whether it's in an ON condition
-                    self._process_node_recursive(arg_value, current_flag, is_in_on_condition)
 
     def _process_select(self, node, flag):
         """Process SELECT node"""
@@ -159,13 +279,15 @@ class SetMutator:
 
     def _process_like(self, node, flag):
         """Process LIKE node"""
-        if hasattr(node, 'args') and 'pattern' in node.args:
+        # sqlglot stores the pattern of LIKE in the 'expression' argument
+        pattern = node.args.get('expression') if hasattr(node, 'args') else None
+        if isinstance(pattern, sqlglot.expressions.Literal) and pattern.is_string and not node.args.get('escape'):
             node_info = {
                 'node_id': id(node),
                 'node': node,
                 'mutation_type': 'RdMLike',
                 'attr_name': 'args',
-                'sub_attr': 'pattern',
+                'sub_attr': 'expression',
                 'direction': 1,  # Default direction, indicates result expansion
                 'flag': flag  # Use inherited flag value
             }
@@ -173,13 +295,15 @@ class SetMutator:
 
     def _process_regexp(self, node, flag):
         """Process REGEXP node"""
-        if hasattr(node, 'args') and 'pattern' in node.args:
+        # sqlglot stores the pattern of REGEXP (RegexpLike) in the 'expression' argument
+        pattern = node.args.get('expression') if hasattr(node, 'args') else None
+        if isinstance(pattern, sqlglot.expressions.Literal) and pattern.is_string:
             node_info = {
                 'node_id': id(node),
                 'node': node,
                 'mutation_type': 'RdMRegExp',
                 'attr_name': 'args',
-                'sub_attr': 'pattern',
+                'sub_attr': 'expression',
                 'direction': 1,  # Default direction, indicates result expansion
                 'flag': flag  # Use inherited flag value
             }
@@ -188,12 +312,12 @@ class SetMutator:
     def _process_comparison(self, node, flag):
         """Process comparison operator node"""
         # Determine current operator based on node type
+        # Only the strict comparisons and equality have a weaker counterpart:
+        # a < b -> a <= b, a > b -> a >= b, a = b -> a >= b
         op_map = {
-            'Gt': 'gt',
-            'Lt': 'lt',
-            'Gte': 'gte',
-            'Lte': 'lte',
-            'Eq': 'eq'
+            'GT': 'gt',
+            'LT': 'lt',
+            'EQ': 'eq'
         }
         node_class = node.__class__.__name__
         if node_class in op_map:
@@ -311,6 +435,10 @@ class SetMutator:
 
         # Execute the original SQL query to get initial results
         result_data = executor.execute_query(sql)
+        if result_data is None:
+            # The (preprocessed) original query failed: an error is not an empty
+            # result, so no relation can be checked.
+            return self.ast
         # Unpack result data
         if isinstance(result_data, tuple) and len(result_data) == 2:
             result = result_data[0]  # Result set
@@ -328,59 +456,12 @@ class SetMutator:
             self.findnode(temp_ast)
             current_mutable_nodes = self.mutable_nodes
 
-            # Find the node at the corresponding position
-            original_index_in_all = all_mutable_nodes.index(item)
-            original_pos = -1
-
-            # Method 1: Try to match using node_id
-            for i, n in enumerate(current_mutable_nodes):
-                if n['node_id'] == item['node_id']:
-                    original_pos = i
-                    break
-
-            # Method 2: If node_id doesn't match, try to match using mutation_type and attr_name
-            if original_pos == -1:
-                # Get all nodes of the same type and attribute
-                same_type_nodes = [n for n in current_mutable_nodes if 
-                                n['mutation_type'] == item['mutation_type'] and 
-                                n['attr_name'] == item['attr_name']]
-                
-                # Get all nodes of the same type in the original list
-                original_same_type = [n for n in all_mutable_nodes if 
-                                    n['mutation_type'] == item['mutation_type'] and 
-                                    n['attr_name'] == item['attr_name']]
-                
-                # Calculate relative position
-                if original_same_type and same_type_nodes:
-                    same_type_indices = [i for i, n in enumerate(all_mutable_nodes) if \
-                                        n['mutation_type'] == item['mutation_type'] and \
-                                        n['attr_name'] == item['attr_name']]
-                    if original_index_in_all in same_type_indices:
-                        original_pos = same_type_indices.index(original_index_in_all)
-
-            # If still not found, try to use node content features
-            if original_pos == -1:
-                for i, n in enumerate(original_same_type):
-                    # For UNION nodes, check distinct value as a feature
-                    if (hasattr(n['node'], 'args') and 'distinct' in n['node'].args and \
-                        hasattr(item['node'], 'args') and 'distinct' in item['node'].args):
-                        if n['node'].args['distinct'] == item['node'].args['distinct']:
-                            original_pos = i
-                            break
-
-            # If all methods fail, use default position
-            if original_pos == -1:
-                # In the loop, we assign an incremental index to each item
-                # This ensures each item can match a different node
-                item_index = all_mutable_nodes.index(item) if item in all_mutable_nodes else 0
-                original_pos = item_index % len(same_type_nodes)
-
-            # Select the corresponding node in the current list based on relative position
-            if 0 <= original_pos < len(same_type_nodes):
-                item = same_type_nodes[original_pos]
-            else:
-                # Default to the first node
-                item = same_type_nodes[0]
+            # findnode() is deterministic, so the node at the same position in
+            # the fresh copy is the counterpart of the node in the original AST
+            original_pos = all_mutable_nodes.index(item)
+            if original_pos >= len(current_mutable_nodes):
+                continue
+            item = current_mutable_nodes[original_pos]
 
             # Since we've already ensured item has a value, no need to check if item is None here
             # Execute mutation
@@ -391,7 +472,14 @@ class SetMutator:
 
             mutated_sql = self.ast.sql()
             #transformed_sql = sqlglot.transpile(mutated_sql, dialect='mysql')[0]
+            if mutated_sql == sql:
+                # The mutation did not change the query
+                continue
             transformed_result_data=executor.execute_query(mutated_sql)
+            if transformed_result_data is None:
+                # The mutated query failed to execute: skip instead of treating
+                # the error as an empty result set
+                continue
             # Unpack mutated result data
             if isinstance(transformed_result_data, tuple) and len(transformed_result_data) == 2:
                 transformed_result = transformed_result_data[0]  # Result set
@@ -410,14 +498,12 @@ class SetMutator:
             original_result_list = []
             if result:
                 # Use tuples directly as comparison units, preserving original order
-                for row in result:
-                    original_result_list.append(row)
+                original_result_list = self._normalize_rows(result)
 
             mutated_result_list = []
             if transformed_result:
                 # Use tuples directly as comparison units, preserving original order
-                for row in transformed_result:
-                    mutated_result_list.append(row)
+                mutated_result_list = self._normalize_rows(transformed_result)
 
             # Optimized subset check function that directly compares list elements to check sub/superset relationships
             def is_list_subset(small_list, large_list, small_columns, large_columns):
@@ -618,57 +704,18 @@ class SetMutator:
             final_direction=(item['direction']^item['flag'])^1
 
         elif mutation_type == 'FixMCmpOp':
-            # Modify comparison operator: Only keep special handling for greater than symbol (gt)
-            current_op = getattr(node, attr_name)
-            
-            # Handling for greater than symbol (gt): Modify the constant value
-            if current_op in ['gt', 'gte']:
-                # Try to get the value of the right-hand expression
-                try:
-                    # Check if the right-hand side is a Literal node
-                    if hasattr(node, 'expression') and hasattr(node.expression, 'this'):
-                        # Try to convert the value to a number
-                        value = node.expression.this
-                        if isinstance(value, (int, float)):
-                            # Modify to a smaller constant, e.g., x > 10 → x > 5, which expands the result set
-                            # Generate a smaller constant, e.g., half of the original value (floor division)
-                            if value > 0:
-                                new_value = max(0, int(value / 2))
-                            else:
-                                new_value = value * 2  # For negative numbers, multiplying by 2 gives a smaller value
-                            
-                            # Create new Literal node
-                            new_literal = sqlglot.expressions.Literal(this=new_value, is_string=False)
-                            # Replace right-hand expression
-                            node.expression = new_literal
-                            item['direction'] = 1  # Expand result set
-                except Exception as e:
-                    pass 
+            # Weaken the comparison: every row satisfying the original predicate
+            # also satisfies the mutated one (NULL operands stay NULL).
+            weaker = {
+                'GT': sqlglot.expressions.GTE,
+                'LT': sqlglot.expressions.LTE,
+                'EQ': sqlglot.expressions.GTE,
+            }.get(node.__class__.__name__)
+            if weaker is not None:
+                new_node = weaker(this=node.this.copy(), expression=node.expression.copy())
+                self._replace_node(node, new_node)
+                item['direction'] = 1  # Expand result set
 
-            elif current_op in ['lt', 'lte']:
-                # Try to get the value of the right-hand expression
-                try:
-                    # Check if the right-hand side is a Literal node
-                    if hasattr(node, 'expression') and hasattr(node.expression, 'this'):
-                        # Try to convert the value to a number
-                        value = node.expression.this
-                        if isinstance(value, (int, float)):
-                            # Modify to a larger constant, e.g., x < 10 → x < 20, which shrinks the result set
-                            # Generate a larger constant, e.g., twice the original value (rounded up)
-                            if value > 0:
-                                new_value = int(value * 2)
-                            else:
-                                new_value = max(-1, int(value / 2))  # For negative numbers, dividing by 2 gives a smaller value
-                            
-                            # Create new Literal node
-                            new_literal = sqlglot.expressions.Literal(this=new_value, is_string=False)
-                            # Replace right-hand expression
-                            node.expression = new_literal
-                            item['direction'] = 1  # Shrink result set
-
-                except Exception as e:
-                    pass  
-            
         elif mutation_type == 'FixMUnionAll':
             # Toggle between UNION and UNION ALL
             # In sqlglot, the Union node's args dictionary has a distinct key, True means UNION (deduplicated), False means UNION ALL (not deduplicated)
@@ -767,96 +814,49 @@ class SetMutator:
                 )
                 node.replace(new_having)
         elif mutation_type == 'RdMLike':
-            # Modify LIKE expression pattern
-            if hasattr(node, 'args') and 'pattern' in node.args:
-                original_pattern = node.args['pattern']
-                pattern_str = original_pattern.this if hasattr(original_pattern, 'this') else str(original_pattern)
-
-                try:
-                    # Remove possible single quotes
-                    if pattern_str.startswith("'"):
-                        pattern_str = pattern_str[1:]
-                    if pattern_str.endswith("'"):
-                        pattern_str = pattern_str[:-1]
-
-                    if direction == 1:
-                        # Expand results: Replace normal characters with wildcards, or replace '_' with '%'
-                        new_pattern = []
-                        for char in pattern_str:
-                            if char == '_':
-                                new_pattern.append('%')
-                            elif random.random() < 0.3 and char.isalnum():
-                                # 30% probability of replacing ordinary characters with wildcard characters
-                                new_pattern.append(random.choice(['_', '%']))
-                            else:
-                                new_pattern.append(char)
-                        new_pattern_str = ''.join(new_pattern)
+            # Generalise the LIKE pattern: '_' -> '%', ordinary characters may
+            # become wildcards. Escaped characters are kept untouched.
+            pattern_node = node.args.get('expression')
+            if pattern_node is not None:
+                pattern_str = pattern_node.this
+                new_pattern = []
+                escaped = False
+                for char in pattern_str:
+                    if escaped:
+                        new_pattern.append(char)
+                        escaped = False
+                    elif char == '\\':
+                        new_pattern.append(char)
+                        escaped = True
+                    elif char == '_':
+                        new_pattern.append('%')
+                    elif random.random() < 0.3 and char.isalnum():
+                        new_pattern.append(random.choice(['_', '%']))
                     else:
-                        # Shrink results: Replace '%' with '_' or fixed characters
-                        new_pattern = []
-                        for char in pattern_str:
-                            if char == '%':
-                                if random.random() < 0.5:
-                                    new_pattern.append('_')
-                                else:
-                                    new_pattern.append(random.choice(string.ascii_lowercase))
-                            else:
-                                new_pattern.append(char)
-                        new_pattern_str = ''.join(new_pattern)
-
-                    # Create new pattern node
-                    new_pattern_node = sqlglot.expressions.Literal(this=new_pattern_str, is_string=True)
-                    node.args['pattern'] = new_pattern_node
-                except Exception as e:
-                    pass  # Failed to modify LIKE expression pattern
+                        new_pattern.append(char)
+                node.set('expression', sqlglot.expressions.Literal(this=''.join(new_pattern), is_string=True))
+                item['direction'] = 1
         elif mutation_type == 'RdMRegExp':
-            # Modify REGEXP expression pattern
-            if hasattr(node, 'args') and 'pattern' in node.args:
-                original_pattern = node.args['pattern']
-                pattern_str = original_pattern.this if hasattr(original_pattern, 'this') else str(original_pattern)
-
-                try:
-                    # Remove possible single quotes
-                    if pattern_str.startswith("'"):
-                        pattern_str = pattern_str[1:]
-                    if pattern_str.endswith("'"):
-                        pattern_str = pattern_str[:-1]
-
-                    if direction == 1:
-                        # Expand results: Remove '^' and '$', replace '+' and '?' with '*'
-                        new_pattern_str = pattern_str.replace('^', '').replace('$', '')
-                        new_pattern_str = new_pattern_str.replace('+', '*').replace('?', '*')
-                    else:
-                        # Shrink results: Add '^' at the beginning and '$' at the end, replace '*' with '+' or '?'
-                        new_pattern_str = pattern_str
-                        # 50% probability to add ^ and $
-                        if random.random() < 0.5 and not new_pattern_str.startswith('^'):
-                            new_pattern_str = '^' + new_pattern_str
-                        if random.random() < 0.5 and not new_pattern_str.endswith('$'):
-                            new_pattern_str = new_pattern_str + '$'
-                        # Replace '*' with '+' or '?'
-                        new_pattern = []
-                        for i, char in enumerate(new_pattern_str):
-                            if char == '*' and (i == 0 or new_pattern_str[i-1] not in ['\\']):
-                                new_pattern.append(random.choice(['+', '?']))
-                            else:
-                                new_pattern.append(char)
-                        new_pattern_str = ''.join(new_pattern)
-
-                    # Create new pattern node
-                    new_pattern_node = sqlglot.expressions.Literal(this=new_pattern_str, is_string=True)
-                    node.args['pattern'] = new_pattern_node
-                except Exception as e:
-                    pass  # Failed to modify REGEXP expression pattern
+            # Generalise the REGEXP pattern. Textual rewriting is only safe for
+            # patterns without classes, groups, escapes, alternation or counted /
+            # lazy quantifiers ('^' inside '[...]' is a negation, '\\+' a literal).
+            pattern_node = node.args.get('expression')
+            if pattern_node is not None:
+                pattern_str = pattern_node.this
+                simple = not any(c in pattern_str for c in '[]()\\{}|')
+                simple = simple and '^' not in pattern_str[1:] and '$' not in pattern_str[:-1]
+                simple = simple and not any(q in pattern_str for q in ('+?', '*?', '??', '++', '*+', '?+'))
+                if simple:
+                    new_pattern_str = pattern_str.replace('^', '').replace('$', '')
+                    new_pattern_str = new_pattern_str.replace('+', '*').replace('?', '*')
+                    node.set('expression', sqlglot.expressions.Literal(this=new_pattern_str, is_string=True))
+                item['direction'] = 1
         elif mutation_type == 'FixMLogicalAnd':
             # Logical AND expression mutation: a AND b AND c -> a AND b (remove the last condition)
-            if hasattr(node, 'args') and 'expressions' in node.args:
-                expressions = node.args['expressions']
-                if expressions and len(expressions) > 1:
-                    # Remove the last expression, keep the previous ones
-                    new_expressions = expressions[:-1]
-                    node.args['expressions'] = new_expressions
-                    item['direction'] = 1  # Expand results: reducing conditions gives more results
+            # sqlglot represents AND as a binary node: keep the left operand only
+            if node.this is not None and node.expression is not None:
+                self._replace_node(node, node.this.copy())
+                item['direction'] = 1  # Expand results: reducing conditions gives more results
         elif mutation_type == 'FixMInnerJoin':
             # INNER JOIN -> LEFT JOIN mutation
             if hasattr(node, 'args') and 'kind' in node.args:
@@ -879,12 +879,13 @@ class SetMutator:
                 if left_expr and right_expr:
                     # Create UNION node, use DISTINCT by default
                     union_node = sqlglot.expressions.Union(
-                        this=left_expr,
-                        expression=right_expr,
+                        this=left_expr.copy(),
+                        expression=right_expr.copy(),
                         distinct=True
                     )
+                    self._carry_with_clause(node, union_node)
                     # Replace current node
-                    node.replace(union_node)
+                    self._replace_node(node, union_node)
                     item['direction'] = 1  # Expand results: INTERSECT -> UNION gives more results
             except Exception as e:
                 pass
@@ -898,7 +899,9 @@ class SetMutator:
             if left_expr:
                 try:
                     # Replace the entire EXCEPT node with left expression
-                    node.replace(left_expr)
+                    left_expr = left_expr.copy()
+                    self._carry_with_clause(node, left_expr)
+                    self._replace_node(node, left_expr)
                     item['direction'] = 1  # Expand results: removing EXCEPT operation gives more results
                 except Exception as e:
                     pass  # Mutation failed
@@ -907,6 +910,57 @@ class SetMutator:
         final_direction=(item['direction']^item['flag'])^1
         return self.ast
 
+
+    def _replace_node(self, node, new_node):
+        """Replace a node; sqlglot's replace() is a no-op for the root, so the
+        root has to be swapped explicitly."""
+        if node.parent is None:
+            if node is self.ast:
+                self.ast = new_node
+        else:
+            node.replace(new_node)
+        return new_node
+
+    @staticmethod
+    def _carry_with_clause(old_node, new_node):
+        """Keep the WITH clause when a set operation node is replaced."""
+        for key in ('with_', 'with'):
+            with_clause = old_node.args.get(key)
+            if with_clause is not None:
+                target = new_node.this if new_node.__class__.__name__ == 'Subquery' else new_node
+                target.set(key, with_clause.copy())
+
+    @staticmethod
+    def _normalize_value(value):
+        """Make values comparable across the result types of the original and
+        the mutated query (set operations unify column types, e.g. DATE vs CHAR
+        or FLOAT vs DECIMAL), so that only real value differences are reported."""
+        import datetime
+        from decimal import Decimal
+        if isinstance(value, bool) or value is None:
+            return value
+        if isinstance(value, (int, float, Decimal)):
+            try:
+                return round(float(value), 4)
+            except (ValueError, OverflowError):
+                return str(value)
+        if isinstance(value, datetime.timedelta):
+            # TIME values: use the same text form the DBMS uses (HH:MM:SS)
+            total = int(value.total_seconds())
+            sign = '-' if total < 0 else ''
+            total = abs(total)
+            return f"{sign}{total // 3600:02d}:{total % 3600 // 60:02d}:{total % 60:02d}"
+        if isinstance(value, (datetime.datetime, datetime.date, datetime.time)):
+            return str(value)
+        if isinstance(value, str):
+            try:
+                return round(float(value), 4)
+            except (ValueError, OverflowError):
+                return value
+        return value
+
+    def _normalize_rows(self, rows):
+        return [tuple(self._normalize_value(v) for v in row) for row in rows]
 
     def get_mutated_ast(self):
         """Get the mutated AST"""

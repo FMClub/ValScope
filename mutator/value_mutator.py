@@ -15,6 +15,7 @@ class ValueMutator:
         self.comparison_results = []  # Store comparison results
         self.node_info_stack = []  # Stack data structure for storing node_info
         self.current_set_operation_node = None  # Store the currently found set operation node
+        self._last_constant_operation = 'add'  # Operation used by the last constant mutation
         # Add table alias dependency graph related attributes
         self.alias_map = {}  # Store mapping relationships from aliases to actual references
         self.tables = get_tables()  # Import global table structure information
@@ -1059,6 +1060,8 @@ class ValueMutator:
                     node_info['direction'] = 1
                     mutated_node = self._mutate_regular_column_constant(node, 2)
                     node_info['node'] = mutated_node
+                    # expr * k only grows the value when expr >= 0
+                    node_info['sign_dependent'] = self._last_constant_operation == 'mul'
                     
                     # Synchronously update corresponding column in GROUP BY clause
                     self._update_group_by_with_mutated_node(node, mutated_node)
@@ -1070,6 +1073,8 @@ class ValueMutator:
                     node_info['direction'] = 1
                     mutated_node = self._mutate_regular_column_constant(node, 2)
                     node_info['node'] = mutated_node
+                    # expr * k only grows the value when expr >= 0
+                    node_info['sign_dependent'] = self._last_constant_operation == 'mul'
                     
                     # Synchronously update corresponding scalar function in GROUP BY clause
                     self._update_group_by_with_mutated_node(node, mutated_node)
@@ -1084,11 +1089,16 @@ class ValueMutator:
                     # If parameter is numeric type, 25% probability to perform +random mutation
                     node_info['direction'] = 1
                     node_info['node']=self._mutate_add_positive_random(node)
-                elif rand_val < 0.5:
+                elif param_info['is_numeric'] and rand_val < 0.5:
+                    # AVG(c) <= MAX(c) only holds when both are compared as numbers:
+                    # for TIME/DATE/string arguments AVG returns a number while MAX
+                    # returns a value of the argument type.
                     node_info['direction'] = 1
                     node_info['node']=self._mutate_avg_to_max(node)
-                elif rand_val < 0.75:
+                elif param_info['is_numeric'] and rand_val < 0.75:
+                    # AVG(c) => AVG(c * 3): grows only when the average is >= 0
                     node_info['direction'] = 1
+                    node_info['sign_dependent'] = True
                     node_info['node']=self._mutate_monotonic_multiplication(node, 3)
                 else:
                     # AVG(x) => AVG(x) + 2
@@ -1177,9 +1187,14 @@ class ValueMutator:
                     node_info['direction'] = 1
                     node_info['node']=self._mutate_add_positive_random(node)
                 else:
-                    # SUM(c) => SUM(c*2) maintaining monotonicity
+                    # SUM(c) => SUM(c*2): grows only when the sum is >= 0
                     node_info['direction'] = 1
+                    node_info['sign_dependent'] = True
                     node_info['node']=self._mutate_monotonic_multiplication(node, 2)
+            if node_info.get('direction') is None or not node_info.get('node'):
+                # No mutation was applied to this node (e.g. non-numeric column):
+                # there is no relation to check.
+                continue
             node_to_direction=node_info
             mutate_sql=str(self.ast)
             mutate_result=generator.execute_query(mutate_sql)
@@ -1436,6 +1451,7 @@ class ValueMutator:
                 operation_type = random.choice(['add', 'mul'])
 
             
+            self._last_constant_operation = operation_type
             if operation_type == 'add':
                 # Create an Add expression: column_node + constant
                 expr = Add(
@@ -1499,22 +1515,29 @@ class ValueMutator:
                     func_node.replace(new_sum)
                     return new_sum
                 else:
-                    # Update function parameters
-                    if hasattr(func_node, 'this'):
-                        try:
-                            func_node.this = multiplied_arg
-                        except AttributeError:
-                            # If direct this attribute setting is not possible, create and replace with new node
-                            if func_node.__class__.__name__ == 'Sum':
-                                new_sum = Sum(this=multiplied_arg)
-                                func_node.replace(new_sum)
-                    elif hasattr(func_node, 'expressions'):
-                        func_node.expressions[0] = multiplied_arg
-                    
-                
-                    return new_sum
+                    # Update the function argument in place (works for SUM, AVG, ...)
+                    if func_node.args.get('this') is not None:
+                        func_node.set('this', multiplied_arg)
+                    elif func_node.args.get('expressions'):
+                        func_node.set('expressions', [multiplied_arg] + list(func_node.expressions[1:]))
+                    return func_node
         except Exception as e:
             pass  # Silently handle exceptions
+
+    @staticmethod
+    def _effective_direction(node_info, original_val):
+        """Expected direction of the value change for one row.
+
+        Multiplying by a constant k >= 1 only increases non-negative values; for a
+        negative original value the mutated value is expected to be smaller."""
+        direction = node_info.get('direction', None)
+        if direction is not None and node_info.get('sign_dependent'):
+            try:
+                if float(original_val) < 0:
+                    return direction ^ 1
+            except (TypeError, ValueError):
+                pass
+        return direction
 
     def get_mutated_ast(self):
         """Get the mutated AST"""
@@ -2464,7 +2487,12 @@ class ValueMutator:
                                                         # Check if value change meets expectations
                                                         expected_change = True
                                                         if original_val is not None and mutated_val is not None:
-                                                            direction = node_info.get('direction', None)
+                                                            direction = self._effective_direction(node_info, original_val)
+                                                            if node_info.get('func_name') in ('Variance', 'Stddev', 'StddevSamp'):
+                                                                # x vs sqrt(x): the expected order depends on x < 1,
+                                                                # handled by the sorted comparison below
+                                                                direction = None
+                                                                use_sorted_results = True
                                                              
                                                             if direction is not None:
                                                                 if direction == 0:
@@ -2624,7 +2652,7 @@ class ValueMutator:
                                                         # Check if value change meets expectations
                                                         if original_val is not None and mutated_val is not None:
                                                             expected_change = True
-                                                            direction = node_info.get('direction', None)
+                                                            direction = self._effective_direction(node_info, original_val)
                                                             func_name = node_info.get('func_name', '')
                                                              
                                                             if direction is not None:
@@ -2653,7 +2681,7 @@ class ValueMutator:
                                                                             # direction=1 indicates expected mutated value to be larger
                                                                             if mutated_val < original_val:
                                                                                 expected_change = False
-                                                                elif func_name == 'Stddev':
+                                                                elif func_name in ('Stddev', 'StddevSamp'):
                                                                     # Special handling for StddevSamp function: treat None and 0.0 as consistent
                                                                     try:
                                                                         # Try to convert values to float for comparison

@@ -346,4 +346,108 @@ Proof.
   intros a b [H1 H2]. split; intro E; subst; apply bag_le_nil_r; assumption.
 Qed.
 
+(** ---------------- INTERSECT ALL and EXCEPT ALL (bag semantics) ---------------- *)
+
+(** Remove the first element equivalent to [x]. *)
+Fixpoint remove1 (x : A) (l : list A) : list A :=
+  match l with [] => [] | y :: t => if eqb x y then t else y :: remove1 x t end.
+
+(** [inter_all a b]: every element of [a] that can be matched with a distinct equivalent
+    element of [b]; [exc_all a b]: every element of [a] that cannot. *)
+Fixpoint inter_all (l1 l2 : list A) : list A :=
+  match l1 with
+  | [] => []
+  | x :: t => if existsb (eqb x) l2 then x :: inter_all t (remove1 x l2) else inter_all t l2
+  end.
+
+Fixpoint exc_all (l1 l2 : list A) : list A :=
+  match l1 with
+  | [] => []
+  | x :: t => if existsb (eqb x) l2 then exc_all t (remove1 x l2) else x :: exc_all t l2
+  end.
+
+Lemma count_remove1 : forall z x l,
+  count z (remove1 x l) = count z l - ind (eqb z x && existsb (eqb x) l).
+Proof.
+  intros z x l. induction l as [|y t IH]; simpl; [reflexivity|].
+  destruct (eqb x y) eqn:Exy; simpl.
+  - (* y is removed: z loses one occurrence exactly when z ~ y, i.e. z ~ x *)
+    rewrite (eqb_swap x y z Exy). unfold ind. rewrite ?orb_true_r, ?orb_true_l, ?andb_true_r.
+    destruct (eqb z y); simpl; lia.
+  - rewrite IH. unfold ind. destruct (eqb z y) eqn:Ezy; simpl.
+    + destruct (eqb z x) eqn:Ezx; simpl.
+      * exfalso. rewrite (eqb_trans _ _ _ (eqb_sym _ _ Ezx) Ezy) in Exy. discriminate.
+      * lia.
+    + destruct (eqb z x && existsb (eqb x) t); lia.
+Qed.
+
+Lemma count_inter_all : forall z a b, count z (inter_all a b) = Nat.min (count z a) (count z b).
+Proof.
+  intros z a. induction a as [|x t IH]; intros b; simpl; [reflexivity|].
+  destruct (existsb (eqb x) b) eqn:Eb; simpl.
+  - rewrite IH, count_remove1, Eb, andb_true_r. unfold ind.
+    destruct (eqb z x) eqn:Ezx.
+    + apply existsb_count in Eb. rewrite <- (count_compat z x b Ezx) in Eb. lia.
+    + lia.
+  - rewrite IH. unfold ind. destruct (eqb z x) eqn:Ezx; [|lia].
+    assert (C : count x b = 0).
+    { destruct (count x b) eqn:C; [reflexivity|].
+      assert (existsb (eqb x) b = true) by (apply existsb_count; lia). congruence. }
+    rewrite (count_compat z x b Ezx), C. lia.
+Qed.
+
+Lemma count_exc_all : forall z a b, count z (exc_all a b) = count z a - count z b.
+Proof.
+  intros z a. induction a as [|x t IH]; intros b; simpl; [reflexivity|].
+  destruct (existsb (eqb x) b) eqn:Eb; simpl.
+  - rewrite IH, count_remove1, Eb, andb_true_r. unfold ind.
+    destruct (eqb z x) eqn:Ezx.
+    + apply existsb_count in Eb. rewrite <- (count_compat z x b Ezx) in Eb. lia.
+    + lia.
+  - rewrite IH. unfold ind. destruct (eqb z x) eqn:Ezx; [|lia].
+    assert (C : count x b = 0).
+    { destruct (count x b) eqn:C; [reflexivity|].
+      assert (existsb (eqb x) b = true) by (apply existsb_count; lia). congruence. }
+    rewrite (count_compat z x b Ezx), C. lia.
+Qed.
+
+Lemma bag_le_inter_all : forall a a' b b', bag_le a a' -> bag_le b b' ->
+  bag_le (inter_all a b) (inter_all a' b').
+Proof. intros a a' b b' H1 H2 z. rewrite !count_inter_all. specialize (H1 z). specialize (H2 z). lia. Qed.
+
+Lemma bag_le_exc_all_l : forall a a' b, bag_le a a' -> bag_le (exc_all a b) (exc_all a' b).
+Proof. intros a a' b H z. rewrite !count_exc_all. specialize (H z). lia. Qed.
+
+(** EXCEPT ALL is antitone in its right operand. *)
+Lemma bag_le_exc_all_r : forall a b b', bag_le b b' -> bag_le (exc_all a b') (exc_all a b).
+Proof. intros a b b' H z. rewrite !count_exc_all. specialize (H z). lia. Qed.
+
+Lemma bag_eq_inter_all : forall a a' b b', bag_eq a a' -> bag_eq b b' ->
+  bag_eq (inter_all a b) (inter_all a' b').
+Proof. intros a a' b b' [H1 H1'] [H2 H2']. split; apply bag_le_inter_all; assumption. Qed.
+
+Lemma bag_eq_exc_all : forall a a' b b', bag_eq a a' -> bag_eq b b' -> bag_eq (exc_all a b) (exc_all a' b').
+Proof.
+  intros a a' b b' [H1 H1'] [H2 H2']. split; intro z; rewrite !count_exc_all;
+    specialize (H1 z); specialize (H1' z); specialize (H2 z); specialize (H2' z); lia.
+Qed.
+
+(** INTERSECT is below INTERSECT ALL, and EXCEPT below EXCEPT ALL. *)
+Lemma inter_le_inter_all : forall a b, bag_le (inter a b) (inter_all a b).
+Proof.
+  intros a b z. unfold inter. rewrite count_filter by apply existsb_compat.
+  rewrite count_dedup, count_inter_all. destruct (existsb (eqb z) b) eqn:E; [|lia].
+  apply existsb_count in E. lia.
+Qed.
+
+Lemma exc_le_exc_all : forall a b, bag_le (exc a b) (exc_all a b).
+Proof.
+  intros a b z. unfold exc. rewrite count_filter by apply negb_existsb_compat.
+  rewrite count_dedup, count_exc_all. destruct (existsb (eqb z) b) eqn:E; cbn [negb]; [lia|].
+  assert (C : count z b = 0).
+  { destruct (count z b) eqn:C; [reflexivity|]. exfalso.
+    assert (Hc : count z b > 0) by lia. apply existsb_count in Hc. congruence. }
+  rewrite C. lia.
+Qed.
+
 End Bag.

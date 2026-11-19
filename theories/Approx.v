@@ -93,6 +93,40 @@ Proof.
   - apply list_eqb_nth; [apply veq_refl|exact E].
 Qed.
 
+Lemma roweq3_compat : forall db xs xs' ys ys', req db xs xs' = true -> req db ys ys' = true ->
+  roweq3 db xs ys = roweq3 db xs' ys'.
+Proof.
+  intros db xs. induction xs as [|x xs IH]; intros xs' ys ys' Hx Hy;
+    destruct xs' as [|x' xs']; simpl in Hx; try discriminate; [reflexivity|].
+  apply andb_prop in Hx as [Hx1 Hx2].
+  destruct ys as [|y ys]; destruct ys' as [|y' ys']; simpl in Hy; try discriminate; [reflexivity|].
+  apply andb_prop in Hy as [Hy1 Hy2]. simpl.
+  rewrite (vcmp_compat db CEq x x' y y' Hx1 Hy1), (IH xs' ys ys' Hx2 Hy2). reflexivity.
+Qed.
+
+Lemma int3_ge : forall db xs rows r, In r rows -> tv_le (roweq3 db xs r) (int3 db xs rows).
+Proof.
+  intros db xs rows r. induction rows as [|y rows IH]; intro H; simpl in *; [contradiction|].
+  destruct H as [->|H]; [apply tv_or_ge_l|].
+  eapply tv_le_trans; [apply IH; exact H|apply tv_or_ge_r].
+Qed.
+
+Lemma int3_le : forall db xs rows t, (forall r, In r rows -> tv_le (roweq3 db xs r) t) ->
+  tv_le (int3 db xs rows) t.
+Proof.
+  intros db xs rows t. induction rows as [|y rows IH]; intro H; simpl; [apply tv_le_F|].
+  apply tv_or_lub; [apply H; left; reflexivity|apply IH; intros r Hr; apply H; right; exact Hr].
+Qed.
+
+(** (x1, ..., xn) IN (subquery) is monotone in the subquery, like IN. *)
+Lemma int3_mono : forall db xs xs' L L', req db xs xs' = true -> bag_le (req db) L L' ->
+  tv_le (int3 db xs L) (int3 db xs' L').
+Proof.
+  intros db xs xs' L L' Hx HL. apply int3_le. intros r Hr.
+  destruct (bag_le_in (req db) (req_refl db) L L' r HL Hr) as [r' [Hr' E]].
+  rewrite (roweq3_compat db xs xs' r r' Hx E). apply int3_ge. exact Hr'.
+Qed.
+
 Lemma matches_row : forall db P r1 r1' B, pcompat (req db) P -> req db r1 r1' = true ->
   bag_eq (req db) (matches P r1 B) (matches P r1' B).
 Proof.
@@ -155,6 +189,10 @@ Proof.
     destruct (H db c c' H0) as [L1 L2]. apply tv_le_antisym.
     + apply in3_mono; [apply expr_compat; exact H0|exact L1].
     + apply in3_mono; [apply veq_sym; apply expr_compat; exact H0|exact L2].
+  - (* (e1, ..., en) IN *)
+    destruct (H db c c' H0) as [L1 L2]. apply tv_le_antisym.
+    + apply int3_mono; [apply proj_compat; exact H0|exact L1].
+    + apply int3_mono; [apply proj_compat; apply req_sym; exact H0|exact L2].
   - apply like_compat. apply expr_compat. assumption.
   - apply rx_compat. apply expr_compat. assumption.
   - apply atoms_compat. exact H.
@@ -175,6 +213,8 @@ Proof.
   - eapply bag_eq_union; laws db; [apply H|apply H0]; exact H1.
   - eapply bag_eq_inter; laws db; [apply H|apply H0]; exact H1.
   - eapply bag_eq_exc; laws db; [apply H|apply H0]; exact H1.
+  - eapply bag_eq_inter_all; laws db; [apply H|apply H0]; exact H1.
+  - eapply bag_eq_exc_all; laws db; [apply H|apply H0]; exact H1.
   - (* QInnerJoin *)
     eapply bag_eq_trans; laws db; [ |].
     + eapply bag_eq_flat_map_list; laws db; [ |apply H0; exact H2].
@@ -232,6 +272,9 @@ Qed.
 (** IN is monotone in its subquery, so NOT IN is antitone. *)
 Lemma p_le_in : forall e a b, q_le a b -> p_le (PIn e a) (PIn e b).
 Proof. intros e a b H db ctx. simpl. apply in3_mono; [apply veq_refl|apply H]. Qed.
+
+Lemma p_le_int : forall es a b, q_le a b -> p_le (PInT es a) (PInT es b).
+Proof. intros es a b H db ctx. simpl. apply int3_mono; [apply req_refl|apply H]. Qed.
 
 Lemma p_le_true : forall p, p_le p PTrue.
 Proof. intros p db ctx. simpl. apply tv_le_T. Qed.
@@ -343,6 +386,25 @@ Proof. intros a db ctx. simpl. eapply dedup_le; laws db. Qed.
 
 Lemma q_le_union_base : forall a b, q_le (QUnion a b) (QUnionAll a b).
 Proof. intros a b db ctx. simpl. eapply union_le_union_all; laws db. Qed.
+
+Lemma q_le_intersect_all : forall a a' b b', q_le a a' -> q_le b b' ->
+  q_le (QIntersectAll a b) (QIntersectAll a' b').
+Proof. intros a a' b b' H1 H2 db ctx. simpl. eapply bag_le_inter_all; laws db; [apply H1|apply H2]. Qed.
+
+(** EXCEPT ALL is monotone on the left and antitone on the right. *)
+Lemma q_le_except_all : forall a a' b b', q_le a a' -> q_le b' b -> q_le (QExceptAll a b) (QExceptAll a' b').
+Proof.
+  intros a a' b b' H1 H2 db ctx. simpl. eapply bag_le_trans.
+  - eapply bag_le_exc_all_l; laws db; [apply H1].
+  - eapply bag_le_exc_all_r; laws db; [apply H2].
+Qed.
+
+(** INTERSECT is below INTERSECT ALL, EXCEPT below EXCEPT ALL. *)
+Lemma q_le_intersect_all_base : forall a b, q_le (QIntersect a b) (QIntersectAll a b).
+Proof. intros a b db ctx. simpl. eapply inter_le_inter_all; laws db. Qed.
+
+Lemma q_le_except_all_base : forall a b, q_le (QExcept a b) (QExceptAll a b).
+Proof. intros a b db ctx. simpl. eapply exc_le_exc_all; laws db. Qed.
 
 Lemma q_le_inter_base : forall a b, q_le (QIntersect a b) (QUnion a b).
 Proof. intros a b db ctx. simpl. eapply inter_le_union; laws db. Qed.

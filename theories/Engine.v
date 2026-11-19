@@ -42,6 +42,7 @@ Fixpoint mut_p (d : dir) (p : pred) {struct p} : list (string * pred) :=
       lmap (fun a' => POr a' b) (mut_p d a) ++ lmap (fun b' => POr a b') (mut_p d b)
   | PExists q => lmap PExists (mut_q d q)
   | PIn e q => lmap (PIn e) (mut_q d q)
+  | PInT es q => lmap (PInT es) (mut_q d q)
   | _ => []
   end
 with mut_q (d : dir) (q : query) {struct q} : list (string * query) :=
@@ -60,6 +61,10 @@ with mut_q (d : dir) (q : query) {struct q} : list (string * query) :=
       lmap (fun a' => QIntersect a' b) (mut_q d a) ++ lmap (QIntersect a) (mut_q d b)
   | QExcept a b =>
       lmap (fun a' => QExcept a' b) (mut_q d a) ++ lmap (QExcept a) (mut_q (flip d) b)
+  | QIntersectAll a b =>
+      lmap (fun a' => QIntersectAll a' b) (mut_q d a) ++ lmap (QIntersectAll a) (mut_q d b)
+  | QExceptAll a b =>
+      lmap (fun a' => QExceptAll a' b) (mut_q d a) ++ lmap (QExceptAll a) (mut_q (flip d) b)
   | QInnerJoin p a b =>
       lmap (fun p' => QInnerJoin p' a b) (mut_p d p) ++
       lmap (fun a' => QInnerJoin p a' b) (mut_q d a) ++
@@ -158,6 +163,10 @@ Proof.
     intros e q IHq d. simpl mut_p. rewrite Forall_app; split; [apply fire_p_sound|].
     apply (fa_mono q_le p_le (PIn e)); [|apply IHq].
     intros u v H. apply p_le_in. exact H.
+  - (* PInT: monotone in the subquery *)
+    intros es q IHq d. simpl mut_p. rewrite Forall_app; split; [apply fire_p_sound|].
+    apply (fa_mono q_le p_le (PInT es)); [|apply IHq].
+    intros u v H. apply p_le_int. exact H.
   - (* PLike *)
     intros e l d. simpl mut_p. rewrite Forall_app; split; [apply fire_p_sound|apply Forall_nil].
   - (* PRegex *)
@@ -209,6 +218,20 @@ Proof.
       intros u v H. apply q_le_except; [exact H|apply q_le_refl].
     + apply (fa_anti q_le q_le (QExcept a)); [|apply IHb].
       intros u v H. apply q_le_except; [apply q_le_refl|exact H].
+  - (* QIntersectAll: monotone in both operands *)
+    intros a IHa b IHb d. simpl mut_q. rewrite Forall_app; split; [apply fire_q_sound|].
+    rewrite Forall_app; split.
+    + apply (fa_mono q_le q_le (fun a' => QIntersectAll a' b)); [|apply IHa].
+      intros u v H. apply q_le_intersect_all; [exact H|apply q_le_refl].
+    + apply (fa_mono q_le q_le (QIntersectAll a)); [|apply IHb].
+      intros u v H. apply q_le_intersect_all; [apply q_le_refl|exact H].
+  - (* QExceptAll: the right operand is antitone *)
+    intros a IHa b IHb d. simpl mut_q. rewrite Forall_app; split; [apply fire_q_sound|].
+    rewrite Forall_app; split.
+    + apply (fa_mono q_le q_le (fun a' => QExceptAll a' b)); [|apply IHa].
+      intros u v H. apply q_le_except_all; [exact H|apply q_le_refl].
+    + apply (fa_anti q_le q_le (QExceptAll a)); [|apply IHb].
+      intros u v H. apply q_le_except_all; [apply q_le_refl|exact H].
   - (* QInnerJoin *)
     intros p IHp a IHa b IHb d. simpl mut_q. rewrite Forall_app; split; [apply fire_q_sound|].
     rewrite Forall_app; split.

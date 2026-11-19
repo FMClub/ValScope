@@ -123,6 +123,13 @@ def pred(rng, aliases, depth, outer=()):
         a = rng.choice(aliases)
         t = rng.choice(list(TABLES))
         alias = mk_alias(t, 'i%d' % rng.randint(0, 99))
+        if not SQLITE and rng.random() < 0.25 and len(TABLES[tab(a)]) > 1 and len(TABLES[t]) > 1:
+            # (a, b) IN (SELECT x, y ...): row comparison
+            inner = pred(rng, [alias], depth - 1, outer=tuple(aliases) + tuple(outer))
+            c1, c2 = rng.sample(TABLES[tab(a)], 2)
+            d1, d2 = rng.sample(TABLES[t], 2)
+            return '(%s.%s, %s.%s) %sIN (SELECT %s.%s, %s.%s FROM %s AS %s WHERE %s)' % (
+                a, c1, a, c2, 'NOT ' if rng.random() < 0.5 else '', alias, d1, alias, d2, t, alias, inner)
         inner = pred(rng, [alias], depth - 1, outer=tuple(aliases) + tuple(outer))
         return '%s.%s %sIN (SELECT %s.%s FROM %s AS %s WHERE %s)' % (
             a, rng.choice(TABLES[tab(a)]), 'NOT ' if rng.random() < 0.5 else '',
@@ -180,7 +187,9 @@ def query(rng, depth=2):
     def go(d):
         if d <= 0 or rng.random() < (0.2 if FOCUS else 0.55):
             return select(rng, ncols)
-        op = rng.choice(['UNION', 'UNION ALL', 'INTERSECT', 'EXCEPT'])
+        # INTERSECT ALL / EXCEPT ALL: MySQL 8.0.31+, MariaDB 10.5+; not in SQLite
+        op = rng.choice(['UNION', 'UNION ALL', 'INTERSECT', 'EXCEPT'] +
+                        ([] if SQLITE else ['INTERSECT ALL', 'EXCEPT ALL']))
         if SQLITE:
             # SQLite does not allow parentheses around compound operands; compounds
             # are left-associative, so build a left-deep chain

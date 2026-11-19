@@ -17,7 +17,8 @@ Definition query_rules : list qrule :=
   [ r_distinct_drop; r_distinct_add; r_union_all; r_union_distinct;
     r_except_left; r_intersect_union; r_union_intersect;
     r_inner_left; r_left_inner;
-    r_intersect_operand ].
+    r_intersect_operand;
+    r_intersect_all; r_intersect_distinct; r_except_all; r_except_distinct ].
 
 (** The mutator of the framework: the engine instantiated with the registry. *)
 Definition mutate : dir -> query -> list (string * query) :=

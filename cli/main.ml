@@ -4,10 +4,11 @@
      query ::= (T id arity) | (Proj (e ...) q) | (Where p q) | (Distinct q)
              | (UnionAll q q) | (Union q q) | (Intersect q q) | (Except q q)
              | (Inner p q q) | (Left pad p q q)
+             | (IntersectAll q q) | (ExceptAll q q)
              | (Named id q)          a derived table or CTE reference, kept as written
              | (QAtom id arity)      an opaque subquery (aggregates, LIMIT, windows, ...)
      pred  ::= True | False | (Cmp op e e) | (IsNull e) | (Not p) | (And p p)
-             | (Or p p) | (Exists q) | (In e q) | (Atom id)
+             | (Or p p) | (Exists q) | (In e q) | (InT (e ...) q) | (Atom id)
              | (Like e hex)          hex: the LIKE pattern, hex-encoded; % and _ are wildcards
              | (Regex e hex)         hex: a regular expression of the fragment
                                      ^? (c | .)(?|*|+)? ... $?   (c a literal character)
@@ -137,6 +138,7 @@ let rec pred_of = function
   | L [A "Or"; a; b] -> POr (pred_of a, pred_of b)
   | L [A "Exists"; q] -> PExists (query_of q)
   | L [A "In"; e; q] -> PIn (expr_of e, query_of q)
+  | L [A "InT"; L es; q] -> PInT (List.map expr_of es, query_of q)
   | L [A "Atom"; A i] -> PAtom (int_of_string i)
   | L [A "Like"; e; A h] -> PLike (expr_of e, lpat_of (unhex h))
   | L [A "Like"; e] -> PLike (expr_of e, [])
@@ -153,6 +155,8 @@ and query_of = function
   | L [A "Union"; a; b] -> QUnion (query_of a, query_of b)
   | L [A "Intersect"; a; b] -> QIntersect (query_of a, query_of b)
   | L [A "Except"; a; b] -> QExcept (query_of a, query_of b)
+  | L [A "IntersectAll"; a; b] -> QIntersectAll (query_of a, query_of b)
+  | L [A "ExceptAll"; a; b] -> QExceptAll (query_of a, query_of b)
   | L [A "Inner"; p; a; b] -> QInnerJoin (pred_of p, query_of a, query_of b)
   | L [A "Left"; A n; p; a; b] -> QLeftJoin (int_of_string n, pred_of p, query_of a, query_of b)
   | L [A "Named"; A i; q] -> QNamed (int_of_string i, query_of q)
@@ -179,6 +183,8 @@ let rec pred_to = function
   | POr (a, b) -> Printf.sprintf "(Or %s %s)" (pred_to a) (pred_to b)
   | PExists q -> Printf.sprintf "(Exists %s)" (query_to q)
   | PIn (e, q) -> Printf.sprintf "(In %s %s)" (expr_to e) (query_to q)
+  | PInT (es, q) ->
+      Printf.sprintf "(InT (%s) %s)" (String.concat " " (List.map expr_to es)) (query_to q)
   | PAtom i -> Printf.sprintf "(Atom %d)" i
   | PLike (e, p) ->
       let h = hex (lpat_to p) in
@@ -197,6 +203,8 @@ and query_to = function
   | QUnion (a, b) -> Printf.sprintf "(Union %s %s)" (query_to a) (query_to b)
   | QIntersect (a, b) -> Printf.sprintf "(Intersect %s %s)" (query_to a) (query_to b)
   | QExcept (a, b) -> Printf.sprintf "(Except %s %s)" (query_to a) (query_to b)
+  | QIntersectAll (a, b) -> Printf.sprintf "(IntersectAll %s %s)" (query_to a) (query_to b)
+  | QExceptAll (a, b) -> Printf.sprintf "(ExceptAll %s %s)" (query_to a) (query_to b)
   | QInnerJoin (p, a, b) ->
       Printf.sprintf "(Inner %s %s %s)" (pred_to p) (query_to a) (query_to b)
   | QLeftJoin (n, p, a, b) ->

@@ -46,6 +46,13 @@ SET_CASES = [
     # RIGHT JOIN is the LEFT JOIN with the operands swapped; its left input is mutated
     ("SELECT x.a FROM t AS x RIGHT JOIN u AS y ON x.a = y.a WHERE y.b > 1", 'Up', 'cmp-weaken',
      'FROM u AS y LEFT JOIN t AS x ON x.a = y.a WHERE y.b >= 1'),
+    # INTERSECT ALL / EXCEPT ALL, and the rules between them and the DISTINCT forms
+    ("SELECT a FROM t INTERSECT SELECT a FROM u", 'Up', 'INTERSECT->INTERSECT-ALL', '(SELECT a FROM t) INTERSECT ALL (SELECT a FROM u)'),
+    ("SELECT a FROM t EXCEPT ALL SELECT a FROM u", 'Down', 'EXCEPT-ALL->EXCEPT', '(SELECT a FROM t) EXCEPT (SELECT a FROM u)'),
+    ("SELECT t.a FROM t EXCEPT ALL SELECT u.a FROM u WHERE u.b > 1", 'Up', 'cond->FALSE', 'FROM u WHERE 1 = 0'),
+    # (a, b) IN (subquery) is monotone in the subquery
+    ("SELECT t.a FROM t WHERE (t.a, t.b) IN (SELECT u.a, u.b FROM u WHERE u.c > 1)", 'Up', 'cond->TRUE',
+     '(t.a, t.b) IN (SELECT u.a, u.b FROM u WHERE 1 = 1)'),
     # NOT LIKE flips the direction (regression: the negation was lost)
     ("SELECT t.a FROM t WHERE t.c NOT LIKE 'a_c%'", 'Up', 'LIKE-specialise', "NOT (t.c LIKE 'a_c_')"),
     # rule 14: regular expressions of the fragment
@@ -274,11 +281,11 @@ report(len(tr.exprs) == len(tr.term.split('(EAtom ')) - 1 and tr.term.count('(EA
        'one atom per occurrence (%d atoms)' % len(tr.exprs))
 
 # IN forms that are not modelled stay opaque (one atom, never entered)
-for sql in ["SELECT t.a FROM t WHERE (t.a, t.b) IN (SELECT u.a, u.b FROM u WHERE u.c > 1)",
+for sql in ["SELECT t.a FROM t WHERE (t.a, t.b) IN (SELECT u.a FROM u WHERE u.c > 1)",
             "SELECT t.a FROM t WHERE t.a IN (SELECT * FROM u WHERE u.c > 1)",
             "SELECT t.a FROM t WHERE t.a IN (1, 2, 3)"]:
     tr = Translation(sql)
-    report('(In ' not in tr.term and '(Atom ' in tr.term, 'kept opaque: %s' % sql)
+    report('(In ' not in tr.term and '(InT ' not in tr.term and '(Atom ' in tr.term, 'kept opaque: %s' % sql)
 
 # the probes see every select item, including the first one
 tr = Translation("SELECT AVG(t.a) + 2 AS k0, MAX(t.b) AS k1 FROM t", dialect='sqlite', kind='value')

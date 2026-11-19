@@ -67,7 +67,8 @@ class Unsupported(Exception):
 
 CMP = {exp.EQ: 'eq', exp.NEQ: 'ne', exp.LT: 'lt', exp.LTE: 'le', exp.GT: 'gt', exp.GTE: 'ge'}
 CMP_SQL = {'eq': '=', 'ne': '<>', 'lt': '<', 'le': '<=', 'gt': '>', 'ge': '>='}
-SET_SQL = {'UnionAll': 'UNION ALL', 'Union': 'UNION', 'Intersect': 'INTERSECT', 'Except': 'EXCEPT'}
+SET_SQL = {'UnionAll': 'UNION ALL', 'Union': 'UNION', 'Intersect': 'INTERSECT', 'Except': 'EXCEPT',
+           'IntersectAll': 'INTERSECT ALL', 'ExceptAll': 'EXCEPT ALL'}
 
 # Scalar functions that are non-decreasing on all reals and never turn a non-NULL
 # number into NULL.  LOG, LN and SQRT are excluded on purpose: they return NULL
@@ -202,7 +203,7 @@ def outside_collation_law(tr, term):
         if not isinstance(q, list) or not q:
             return False
         tag = q[0]
-        if tag in ('Distinct', 'Union', 'Intersect', 'Except'):
+        if tag in ('Distinct', 'Union', 'Intersect', 'Except', 'IntersectAll', 'ExceptAll'):
             return True
         if tag == 'T':
             t = _cached_parse(cache, tr.tables[int(q[1])], tr.dialect, 'table')
@@ -426,10 +427,10 @@ class Translation:
             distinct = node.args.get('distinct')
             if isinstance(node, exp.Union):
                 tag = 'Union' if distinct else 'UnionAll'
-            elif not distinct:
-                raise Unsupported('INTERSECT ALL / EXCEPT ALL')
             else:
                 tag = 'Intersect' if isinstance(node, exp.Intersect) else 'Except'
+                if not distinct:
+                    tag += 'All'                # INTERSECT ALL / EXCEPT ALL (bag semantics)
             return '(%s %s %s)' % (tag, self._arm(node.this), self._arm(node.expression))
         if isinstance(node, exp.Select):
             return self._select(node)
@@ -660,6 +661,18 @@ class Translation:
                 return '(Exists %s)' % self._query(node.this)
             except Unsupported:
                 # roll back the atoms of the failed attempt and keep it opaque
+                self._restore(snap)
+        if isinstance(node, exp.In) and node.args.get('query') is not None \
+                and isinstance(node.this, exp.Tuple) and node.this.find(exp.Select) is None:
+            # (e1, ..., en) IN (subquery): row comparison (Semantics.int3)
+            snap = self._snapshot()
+            try:
+                sub = self._unwrap(node.args['query'])
+                if self._column_count(sub) != len(node.this.expressions):
+                    raise Unsupported('row IN with a different number of columns')
+                left = ' '.join(self._expr(e) for e in node.this.expressions)
+                return '(InT (%s) %s)' % (left, self._query(sub))
+            except Unsupported:
                 self._restore(snap)
         if isinstance(node, exp.In) and node.args.get('query') is not None \
                 and not isinstance(node.this, exp.Tuple) and node.this.find(exp.Select) is None:
@@ -1023,6 +1036,8 @@ class Translation:
             return 'EXISTS (%s)' % self._q_sql(p[1])
         if tag == 'In':
             return '%s IN (%s)' % (self._e_sql(p[1]), self._q_sql(p[2]))
+        if tag == 'InT':
+            return '(%s) IN (%s)' % (', '.join(self._e_sql(e) for e in p[1]), self._q_sql(p[2]))
         if tag == 'Atom':
             return '(%s)' % self.preds[int(p[1])]
         if tag in ('Like', 'Regex'):
@@ -1088,6 +1103,8 @@ class Translation:
         if tag == 'Named':
             return self._q_sql(q[2])
         if tag in SET_SQL:
+            if self.dialect == 'sqlite' and tag in ('IntersectAll', 'ExceptAll'):
+                raise Unsupported('SQLite has no %s' % SET_SQL[tag])
             if self.dialect == 'sqlite':
                 # no parentheses around compound operands in SQLite; compounds are
                 # left-associative, so a compound right operand becomes a derived table
@@ -1266,6 +1283,8 @@ def canonical(tr, t):
     """The term t of translation tr, with every atom replaced by its syntax tree."""
     if isinstance(t, str):
         return t
+    if t and isinstance(t[0], list):            # a list of terms (select items, row IN, ...)
+        return tuple(canonical(tr, x) for x in t)
     tag, d = t[0], tr.dialect
     if tag in ('EAtom', 'Int', 'Null', 'Add', 'Mul'):
         try:

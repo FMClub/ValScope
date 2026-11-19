@@ -84,6 +84,18 @@ Definition eval_expr (db : db_t) (ctx : row) : expr -> value :=
 Definition in3 (db : db_t) (v : value) (vs : list value) : tv :=
   fold_right (fun x acc => tv_or (vcmp db CEq v x) acc) F3 vs.
 
+(** Row comparison [(x1, ..., xn) = (y1, ..., yn)]: [x1 = y1 AND ... AND xn = yn] in
+    three-valued logic (FALSE if one pair differs, else UNKNOWN if one is unknown). *)
+Fixpoint roweq3 (db : db_t) (xs ys : list value) : tv :=
+  match xs, ys with
+  | x :: xs', y :: ys' => tv_and (vcmp db CEq x y) (roweq3 db xs' ys')
+  | _, _ => T3
+  end.
+
+(** [(x1, ..., xn) IN (subquery)]: the row equals one of the rows, in three-valued logic. *)
+Definition int3 (db : db_t) (xs : list value) (rows : list row) : tv :=
+  fold_right (fun r acc => tv_or (roweq3 db xs r) acc) F3 rows.
+
 Definition first_col (rows : list row) : list value :=
   map (fun r => nth 0 r VNull) rows.
 
@@ -111,6 +123,8 @@ Fixpoint eval_q (db : db_t) (ctx : row) (q : query) : list row :=
   | QUnion a b => union (req db) (eval_q db ctx a) (eval_q db ctx b)
   | QIntersect a b => inter (req db) (eval_q db ctx a) (eval_q db ctx b)
   | QExcept a b => exc (req db) (eval_q db ctx a) (eval_q db ctx b)
+  | QIntersectAll a b => inter_all (req db) (eval_q db ctx a) (eval_q db ctx b)
+  | QExceptAll a b => exc_all (req db) (eval_q db ctx a) (eval_q db ctx b)
   | QInnerJoin p a b =>
       flat_map (fun r1 =>
                   matches (fun r => is_true (eval_p db (r ++ ctx) p)) r1 (eval_q db ctx b))
@@ -132,6 +146,7 @@ with eval_p (db : db_t) (ctx : row) (p : pred) : tv :=
   | POr p q => tv_or (eval_p db ctx p) (eval_p db ctx q)
   | PExists q => match eval_q db ctx q with [] => F3 | _ => T3 end
   | PIn e q => in3 db (eval_expr db ctx e) (first_col (eval_q db ctx q))
+  | PInT es q => int3 db (map (eval_expr db ctx) es) (eval_q db ctx q)
   | PLike e pt => like3 (to_text db) (ceq db) (eval_expr db ctx e) pt
   | PRegex e r => rx3 (to_text db) (ceq db) (eval_expr db ctx e) r
   | PAtom n => atoms db n ctx

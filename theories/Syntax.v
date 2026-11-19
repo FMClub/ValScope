@@ -30,6 +30,7 @@ Inductive pred : Type :=
   | POr     : pred -> pred -> pred
   | PExists : query -> pred
   | PIn     : expr -> query -> pred      (* e IN (subquery); the subquery has one column *)
+  | PInT    : list expr -> query -> pred (* (e1, ..., en) IN (subquery), n columns *)
   | PLike   : expr -> lpat -> pred       (* e LIKE pattern *)
   | PRegex  : expr -> rx -> pred         (* e REGEXP pattern *)
   | PAtom   : nat -> pred                (* opaque predicate *)
@@ -42,6 +43,8 @@ with query : Type :=
   | QUnion     : query -> query -> query
   | QIntersect : query -> query -> query
   | QExcept    : query -> query -> query
+  | QIntersectAll : query -> query -> query  (* INTERSECT ALL: bag intersection *)
+  | QExceptAll    : query -> query -> query  (* EXCEPT ALL: bag difference *)
   | QInnerJoin : pred -> query -> query -> query
   | QLeftJoin  : nat -> pred -> query -> query -> query  (* padding width, ON, left, right *)
   | QNamed     : nat -> query -> query      (* a named subquery: derived table or CTE body *)
@@ -58,6 +61,7 @@ Fixpoint arity (q : query) : nat :=
   | QTable _ n | QAtom _ n => n
   | QProject es _ => length es
   | QWhere _ q | QDistinct q | QNamed _ q => arity q
-  | QUnionAll a _ | QUnion a _ | QIntersect a _ | QExcept a _ => arity a
+  | QUnionAll a _ | QUnion a _ | QIntersect a _ | QExcept a _
+  | QIntersectAll a _ | QExceptAll a _ => arity a
   | QInnerJoin _ a b | QLeftJoin _ _ a b => arity a + arity b
   end.

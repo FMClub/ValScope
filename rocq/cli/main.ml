@@ -5,7 +5,7 @@
              | (UnionAll q q) | (Union q q) | (Intersect q q) | (Except q q)
              | (Inner p q q) | (Left pad p q q)
      pred  ::= True | False | (Cmp op e e) | (IsNull e) | (Not p) | (And p p)
-             | (Or p p) | (Exists q) | (Atom id)
+             | (Or p p) | (Exists q) | (In e q) | (Atom id)
      expr  ::= (Col id) | (Null) | (Int n) | (Add e e) | (Mul e e)
      op    ::= eq | ne | lt | le | gt | ge
    For every input line the program prints one line per mutant,
@@ -13,13 +13,17 @@
    followed by a line "END".  `--rules` lists the registered plug-ins.
 
    Value queries (one select item is mutated, the rows stay the same):
-     vquery ::= (VProj (item ...) q) | (VGroup (e ...) (item ...) q) | (VGlobal (item ...) q)
+     vquery ::= (VProj (item ...) q) | (VGroup (e ...) (item ...) having q)
+              | (VGlobal (item ...) having q)        having is a pred, True when absent
      item   ::= (ACol e) | (AConst n) | (ACount e) | (ACountD e) | (ASum e) | (AMin e)
               | (AMax e) | (AAvg e) | (AVar e) | (AStd e) | (AAdd item item)
               | (AMul item item) | (AMono id item)
    Each mutant is printed as
      <Le|Ge|AwayZero|TowardOne|AwayOne> TAB <rule name> TAB <column> TAB <vquery>
    where the relation says how the mutated column of the mutant relates to the original.
+   Mutants of the HAVING predicate are printed as
+     <Up|Down> TAB <rule name> TAB <vquery>
+   (Up: the mutant outputs the same rows and possibly more; Down: a subset).
 
    This file is glue: it only parses, calls Valscope_core.mutate and prints. *)
 
@@ -76,6 +80,7 @@ let rec pred_of = function
   | L [A "And"; a; b] -> PAnd (pred_of a, pred_of b)
   | L [A "Or"; a; b] -> POr (pred_of a, pred_of b)
   | L [A "Exists"; q] -> PExists (query_of q)
+  | L [A "In"; e; q] -> PIn (expr_of e, query_of q)
   | L [A "Atom"; A i] -> PAtom (int_of_string i)
   | _ -> failwith "bad predicate"
 
@@ -108,6 +113,7 @@ let rec pred_to = function
   | PAnd (a, b) -> Printf.sprintf "(And %s %s)" (pred_to a) (pred_to b)
   | POr (a, b) -> Printf.sprintf "(Or %s %s)" (pred_to a) (pred_to b)
   | PExists q -> Printf.sprintf "(Exists %s)" (query_to q)
+  | PIn (e, q) -> Printf.sprintf "(In %s %s)" (expr_to e) (query_to q)
   | PAtom i -> Printf.sprintf "(Atom %d)" i
 
 and query_to = function
@@ -164,17 +170,18 @@ let items_to l = String.concat " " (List.map item_to l)
 
 let vquery_of = function
   | L [A "VProj"; L items; q] -> VProj (List.map item_of items, query_of q)
-  | L [A "VGroup"; L keys; L items; q] ->
-      VGroup (List.map expr_of keys, List.map item_of items, query_of q)
-  | L [A "VGlobal"; L items; q] -> VGlobal (List.map item_of items, query_of q)
+  | L [A "VGroup"; L keys; L items; h; q] ->
+      VGroup (List.map expr_of keys, List.map item_of items, pred_of h, query_of q)
+  | L [A "VGlobal"; L items; h; q] -> VGlobal (List.map item_of items, pred_of h, query_of q)
   | _ -> failwith "bad value query"
 
 let vquery_to = function
   | VProj (items, q) -> Printf.sprintf "(VProj (%s) %s)" (items_to items) (query_to q)
-  | VGroup (keys, items, q) ->
-      Printf.sprintf "(VGroup (%s) (%s) %s)"
-        (String.concat " " (List.map expr_to keys)) (items_to items) (query_to q)
-  | VGlobal (items, q) -> Printf.sprintf "(VGlobal (%s) %s)" (items_to items) (query_to q)
+  | VGroup (keys, items, h, q) ->
+      Printf.sprintf "(VGroup (%s) (%s) %s %s)"
+        (String.concat " " (List.map expr_to keys)) (items_to items) (pred_to h) (query_to q)
+  | VGlobal (items, h, q) ->
+      Printf.sprintf "(VGlobal (%s) %s %s)" (items_to items) (pred_to h) (query_to q)
 
 let rel_name = function
   | VLe -> "Le" | VGe -> "Ge" | VAwayZero -> "AwayZero"
@@ -196,10 +203,16 @@ let () =
         if String.trim line <> "" then begin
           (try
              let term = parse_sexp line in
-             if is_value_query term then
+             if is_value_query term then begin
+               let v = vquery_of term in
                List.iter (fun (name, (rel, (j, v'))) ->
                  Printf.printf "%s\t%s\t%d\t%s\n" (rel_name rel) name j (vquery_to v'))
-                 (vmutate (vquery_of term))
+                 (vmutate v);
+               List.iter (fun d ->
+                 List.iter (fun (name, v') ->
+                   Printf.printf "%s\t%s\t%s\n" (dir_name d) name (vquery_to v'))
+                   (hmutate d v)) [Up; Down]
+             end
              else begin
                let q = query_of term in
                List.iter (fun d ->

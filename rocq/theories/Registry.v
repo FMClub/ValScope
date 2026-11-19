@@ -7,7 +7,7 @@ From Coq Require Import List String.
 Import ListNotations.
 From Coq Require Import ZArith Lia.
 From ValScope Require Import Bag Logic3 Syntax Semantics Approx Rule Engine StdRules ExtraRules.
-From ValScope Require Import Value VEngine VRules.
+From ValScope Require Import Value VEngine VRules VHaving.
 
 Definition pred_rules : list prule :=
   [ r_true; r_false; r_and_drop; r_or_drop; r_cmp_weaken; r_cmp_strengthen ].
@@ -57,3 +57,15 @@ Theorem vmutate_sound : forall v name r j v',
 Proof. intros v name r j v'. apply vmut_sound. Qed.
 
 Print Assumptions vmutate_sound.
+
+(** ---------------- HAVING ---------------- *)
+
+(** Mutation of the HAVING predicate, with the predicate and query rules above. *)
+Definition hmutate : dir -> vquery -> list (string * vquery) :=
+  hmut pred_rules query_rules.
+
+Theorem hmutate_sound : forall d v name v',
+  In (name, v') (hmutate d v) -> dle v_sub d v v'.
+Proof. intros d v name v'. apply hmut_sound. Qed.
+
+Print Assumptions hmutate_sound.

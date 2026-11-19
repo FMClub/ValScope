@@ -4,7 +4,7 @@ import sys
 from decimal import Decimal
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from sql_bridge import mutate_sql, mutate_value_sql, Translation, Unsupported  # noqa: E402
+from sql_bridge import mutate_sql, mutate_value_sql, mutate_value, Translation, Unsupported  # noqa: E402
 from checker import check_inclusion, check_value  # noqa: E402
 
 failures = 0
@@ -32,6 +32,13 @@ SET_CASES = [
      '(SELECT DISTINCT * FROM u AS y) AS y'),
     # an operand that is not a plain name is parenthesised when it is put back
     ("SELECT t.a FROM t WHERE t.b + 1 > t.c - 2", 'Up', 'cmp-weaken', '(t.b + 1) >= (t.c - 2)'),
+    # IN is monotone in its subquery, NOT IN antitone
+    ("SELECT t.a FROM t WHERE t.a IN (SELECT u.a FROM u WHERE u.b > 1)", 'Up', 'cond->TRUE',
+     't.a IN (SELECT u.a FROM u WHERE 1 = 1)'),
+    ("SELECT t.a FROM t WHERE t.a NOT IN (SELECT u.a FROM u WHERE u.b > 1)", 'Up', 'cond->FALSE',
+     'NOT (t.a IN (SELECT u.a FROM u WHERE 1 = 0))'),
+    ("SELECT t.a FROM t WHERE t.a NOT IN (SELECT u.a FROM u WHERE u.b > 1)", 'Down', 'cmp-weaken',
+     'NOT (t.a IN (SELECT u.a FROM u WHERE u.b >= 1))'),
 ]
 for sql, direction, rule, fragment in SET_CASES:
     _, mutants, _ = mutate_sql(sql)
@@ -71,6 +78,26 @@ report(not any(r == 'FUNC(c)->FUNC(c*k)' for _, r, _, _ in mutants), 'FUNC(c*k) 
 _, mutants, _ = mutate_value_sql("SELECT SUM(t.x) + 1 AS a FROM t")
 report(not any(r == 'SUM(c)->SUM(c*k)' for _, r, _, _ in mutants), 'SUM(c*k) not applied below an addition')
 
+# ---- HAVING: mutated by the predicate rules at the HAVING position (rules 15, 16)
+HAVING_CASES = [
+    ("SELECT t.g AS g, SUM(t.x) AS s FROM t GROUP BY t.g HAVING SUM(t.x) > 10", 'Up', 'cond->TRUE', 'GROUP BY t.g', True),
+    ("SELECT t.g AS g, SUM(t.x) AS s FROM t GROUP BY t.g HAVING SUM(t.x) > 10", 'Down', 'cond->FALSE', 'HAVING 1 = 0', False),
+    ("SELECT t.g AS g, SUM(t.x) AS s FROM t GROUP BY t.g HAVING SUM(t.x) > 10", 'Up', 'cmp-weaken', 'HAVING (SUM(t.x)) >= 10', False),
+    ("SELECT COUNT(*) AS n FROM t HAVING COUNT(*) > 1 AND MAX(t.x) < 9", 'Up', 'AND-drop-operand', 'HAVING (COUNT(*)) > 1', True),
+    ("SELECT t.g AS g, COUNT(*) AS n FROM t GROUP BY t.g HAVING COUNT(*) NOT IN (SELECT u.a FROM u WHERE u.b > 1)",
+     'Up', 'cond->FALSE', 'NOT ((COUNT(*)) IN (SELECT u.a FROM u WHERE 1 = 0))', False),
+]
+for sql, direction, rule, fragment, at_end in HAVING_CASES:
+    _, _, _, _, having_mutants = mutate_value(sql)
+    hit = any(d == direction and r == rule and (m.endswith(fragment) if at_end else fragment in m)
+              for d, r, m in having_mutants)
+    report(hit, 'HAVING %-4s %-17s %s' % (direction, rule, sql))
+
+# a value mutation leaves the HAVING clause alone
+_, mutants, _ = mutate_value_sql("SELECT t.g AS g, SUM(t.x) AS s FROM t GROUP BY t.g HAVING SUM(t.x) > 10")
+report(mutants and all(m.endswith('HAVING (SUM(t.x)) > 10') for _, _, _, m in mutants),
+       'item mutation keeps HAVING unchanged (%d mutants)' % len(mutants))
+
 # ---- the bridge fails closed
 REJECTED = [
     ("SELECT COUNT(*) FROM t GROUP BY a", 'set', 'aggregate in a set-semantic query'),
@@ -82,7 +109,7 @@ REJECTED = [
     ("SELECT SUM(DISTINCT t.b) AS s FROM t", 'value', 'SUM(DISTINCT)'),
     ("SELECT VARIANCE(t.b) AS s, GROUP_CONCAT(t.c) AS g FROM t", 'value', 'aggregate that is not modelled'),
     ("SELECT DISTINCT t.a AS a FROM t", 'value', 'DISTINCT in a value query'),
-    ("SELECT SUM(t.b) AS s FROM t GROUP BY t.a HAVING SUM(t.b) > 1", 'value', 'HAVING'),
+    ("SELECT t.a AS a FROM t HAVING t.a > 1", 'value', 'HAVING without aggregation'),
 ]
 for sql, kind, what in REJECTED:
     try:
@@ -95,6 +122,13 @@ for sql, kind, what in REJECTED:
 tr = Translation("SELECT t.a FROM t WHERE t.a > 1 AND EXISTS (SELECT t.a FROM u AS t WHERE t.a > 1)")
 report(len(tr.exprs) == len(tr.term.split('(Col ')) - 1 and tr.term.count('(Col 0)') == 1,
        'one atom per occurrence (%d atoms)' % len(tr.exprs))
+
+# IN forms that are not modelled stay opaque (one atom, never entered)
+for sql in ["SELECT t.a FROM t WHERE (t.a, t.b) IN (SELECT u.a, u.b FROM u WHERE u.c > 1)",
+            "SELECT t.a FROM t WHERE t.a IN (SELECT * FROM u WHERE u.c > 1)",
+            "SELECT t.a FROM t WHERE t.a IN (1, 2, 3)"]:
+    tr = Translation(sql)
+    report('(In ' not in tr.term and '(Atom ' in tr.term, 'kept opaque: %s' % sql)
 
 # ---- the checkers
 report(check_inclusion('Up', [(1,), (1,)], [(1,), (1,), (2,)]) == 'ok', 'inclusion respects multiplicities')
@@ -110,6 +144,9 @@ report(check_value('AwayOne', 1, rows(0.5, 2), rows(0.25, 4)) == 'ok', 'AwayOne 
 report(check_value('Le', 1, rows(None,), rows(3,)) != 'ok', 'NULL-ness must not change')
 report(check_value('Le', 1, rows(1,), rows(1, 2)) != 'ok', 'row count must not change')
 report(check_value('Le', 1, [(1, 'a')], [(1, 'b')]) == 'incomparable', 'non-numeric column is incomparable')
+report(check_value('Le', 0, [(1, 0.30000000000000004)], [(2, 0.3)]) == 'ok',
+       'floating-point noise in another column does not break the row matching')
+report(check_value('Le', 0, [(1, 0.31)], [(2, 0.3)]) != 'ok', 'a real change in another column is reported')
 report(check_value('Le', 1, rows(Decimal('82.160004')), rows(82.16)) != 'ok', 'strict tolerance by default')
 report(check_value('Le', 1, rows(Decimal('82.160004')), rows(82.16), single_precision=True) == 'ok',
        'single-precision tolerance when asked')

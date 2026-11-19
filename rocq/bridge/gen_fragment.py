@@ -35,8 +35,16 @@ def pred(rng, aliases, depth, outer=()):
         return '(%s AND %s)' % (pred(rng, aliases, depth - 1, outer), pred(rng, aliases, depth - 1, outer))
     if r < 0.70:
         return '(%s OR %s)' % (pred(rng, aliases, depth - 1, outer), pred(rng, aliases, depth - 1, outer))
-    if r < 0.82:
+    if r < 0.80:
         return 'NOT (%s)' % pred(rng, aliases, depth - 1, outer)
+    if r < 0.90:
+        a = rng.choice(aliases)
+        t = rng.choice(list(TABLES))
+        alias = t + 'i%d' % rng.randint(0, 99)
+        inner = pred(rng, [alias], depth - 1, outer=tuple(aliases) + tuple(outer))
+        return '%s.%s %sIN (SELECT %s.%s FROM %s AS %s WHERE %s)' % (
+            a, rng.choice(TABLES[a[:2]]), 'NOT ' if rng.random() < 0.5 else '',
+            alias, rng.choice(TABLES[t]), t, alias, inner)
     t = rng.choice(list(TABLES))
     alias = t + 's%d' % rng.randint(0, 99)
     inner = pred(rng, [alias], depth - 1, outer=tuple(aliases) + tuple(outer))
@@ -108,6 +116,28 @@ def agg_item(rng, alias, t):
     return item
 
 
+def having_pred(rng, alias, t, depth):
+    r = rng.random()
+    if depth <= 0 or r < 0.45:
+        left = rng.choice(AGGS[:6]) % scalar(rng, alias, t)
+        right = str(rng.choice([0, 1, 2, 10, 100, 1000, 5000]))
+        if rng.random() < 0.2:
+            right = rng.choice(AGGS[:5]) % scalar(rng, alias, t)
+        return '%s %s %s' % (left, rng.choice(OPS), right)
+    if r < 0.65:
+        return '(%s AND %s)' % (having_pred(rng, alias, t, depth - 1), having_pred(rng, alias, t, depth - 1))
+    if r < 0.80:
+        return '(%s OR %s)' % (having_pred(rng, alias, t, depth - 1), having_pred(rng, alias, t, depth - 1))
+    if r < 0.90:
+        return 'NOT (%s)' % having_pred(rng, alias, t, depth - 1)
+    u = rng.choice(list(TABLES))
+    ualias = u + 'h%d' % rng.randint(0, 99)
+    return '%s %sIN (SELECT %s.%s FROM %s AS %s WHERE %s)' % (
+        rng.choice(['COUNT(%s)', 'MIN(%s)', 'MAX(%s)']) % scalar(rng, alias, t),
+        'NOT ' if rng.random() < 0.5 else '', ualias, rng.choice(TABLES[u]), u, ualias,
+        pred(rng, [ualias], 1))
+
+
 def value_query(rng):
     t = rng.choice(list(NUM))
     alias = t + 'a'
@@ -128,8 +158,11 @@ def value_query(rng):
             keys = ['%s %% %d' % (keys[0], rng.choice([2, 3, 5]))]   # few, larger groups
         items = keys + [agg_item(rng, alias, t) for _ in range(n)]
         group = ' GROUP BY ' + ', '.join(keys)
+    having = ''
+    if shape >= 0.25 and rng.random() < 0.5:
+        having = ' HAVING ' + having_pred(rng, alias, t, 2)
     cols = ', '.join('%s AS k%d' % (item, i) for i, item in enumerate(items))
-    return 'SELECT %s FROM %s AS %s%s%s' % (cols, t, alias, where, group)
+    return 'SELECT %s FROM %s AS %s%s%s%s' % (cols, t, alias, where, group, having)
 
 
 if __name__ == '__main__':

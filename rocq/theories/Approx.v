@@ -48,6 +48,34 @@ Proof.
   - apply tv_le_refl.
 Qed.
 
+(** IN is monotone in its subquery: more rows can only turn FALSE into UNKNOWN or
+    TRUE, and UNKNOWN into TRUE.  Hence NOT IN is antitone. *)
+Lemma in3_ge : forall v vs x, In x vs -> tv_le (cmp3 CEq v x) (in3 v vs).
+Proof.
+  intros v vs x. induction vs as [|y vs IH]; intro H; simpl in *; [contradiction|].
+  destruct H as [->|H].
+  - apply tv_or_ge_l.
+  - eapply tv_le_trans; [apply IH; exact H|apply tv_or_ge_r].
+Qed.
+
+Lemma in3_le : forall v vs t,
+  (forall x, In x vs -> tv_le (cmp3 CEq v x) t) -> tv_le (in3 v vs) t.
+Proof.
+  intros v vs t. induction vs as [|y vs IH]; intro H; simpl.
+  - apply tv_le_F.
+  - apply tv_or_lub.
+    + apply H. left. reflexivity.
+    + apply IH. intros x Hx. apply H. right. exact Hx.
+Qed.
+
+Lemma p_le_in : forall e a b, q_le a b -> p_le (PIn e a) (PIn e b).
+Proof.
+  intros e a b H db ctx. simpl. apply in3_le. intros x Hx.
+  unfold first_col in Hx. apply in_map_iff in Hx as [r [<- Hr]].
+  apply in3_ge. unfold first_col. apply in_map_iff. exists r. split; [reflexivity|].
+  eapply bag_le_in; [apply H|exact Hr].
+Qed.
+
 Lemma p_le_true : forall p, p_le p PTrue.
 Proof. intros p db ctx. simpl. apply tv_le_T. Qed.
 

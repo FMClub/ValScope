@@ -133,6 +133,15 @@ class Translation:
             return self._select(node)
         raise Unsupported(type(node).__name__)
 
+    def _column_count(self, node):
+        """Number of select items of the leftmost SELECT, or None with a star."""
+        node = self._unwrap(node)
+        while isinstance(node, (exp.Union, exp.Intersect, exp.Except)):
+            node = self._unwrap(node.this)
+        if not isinstance(node, exp.Select) or any(item.find(exp.Star) is not None for item in node.expressions):
+            return None
+        return len(node.expressions)
+
     def _check_clauses(self, node, allowed=()):
         for key in ('group', 'having', 'limit', 'offset', 'qualify', 'windows', 'with_', 'with',
                     'locks', 'sample', 'pivots', 'laterals', 'distinct', 'into', 'hint', 'kind'):
@@ -213,6 +222,18 @@ class Translation:
                 # roll back the atoms of the failed attempt and keep it opaque
                 del self.tables[saved[0]:], self.aliases[saved[0]:]
                 del self.exprs[saved[1]:], self.preds[saved[2]:]
+        if isinstance(node, exp.In) and node.args.get('query') is not None \
+                and not isinstance(node.this, exp.Tuple) and node.this.find(exp.Select) is None:
+            saved = (len(self.tables), len(self.exprs), len(self.preds))
+            try:
+                sub = self._unwrap(node.args['query'])
+                if self._column_count(sub) != 1:
+                    raise Unsupported('IN subquery with several columns')
+                left = self._expr(node.this)
+                return '(In %s %s)' % (left, self._query(sub))
+            except Unsupported:
+                del self.tables[saved[0]:], self.aliases[saved[0]:]
+                del self.exprs[saved[1]:], self.preds[saved[2]:]
         # anything else is an opaque predicate: it can only be replaced as a whole
         self.preds.append(self._text(node))
         return '(Atom %d)' % (len(self.preds) - 1)
@@ -222,7 +243,7 @@ class Translation:
         node = self._unwrap(node)
         if not isinstance(node, exp.Select):
             raise Unsupported('value mutation needs a plain SELECT')
-        self._check_clauses(node, allowed=('group',))
+        self._check_clauses(node, allowed=('group', 'having'))
         group = node.args.get('group')
         keys = []
         if group is not None:
@@ -239,11 +260,17 @@ class Translation:
                 raise Unsupported('* in a value query')
             self.item_alias.append(item.alias if isinstance(item, exp.Alias) and item.alias else 'c%d' % j)
             items.append(self._item(body, key_texts if (keys or has_agg) else None))
+        # HAVING is an ordinary predicate; its operands (aggregate expressions) are atoms
+        having = 'True'
+        if node.args.get('having') is not None:
+            if not (keys or has_agg):
+                raise Unsupported('HAVING without aggregation')
+            having = self._pred(node.args['having'].this)
         if keys:
             key_terms = ' '.join(self._expr(k) for k in keys)
-            return '(VGroup (%s) (%s) %s)' % (key_terms, ' '.join(items), source)
+            return '(VGroup (%s) (%s) %s %s)' % (key_terms, ' '.join(items), having, source)
         if has_agg:
-            return '(VGlobal (%s) %s)' % (' '.join(items), source)
+            return '(VGlobal (%s) %s %s)' % (' '.join(items), having, source)
         return '(VProj (%s) %s)' % (' '.join(items), source)
 
     def _agg_arg(self, node):
@@ -304,8 +331,7 @@ class Translation:
         """For a value query: (sql, number_of_keys).  The query returns no rows; its
         columns are the grouping keys followed by every row-level expression used in
         the select items, so a caller can inspect their types."""
-        tree = parse_sexp(self.term)
-        keys, items, source = ([], tree[1], tree[2]) if tree[0] != 'VGroup' else (tree[1], tree[2], tree[3])
+        keys, items, _, source = self._v_parts(parse_sexp(self.term))
         atoms = []
 
         def collect(t):
@@ -378,6 +404,8 @@ class Translation:
             return '(%s) %s (%s)' % (self._p_sql(p[1]), tag.upper(), self._p_sql(p[2]))
         if tag == 'Exists':
             return 'EXISTS (%s)' % self._q_sql(p[1])
+        if tag == 'In':
+            return '%s IN (%s)' % (self._e_sql(p[1]), self._q_sql(p[2]))
         if tag == 'Atom':
             return '(%s)' % self.preds[int(p[1])]
         raise Unsupported('predicate %s' % tag)
@@ -390,7 +418,7 @@ class Translation:
             if isinstance(t, list):
                 if t and t[0] == 'T':
                     found.append(int(t[1]))
-                elif t and t[0] in ('Exists',):
+                elif t and t[0] in ('Exists', 'In'):
                     return
                 else:
                     for x in t[1:]:
@@ -457,9 +485,17 @@ class Translation:
             return '%s(%s)' % (name, self._a_sql(a[2]))
         raise Unsupported('select item %s' % tag)
 
+    @staticmethod
+    def _v_parts(v):
+        """(keys, items, having, source) of a value query term."""
+        if v[0] == 'VGroup':
+            return v[1], v[2], v[3], v[4]
+        if v[0] == 'VGlobal':
+            return [], v[1], v[2], v[3]
+        return [], v[1], 'True', v[2]
+
     def _v_sql(self, v):
-        tag = v[0]
-        keys, items, source = ([], v[1], v[2]) if tag != 'VGroup' else (v[1], v[2], v[3])
+        keys, items, having, source = self._v_parts(v)
         where = None
         if source[0] == 'Where':
             where, source = self._p_sql(source[1]), source[2]
@@ -469,6 +505,8 @@ class Translation:
             sql += ' WHERE ' + where
         if keys:
             sql += ' GROUP BY ' + ', '.join(self._e_sql(k) for k in keys)
+        if having != 'True':
+            sql += ' HAVING ' + self._p_sql(having)
         return sql
 
 
@@ -515,26 +553,35 @@ def mutate_value_sql(sql, cli=DEFAULT_CLI, dialect='mysql'):
 
 
 def mutate_value(sql, cli=DEFAULT_CLI, dialect='mysql'):
-    """Like mutate_value_sql, with the result of Translation.type_probe as a fourth
-    component."""
+    """Like mutate_value_sql, with two more components: the result of
+    Translation.type_probe, and the mutants of the HAVING predicate as
+    (direction, rule, mutant_sql).  For those, 'Up' means the mutant returns the
+    same rows and possibly more, 'Down' a subset."""
     tr = Translation(sql, dialect, kind='value')
-    mutants, skipped = [], 0
-    for relation, rule, column, term in _run_cli(tr.term, cli):
+    mutants, having_mutants, skipped = [], [], 0
+    for fields in _run_cli(tr.term, cli):
         try:
-            mutants.append((relation, rule, int(column), tr.to_sql(term)))
+            if len(fields) == 4:
+                relation, rule, column, term = fields
+                mutants.append((relation, rule, int(column), tr.to_sql(term)))
+            else:
+                direction, rule, term = fields
+                having_mutants.append((direction, rule, tr.to_sql(term)))
         except Unsupported:
             skipped += 1
-    return tr.reprint(), mutants, skipped, tr.type_probe()
+    return tr.reprint(), mutants, skipped, tr.type_probe(), having_mutants
 
 
 if __name__ == '__main__':
     import sys
     args = [a for a in sys.argv[1:] if a != '--value']
     if '--value' in sys.argv:
-        original, mutants, skipped = mutate_value_sql(args[0])
+        original, mutants, skipped, _, having_mutants = mutate_value(args[0])
         print('original:', original)
         for relation, rule, column, text in mutants:
             print('%-9s col %d  %-24s %s' % (relation, column, rule, text))
+        for direction, rule, text in having_mutants:
+            print('%-9s HAVING %-24s %s' % (direction, rule, text))
     else:
         original, mutants, skipped = mutate_sql(args[0])
         print('original:', original)

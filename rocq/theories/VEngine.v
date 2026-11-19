@@ -137,7 +137,7 @@ Proof.
   pose proof (proj1 (Forall_forall _ _) (mut_a_sound a) _ Hin) as Hok.
   unfold vok in Hok. simpl in Hok.
   unfold veval. rewrite vgroups_with_items, vitems_with_items, Hs.
-  induction (vgroups db v) as [|g gs IH]; simpl; constructor; [|exact IH].
+  induction (vgroups env db v) as [|g gs IH]; simpl; constructor; [|exact IH].
   exists (map (aeval env g) pre), (aeval env g a), (aeval env g a'), (map (aeval env g) post).
   rewrite !map_app. simpl. repeat split; try reflexivity.
   - apply map_length.

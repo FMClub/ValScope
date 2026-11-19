@@ -59,7 +59,8 @@ def main():
         try:
             probe = None
             if args.value:
-                original, mutants, skipped, probe = mutate_value(sql)
+                original, mutants, skipped, probe, having_mutants = mutate_value(sql)
+                mutants = mutants + having_mutants
             else:
                 original, mutants, skipped = mutate_sql(sql)
         except Unsupported:
@@ -100,7 +101,7 @@ def main():
             if res is None:
                 st['mutant_failed'] += 1
                 continue
-            if args.value:
+            if args.value and len(mutant) == 4:
                 relation, rule, column, _ = mutant
                 if args.flip:
                     relation = {'Le': 'Ge', 'Ge': 'Le', 'AwayZero': 'TowardZero',
@@ -111,7 +112,10 @@ def main():
                 verdict = check_value(relation, column, base, res, single_precision=loose)
                 label = '%s col %d' % (relation, column)
             else:
+                # set-semantic mutant, or a mutant of the HAVING predicate
                 direction, rule, _ = mutant
+                if args.value:
+                    rule = 'HAVING ' + rule
                 if types != base_types:
                     st['type_mismatch_skipped'] += 1
                     continue

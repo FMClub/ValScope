@@ -14,6 +14,11 @@ There are two kinds of rules, as in ValScope:
 - **value-semantic** rules change one select item; the rows stay in one-to-one
   correspondence and the theorem relates the values of the mutated column.
 
+A grouped query can also have its `HAVING` predicate mutated. That needs no rules of its
+own: the predicate rules and the engine used for `WHERE` and `ON` apply at the `HAVING`
+position, and the theorem says that the mutant outputs the same rows plus possibly more
+(`Up`) or a subset (`Down`).
+
 ```
  rule = rewrite function + theorem          (theories/StdRules.v, ExtraRules.v)
             |
@@ -151,7 +156,8 @@ value cannot be read off the result.
 | `theories/Value.v` | Aggregates, select items, value relations, value queries |
 | `theories/VEngine.v` | Plug-in interface and generic engine for value rules, `vmut_sound` |
 | `theories/VRules.v` | Rules 18 to 26, each a theorem plus a packaged plug-in |
-| `theories/Registry.v` | The plugged-in rules, `mutate` / `mutate_sound`, `vmutate` / `vmutate_sound` |
+| `theories/VHaving.v` | Mutation of the HAVING predicate (rules 15, 16), `hmut_sound` |
+| `theories/Registry.v` | The plugged-in rules and the three mutators with their theorems: `mutate`, `vmutate`, `hmutate` |
 | `theories/Counter.v` | Proofs that some positions must not be mutated |
 | `theories/Extract.v` | Extraction to OCaml |
 | `cli/main.ml` | Command-line front end of the extracted core (S-expression protocol) |
@@ -167,14 +173,20 @@ value cannot be read off the result.
   direction and database, each mutant is a super-bag (`Up`) or a sub-bag (`Down`) of the
   original.
 - Polarity (`Approx.v`): `NOT` and the right operand of `EXCEPT` are antitone; `AND`, `OR`,
-  `EXISTS`, `DISTINCT`, `UNION [ALL]`, `INTERSECT`, `WHERE`, `INNER JOIN` and the left input
-  of a `LEFT JOIN` are monotone.
+  `EXISTS`, `IN (subquery)`, `DISTINCT`, `UNION [ALL]`, `INTERSECT`, `WHERE`, `INNER JOIN`
+  and the left input of a `LEFT JOIN` are monotone. `x IN (subquery)` is modelled with
+  three-valued logic (`x = v1 OR ... OR x = vn`), so `NOT IN` with NULLs is covered.
 - Non-monotone positions (`Counter.v`): the `ON` condition and the right input of a
   `LEFT JOIN`, and `LIMIT`, with concrete counterexamples. `left_join_only_left_entered`
   shows the engine never enters them, whatever rules are plugged in.
 - `vmut_sound` (and its instance `vmutate_sound`): for every list of value rules, the
   result rows of the original and of the mutant correspond one to one, agree outside the
-  mutated column, and are related by the rule's relation inside it.
+  mutated column, and are related by the rule's relation inside it. This holds with a
+  `HAVING` clause present, because the groups do not depend on the select items.
+- `hmut_sound` (and its instance `hmutate_sound`): for every list of predicate and query
+  rules, a mutant of the `HAVING` predicate outputs a super-list (`Up`) or a sub-list
+  (`Down`) of the original rows. The operands of `HAVING` are opaque: the theorem holds for
+  any function from groups to values, so it does not depend on which aggregates are used.
 
 Axioms: the set-semantic part uses none. The value-semantic part uses real numbers
 (AVG needs division, STDDEV a square root) and therefore depends on the three axioms of
@@ -185,8 +197,8 @@ as reported by `Print Assumptions vmutate_sound`.
 
 | Plug-in | Direction | Rule in mutation.md |
 | --- | --- | --- |
-| `cond->TRUE` | Up | 5, 12 (at WHERE / ON positions) |
-| `cond->FALSE` | Down | 6, 13 read backwards |
+| `cond->TRUE` | Up | 5, 12, 15 (at WHERE / ON / HAVING positions) |
+| `cond->FALSE` | Down | 6, 13, 16 read backwards |
 | `AND-drop-operand` | Up | 11 |
 | `OR-drop-operand` | Down | not in the table |
 | `cmp-weaken` | Up | 8, 9, 10 |
@@ -223,20 +235,25 @@ MariaDB 10.11.14, sample schema of the Python generator.
 
 | Run | Queries | Checks passed | Violations |
 | --- | --- | --- | --- |
-| Set-semantic, seeds 7, 8, 9 (`gen_fragment.py 400`) | 1200 | 40983 | 0 |
-| Value-semantic, seeds 11 to 16 (`gen_fragment.py --value 500`) | 3000 (2717 used) | 25124 | 0 |
+| Set-semantic with `IN` subqueries, seeds 7, 8, 9 (`gen_fragment.py 400`) | 1200 | 40736 | 0 |
+| Value-semantic with `HAVING`, seeds 11 to 16 (`gen_fragment.py --value 500`) | 3000 (2736 used) | 37572 | 1 |
 
 - Every query passed translation validation (the query as written and the query
   re-printed from its term returned the same rows).
-- Negative controls (`--flip`): 300 violations on 60 set queries, 1493 on 500 value queries.
-- 283 value queries were not used because they group by a FLOAT / DOUBLE expression (see
+- Negative controls (`--flip`): 1850 violations on 400 set queries, 1791 on 500 value
+  queries.
+- 264 value queries were not used because they group by a FLOAT / DOUBLE expression (see
   "Observation" below).
+- The one violation is a candidate MariaDB bug, not a false alarm: `HAVING COUNT(x) IN
+  (subquery)` returns no rows where a row is expected. It is written up in
+  `issues/003-mariadb-having-count-in-subquery.md` (separate PR).
 - Of 511 queries produced by the Python generator, only 6 are inside the set-semantic
   fragment (the rest use CTEs, window functions or aggregates the model does not have).
 
-Testing found two defects in the unverified bridge, both fixed and covered by tests:
-an atom was put back without parentheses (`t.c - 5000 * 2`), and FLOAT results were
-compared exactly.
+Testing found three defects in the unverified bridge and checker, all fixed and covered
+by tests: an atom was put back without parentheses (`t.c - 5000 * 2`); FLOAT results were
+compared exactly; and rows were matched on exact floats, although floating-point
+aggregates can differ in their last bits between two plans of the same query.
 
 ### Observation (not analysed further)
 
@@ -265,7 +282,7 @@ than to guess:
 - **Parenthesised atoms.** An atom is printed in parentheses unless it is a plain name or
   number, because a mutant may put it into a context it was not written in.
 - **Rejected, not approximated:** `LIMIT`, `GROUP BY` / aggregates in set-semantic queries,
-  `HAVING`, window functions, CTEs, `USING` / `NATURAL` / `RIGHT` / `FULL` joins,
+  `HAVING` without aggregation, window functions, CTEs, `USING` / `NATURAL` / `RIGHT` / `FULL` joins,
   `INTERSECT ALL` / `EXCEPT ALL`, `SUM(DISTINCT)`, aggregates that are not modelled,
   non-aggregated select items that are not grouping keys, non-deterministic functions and
   user variables.
@@ -276,13 +293,16 @@ than to guess:
   differ; a value check is `incomparable` when the mutated column is not numeric; value
   queries with FLOAT / DOUBLE grouping keys are rejected; single-precision inputs are
   compared with a looser tolerance (1e-4 relative instead of 1e-9).
+- **Opaque when in doubt:** `IN` with a row constructor, with a `*` subquery or with a value
+  list, and `EXISTS` / `IN` subqueries the bridge cannot translate, are kept as one opaque
+  predicate that can only be replaced as a whole.
 - **Collation:** an inclusion that holds only up to case and trailing spaces is classified
   `collation`, not `violation`.
 - **Failing mutants** are skipped, never treated as empty results.
 
 ## Not done yet
 
-- `HAVING` (rules 15, 16), window functions, scalar subqueries, `IN`, CTEs.
+- Window functions, scalar subqueries, CTEs, `IN` with a row constructor.
 - Strings, `LIKE`, `REGEXP` (rules 7, 14).
 - Value mutation is applied to the select items of one top-level SELECT. Following a
   mutated value through derived tables or `UNION ALL` (what the Python lineage analysis
@@ -306,6 +326,9 @@ than to guess:
 - The list of monotone functions (`EXP`, `FLOOR`, `CEIL`, `ROUND`, `ATAN`, `SIGN`) is an
   assumption of the bridge. In the model a monotone function is any non-decreasing
   function on the reals.
+- In the model the operands of `HAVING` take integer or NULL values, like every value of
+  the set-semantic model. The `HAVING` rules use only the order and the three-valued
+  logic, but real-valued aggregates (AVG, STDDEV) are not literally covered.
 - The checker matches rows by sorting within groups of rows that agree outside the mutated
   column. This is justified because the intended transformations are non-decreasing; it is
   not proved.

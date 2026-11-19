@@ -41,6 +41,7 @@ Fixpoint mut_p (d : dir) (p : pred) {struct p} : list (string * pred) :=
   | POr a b =>
       lmap (fun a' => POr a' b) (mut_p d a) ++ lmap (fun b' => POr a b') (mut_p d b)
   | PExists q => lmap PExists (mut_q d q)
+  | PIn e q => lmap (PIn e) (mut_q d q)
   | _ => []
   end
 with mut_q (d : dir) (q : query) {struct q} : list (string * query) :=
@@ -151,6 +152,10 @@ Proof.
     intros q IHq d. simpl mut_p. rewrite Forall_app; split; [apply fire_p_sound|].
     apply (fa_mono q_le p_le PExists); [|apply IHq].
     intros u v H. apply p_le_exists. exact H.
+  - (* PIn: monotone in the subquery *)
+    intros e q IHq d. simpl mut_p. rewrite Forall_app; split; [apply fire_p_sound|].
+    apply (fa_mono q_le p_le (PIn e)); [|apply IHq].
+    intros u v H. apply p_le_in. exact H.
   - (* PAtom *)
     intros n d. simpl mut_p. rewrite Forall_app; split; [apply fire_p_sound|apply Forall_nil].
   - (* QTable *)

@@ -111,10 +111,19 @@ Inductive aexpr : Type :=
   | AMul     : aexpr -> aexpr -> aexpr
   | AMono    : nat -> aexpr -> aexpr. (* a monotone (non-decreasing) scalar function *)
 
-(** Interpretation of the monotone function symbols. *)
+(** Interpretation of the monotone function symbols, and of the operands of a
+    HAVING clause.
+
+    A HAVING predicate is an ordinary predicate ([pred]) whose operands are opaque:
+    [hrow g] gives, for a group [g], the values they take.  It is an arbitrary
+    function of the group, so the theorems about HAVING hold whatever the
+    aggregate expressions in it are.  The values are integers or NULL as everywhere
+    in the set-semantic model; what the HAVING rules use is only the order and the
+    three-valued logic. *)
 Record venv : Type := mk_venv {
   mfn : nat -> R -> R;
-  mfn_mono : forall n x y, x <= y -> mfn n x <= mfn n y
+  mfn_mono : forall n x y, x <= y -> mfn n x <= mfn n y;
+  hrow : list row -> row
 }.
 
 Fixpoint aeval (env : venv) (g : list row) (a : aexpr) : option R :=
@@ -253,44 +262,65 @@ Qed.
 
 (** The three shapes of a SELECT whose items are mutated:
     - [VProj]   : no aggregation, every row is its own group;
-    - [VGroup]  : GROUP BY keys;
-    - [VGlobal] : aggregates without GROUP BY (one row, even on empty input). *)
+    - [VGroup]  : GROUP BY keys, with a HAVING predicate ([PTrue] when absent);
+    - [VGlobal] : aggregates without GROUP BY (one group, even on empty input),
+                  with a HAVING predicate. *)
 Inductive vquery : Type :=
   | VProj   : list aexpr -> query -> vquery
-  | VGroup  : list expr -> list aexpr -> query -> vquery
-  | VGlobal : list aexpr -> query -> vquery.
+  | VGroup  : list expr -> list aexpr -> pred -> query -> vquery
+  | VGlobal : list aexpr -> pred -> query -> vquery.
 
 Definition vitems (v : vquery) : list aexpr :=
-  match v with VProj i _ | VGroup _ i _ | VGlobal i _ => i end.
+  match v with VProj i _ | VGroup _ i _ _ | VGlobal i _ _ => i end.
 
 Definition with_items (v : vquery) (i : list aexpr) : vquery :=
   match v with
   | VProj _ q => VProj i q
-  | VGroup k _ q => VGroup k i q
-  | VGlobal _ q => VGlobal i q
+  | VGroup k _ h q => VGroup k i h q
+  | VGlobal _ h q => VGlobal i h q
   end.
+
+Definition with_having (v : vquery) (h : pred) : vquery :=
+  match v with
+  | VProj i q => VProj i q
+  | VGroup k i _ q => VGroup k i h q
+  | VGlobal i _ q => VGlobal i h q
+  end.
+
+(** Does the group pass the HAVING predicate? *)
+Definition keep (env : venv) (db : db_t) (h : pred) (g : list row) : bool :=
+  is_true (eval_p db (hrow env g) h).
 
 Definition key_of (keys : list expr) (r : row) : list value :=
   map (eval_expr r) keys.
 
 Definition key_dec := list_eq_dec value_eq_dec.
 
-(** The groups do not depend on the select items. *)
-Definition vgroups (db : db_t) (v : vquery) : list (list row) :=
+(** All groups, before HAVING.  They depend neither on the select items nor on
+    the HAVING predicate. *)
+Definition all_groups (db : db_t) (v : vquery) : list (list row) :=
   match v with
   | VProj _ q => map (fun r => [r]) (eval_q db [] q)
-  | VGroup keys _ q =>
+  | VGroup keys _ _ q =>
       let rows := eval_q db [] q in
       map (fun k => filter (fun r => if key_dec (key_of keys r) k then true else false) rows)
           (nodup key_dec (map (key_of keys) rows))
-  | VGlobal _ q => [eval_q db [] q]
+  | VGlobal _ _ q => [eval_q db [] q]
   end.
 
-Definition veval (env : venv) (db : db_t) (v : vquery) : list (list (option R)) :=
-  map (fun g => map (aeval env g) (vitems v)) (vgroups db v).
+Definition vhaving (v : vquery) : pred :=
+  match v with VProj _ _ => PTrue | VGroup _ _ h _ | VGlobal _ h _ => h end.
 
-Lemma vgroups_with_items : forall db v i, vgroups db (with_items v i) = vgroups db v.
-Proof. intros db v i. destruct v; reflexivity. Qed.
+(** The groups that are output. *)
+Definition vgroups (env : venv) (db : db_t) (v : vquery) : list (list row) :=
+  filter (keep env db (vhaving v)) (all_groups db v).
+
+Definition veval (env : venv) (db : db_t) (v : vquery) : list (list (option R)) :=
+  map (fun g => map (aeval env g) (vitems v)) (vgroups env db v).
+
+Lemma vgroups_with_items : forall env db v i,
+  vgroups env db (with_items v i) = vgroups env db v.
+Proof. intros env db v i. destruct v; reflexivity. Qed.
 
 Lemma vitems_with_items : forall v i, vitems (with_items v i) = i.
 Proof. intros v i. destruct v; reflexivity. Qed.
@@ -299,3 +329,56 @@ Proof. intros v i. destruct v; reflexivity. Qed.
 Definition row_rel (r : vrel) (j : nat) (x y : list (option R)) : Prop :=
   exists pre u u' post,
     x = pre ++ u :: post /\ y = pre ++ u' :: post /\ List.length pre = j /\ rel_holds r u u'.
+
+(** ---------------- HAVING ---------------- *)
+
+(** [Sub l l']: [l] is obtained from [l'] by deleting elements.  Mutating HAVING
+    changes which groups are output; the rows of the groups that stay are the same. *)
+Inductive Sub {X : Type} : list X -> list X -> Prop :=
+  | Sub_nil : Sub [] []
+  | Sub_keep : forall x l l', Sub l l' -> Sub (x :: l) (x :: l')
+  | Sub_skip : forall x l l', Sub l l' -> Sub l (x :: l').
+
+Lemma sub_filter : forall {X : Type} (P P' : X -> bool) l,
+  (forall x, P x = true -> P' x = true) -> Sub (filter P l) (filter P' l).
+Proof.
+  intros X P P' l H. induction l as [|x l IH]; simpl; [constructor|].
+  destruct (P x) eqn:E.
+  - rewrite (H x E). constructor. exact IH.
+  - destruct (P' x); [constructor|]; exact IH.
+Qed.
+
+Lemma sub_map : forall {X Y : Type} (f : X -> Y) l l', Sub l l' -> Sub (map f l) (map f l').
+Proof. intros X Y f l l' H. induction H; simpl; constructor; assumption. Qed.
+
+(** [v_sub v v']: on every database the result of [v] is a sub-list of the result
+    of [v']. *)
+Definition v_sub (v v' : vquery) : Prop :=
+  forall env db, Sub (veval env db v) (veval env db v').
+
+Lemma all_groups_with_having : forall db v h, all_groups db (with_having v h) = all_groups db v.
+Proof. intros db v h. destruct v; reflexivity. Qed.
+
+Lemma vitems_with_having : forall v h, vitems (with_having v h) = vitems v.
+Proof. intros v h. destruct v; reflexivity. Qed.
+
+(** A weaker HAVING predicate keeps more groups. *)
+Lemma having_mono : forall v h h',
+  vhaving v = h -> vhaving (with_having v h') = h' ->
+  p_le h h' -> v_sub v (with_having v h').
+Proof.
+  intros v h h' E E' H env db. unfold veval, vgroups.
+  rewrite all_groups_with_having, vitems_with_having, E, E'.
+  apply sub_map. apply sub_filter. intros g Hg. unfold keep in *.
+  exact (is_true_mono _ _ (H db (hrow env g)) Hg).
+Qed.
+
+Lemma having_anti : forall v h h',
+  vhaving v = h -> vhaving (with_having v h') = h' ->
+  p_le h' h -> v_sub (with_having v h') v.
+Proof.
+  intros v h h' E E' H env db. unfold veval, vgroups.
+  rewrite all_groups_with_having, vitems_with_having, E, E'.
+  apply sub_map. apply sub_filter. intros g Hg. unfold keep in *.
+  exact (is_true_mono _ _ (H db (hrow env g)) Hg).
+Qed.

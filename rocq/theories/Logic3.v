@@ -53,6 +53,9 @@ Lemma tv_or_mono : forall a a' b b',
   tv_le a a' -> tv_le b b' -> tv_le (tv_or a b) (tv_or a' b').
 Proof. intros a a' b b'. destruct a, a', b, b'; unfold tv_le; simpl; lia. Qed.
 
+Lemma tv_or_lub : forall a b t, tv_le a t -> tv_le b t -> tv_le (tv_or a b) t.
+Proof. intros a b t. destruct a, b, t; unfold tv_le; simpl; lia. Qed.
+
 Lemma tv_and_le_l : forall a b, tv_le (tv_and a b) a.
 Proof. intros a b. destruct a, b; unfold tv_le; simpl; lia. Qed.
 

@@ -84,12 +84,17 @@ def relation_holds(relation, a, b):
     raise ValueError(relation)
 
 
-def _key(row, column):
+def _key(row, column, digits=None):
+    """The columns other than the mutated one, as a dictionary key.
+
+    Floating-point aggregates (VAR_SAMP, AVG, ...) can differ in their last bits
+    between two plans of the same query, so with `digits` set, numbers are rounded
+    to that many significant digits before rows are grouped."""
     def norm(v):
         if isinstance(v, (bytes, bytearray)):
             return ('b', bytes(v))
         if isinstance(v, NUMERIC) and not isinstance(v, bool):
-            return ('n', float(v))
+            return ('n', float(v) if digits is None else float('%.*g' % (digits, float(v))))
         if isinstance(v, (datetime.date, datetime.time, datetime.timedelta)):
             return ('d', str(v))
         return ('o', v)
@@ -100,12 +105,20 @@ def check_value(relation, column, original_rows, mutant_rows, single_precision=F
     global _tolerance
     _tolerance = REL_TOL_SINGLE if single_precision else REL_TOL
     try:
-        return _check_value(relation, column, original_rows, mutant_rows)
+        verdict = _check_value(relation, column, original_rows, mutant_rows, None)
+        if verdict == 'other columns changed':
+            # retry with rounded keys: 9 significant digits, then 6 in case a value
+            # sits on a rounding boundary
+            for digits in (9, 6):
+                verdict = _check_value(relation, column, original_rows, mutant_rows, digits)
+                if verdict != 'other columns changed':
+                    break
+        return verdict
     finally:
         _tolerance = REL_TOL
 
 
-def _check_value(relation, column, original_rows, mutant_rows):
+def _check_value(relation, column, original_rows, mutant_rows, digits):
     """Return 'ok', 'incomparable' (the mutated column is not numeric in one of the
     results, so the relation is not defined) or a string describing the violation.
 
@@ -117,9 +130,9 @@ def _check_value(relation, column, original_rows, mutant_rows):
         return 'row count %d vs %d' % (len(original_rows), len(mutant_rows))
     groups = collections.defaultdict(lambda: ([], []))
     for row in original_rows:
-        groups[_key(row, column)][0].append(row[column])
+        groups[_key(row, column, digits)][0].append(row[column])
     for row in mutant_rows:
-        groups[_key(row, column)][1].append(row[column])
+        groups[_key(row, column, digits)][1].append(row[column])
     for key, (orig, mut) in groups.items():
         if len(orig) != len(mut):
             return 'other columns changed'

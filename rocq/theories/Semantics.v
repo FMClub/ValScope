@@ -31,6 +31,14 @@ Definition eval_expr (ctx : row) : expr -> value :=
         end
     end.
 
+(** [x IN (v1, ..., vn)] is [x = v1 OR ... OR x = vn] in three-valued logic:
+    FALSE on the empty list, UNKNOWN when no value matches and a NULL is involved. *)
+Definition in3 (v : value) (vs : list value) : tv :=
+  fold_right (fun x acc => tv_or (cmp3 CEq v x) acc) F3 vs.
+
+Definition first_col (rows : list row) : list value :=
+  map (fun r => nth 0 r VNull) rows.
+
 Definition rdedup  := dedup  row_eq_dec.
 Definition runion  := union  row_eq_dec.
 Definition rinter  := inter  row_eq_dec.
@@ -80,6 +88,7 @@ with eval_p (db : db_t) (ctx : row) (p : pred) : tv :=
   | PAnd p q => tv_and (eval_p db ctx p) (eval_p db ctx q)
   | POr p q => tv_or (eval_p db ctx p) (eval_p db ctx q)
   | PExists q => match eval_q db ctx q with [] => F3 | _ => T3 end
+  | PIn e q => in3 (eval_expr ctx e) (first_col (eval_q db ctx q))
   | PAtom n => atoms db n ctx
   end.
 

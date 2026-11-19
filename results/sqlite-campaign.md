@@ -134,6 +134,15 @@ Two pairs (#37, seed 515, and #41, seed 2022) apply `GLOB` or `||` to a column o
 both databases the affected column (`t2.c3`, `t3.c3`) holds integers only, so the
 representative kept by `DISTINCT` cannot change the result; the two pairs remain valid.
 
+## Fourth round (same seeds again)
+
+After the P1 changes (types compared by family, correlated filters lifted out of
+`DISTINCT`, `DISTINCT` around a join printed with `GROUP BY`, `RIGHT JOIN`, `UNION ALL` of
+value queries, `INTERSECT ALL` / `EXCEPT ALL`, row `IN`), seeds 2001-2030 were run once
+more: 329928 checks passed (328852 before), 3766 mutants unprintable (4310 before), 24
+violations = the same 6 distinct pairs, all fixed in 3.53.1; no translation mismatch. All
+44 confirmed pairs were re-confirmed with the new checker.
+
 ## The second campaign
 
 Run with the extended model and bridge: opaque expressions as `EAtom`, analysed `LIKE`,

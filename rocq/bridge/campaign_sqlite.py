@@ -30,23 +30,32 @@ import gen_fragment  # noqa: E402
 from gen_sqlite_db import build  # noqa: E402
 from sqlite_exec import SQLiteLib  # noqa: E402
 from sql_bridge import mutate_sql, mutate_value, Unsupported  # noqa: E402
-from checker import bag, check_inclusion, check_value  # noqa: E402
+from checker import check_inclusion, check_value, sqlite_fold  # noqa: E402
+
+ERRORS = collections.Counter()
 
 
 def run(db, sql):
     try:
         return db.query(sql)
-    except Exception:
+    except Exception as e:     # an SQL error of this library (RuntimeError / sqlite3.Error)
+        ERRORS['%s: %s' % (db.version, str(e)[:60])] += 1
         return None
 
 
-def verdict_for(kind, mutant, base, res):
+
+
+def same_rows(a, b):
+    return check_inclusion('Up', a, b) == 'ok' and check_inclusion('Down', a, b) == 'ok'
+
+
+def verdict_for(kind, mutant, base, res, fold=None):
     """Check one mutant. kind is 'set', 'value' or 'having'."""
     if kind == 'value':
         relation, rule, column, _ = mutant
-        return check_value(relation, column, base, res), '%s col %d' % (relation, column)
+        return check_value(relation, column, base, res, fold=fold), '%s col %d' % (relation, column)
     direction = mutant[0]
-    return check_inclusion(direction, base, res), direction
+    return check_inclusion(direction, base, res, fold), direction
 
 
 def parse_range(text):
@@ -80,7 +89,7 @@ def main():
             if os.path.exists(path):
                 os.remove(path)
             db = SQLiteLib(lib, path)
-            build(db, seed, args.focus)
+            fold = sqlite_fold(build(db, seed, args.focus))
             dbs.append(db)
         latest = dbs.pop()
         rng = random.Random(seed)
@@ -101,8 +110,9 @@ def main():
             except Unsupported:
                 st['unsupported'] += 1
                 continue
-            except Exception:
+            except Exception as e:
                 st['parse_error'] += 1
+                ERRORS['bridge: %s %s' % (type(e).__name__, str(e)[:60])] += 1
                 continue
             st['mutants_not_printable'] += skipped
             for db in dbs:
@@ -116,7 +126,7 @@ def main():
                 if written is None or base is None:
                     st['original_failed'] += 1
                     continue
-                if bag(written) != bag(base):
+                if not same_rows(written, base):
                     st['TRANSLATION_MISMATCH'] += 1
                     print('TRANSLATION MISMATCH [%s seed %d]\n  written  : %s\n  reprinted: %s'
                           % (db.version, seed, sql, original))
@@ -136,7 +146,7 @@ def main():
                             m = (flipped[m[0]],) + tuple(m[1:])
                         else:
                             m = ('Down' if m[0] == 'Up' else 'Up',) + tuple(m[1:])
-                    verdict, label = verdict_for(mk, m, base, res)
+                    verdict, label = verdict_for(mk, m, base, res, fold)
                     rule = ('HAVING ' if mk == 'having' else '') + m[1]
                     if verdict == 'ok':
                         st['checked_ok'] += 1
@@ -150,8 +160,8 @@ def main():
                         continue
                     # re-check on the latest SQLite
                     lb, lr = run(latest, original), run(latest, mutant[-1])
-                    on_latest = None if lb is None or lr is None else verdict_for(mk, m, lb, lr)[0]
-                    fixed = on_latest == 'ok'
+                    on_latest = None if lb is None or lr is None else verdict_for(mk, m, lb, lr, fold)[0]
+                    fixed = on_latest in ('ok', 'collation')     # the relation holds on the latest
                     st['violations_fixed_in_latest' if fixed else 'violations_also_in_latest'] += 1
                     rec = {'version': db.version, 'seed': seed, 'focus': args.focus, 'kind': mk,
                            'rule': rule, 'expect': label,
@@ -165,6 +175,10 @@ def main():
         print('-- seed %d done: %s' % (seed, dict(st)), file=sys.stderr)
     print(dict(st))
     print('ok checks per rule:', dict(by_rule))
+    if ERRORS:
+        print('most frequent errors:')
+        for msg, n in ERRORS.most_common(10):
+            print('  %6d  %s' % (n, msg))
 
 
 if __name__ == '__main__':

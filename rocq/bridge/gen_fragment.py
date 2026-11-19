@@ -4,9 +4,14 @@
     python3 bridge/gen_fragment.py N [SEED] > queries.sql            # set-semantic fragment
     python3 bridge/gen_fragment.py --value N [SEED] > queries.sql    # value queries (aggregates)
     add --sqlite for the SQLite databases of gen_sqlite_db.py
+    add --schema FILE.json for another schema (see below)
 
-The schema is the sample schema of the Python generator (tables t1, t2, t3 with
-integer columns c1, c2 present in all three)."""
+By default the schema is the sample schema of the Python generator (tables t1, t2, t3).
+With --schema, FILE.json maps each table to its numeric columns, for example
+    {"orders": ["id", "qty", "price"], "items": ["id", "order_id", "amount"]}
+The first column of each table is used by EXISTS subqueries.  Only numeric columns are
+listed: the generator compares them with small integer constants."""
+import json
 import random
 import sys
 
@@ -17,6 +22,28 @@ SHIFTS = [5, 50, 500, 5000]
 SQLITE = False
 RICH = False      # opaque predicates and derived tables that stress the SQLite planner
 FOCUS = False     # more compound queries and more DISTINCT
+ALIAS = {}        # alias -> table
+
+
+def tab(alias):
+    """The table an alias was made for."""
+    return ALIAS.get(alias, alias[:2])
+
+
+def mk_alias(t, suffix):
+    alias = t + suffix
+    ALIAS[alias] = t
+    return alias
+
+
+def use_schema(path):
+    """Use the tables and numeric columns of a JSON file instead of the sample schema."""
+    with open(path) as f:
+        schema = json.load(f)
+    if not schema or not all(isinstance(c, list) and c for c in schema.values()):
+        raise SystemExit('%s: expected {"table": ["column", ...], ...}' % path)
+    TABLES.clear(); TABLES.update(schema)
+    NUM.clear(); NUM.update(schema)
 
 
 def use_sqlite():
@@ -36,10 +63,10 @@ def use_sqlite():
 
 def cmp_(rng, aliases):
     a = rng.choice(aliases)
-    left = '%s.%s' % (a, rng.choice(TABLES[a[:2]]))
+    left = '%s.%s' % (a, rng.choice(TABLES[tab(a)]))
     if rng.random() < 0.35 and len(aliases) > 1:
         b = rng.choice(aliases)
-        right = '%s.%s' % (b, rng.choice(TABLES[b[:2]]))
+        right = '%s.%s' % (b, rng.choice(TABLES[tab(b)]))
     else:
         right = str(rng.choice(CONSTS))
     return '%s %s %s' % (left, rng.choice(OPS), right)
@@ -47,7 +74,7 @@ def cmp_(rng, aliases):
 
 def col_of(rng, aliases):
     a = rng.choice(aliases)
-    return '%s.%s' % (a, rng.choice(TABLES[a[:2]]))
+    return '%s.%s' % (a, rng.choice(TABLES[tab(a)]))
 
 
 def opaque_pred(rng, aliases):
@@ -84,7 +111,7 @@ def pred(rng, aliases, depth, outer=()):
     if depth <= 0 or r < 0.35:
         if rng.random() < 0.15:
             a = rng.choice(aliases)
-            return '%s.%s IS NULL' % (a, rng.choice(TABLES[a[:2]]))
+            return '%s.%s IS NULL' % (a, rng.choice(TABLES[tab(a)]))
         return cmp_(rng, list(aliases) + list(outer))
     if r < 0.55:
         return '(%s AND %s)' % (pred(rng, aliases, depth - 1, outer), pred(rng, aliases, depth - 1, outer))
@@ -95,16 +122,16 @@ def pred(rng, aliases, depth, outer=()):
     if r < 0.90:
         a = rng.choice(aliases)
         t = rng.choice(list(TABLES))
-        alias = t + 'i%d' % rng.randint(0, 99)
+        alias = mk_alias(t, 'i%d' % rng.randint(0, 99))
         inner = pred(rng, [alias], depth - 1, outer=tuple(aliases) + tuple(outer))
         return '%s.%s %sIN (SELECT %s.%s FROM %s AS %s WHERE %s)' % (
-            a, rng.choice(TABLES[a[:2]]), 'NOT ' if rng.random() < 0.5 else '',
+            a, rng.choice(TABLES[tab(a)]), 'NOT ' if rng.random() < 0.5 else '',
             alias, rng.choice(TABLES[t]), t, alias, inner)
     t = rng.choice(list(TABLES))
-    alias = t + 's%d' % rng.randint(0, 99)
+    alias = mk_alias(t, 's%d' % rng.randint(0, 99))
     inner = pred(rng, [alias], depth - 1, outer=tuple(aliases) + tuple(outer))
-    return '%sEXISTS (SELECT %s.c1 FROM %s AS %s WHERE %s)' % (
-        'NOT ' if rng.random() < 0.5 else '', alias, t, alias, inner)
+    return '%sEXISTS (SELECT %s.%s FROM %s AS %s WHERE %s)' % (
+        'NOT ' if rng.random() < 0.5 else '', alias, TABLES[t][0], t, alias, inner)
 
 
 def from_item(rng, t, alias):
@@ -114,7 +141,7 @@ def from_item(rng, t, alias):
     cols = ', '.join('x.%s AS %s' % (c, c) for c in TABLES[t])
     inner = 'SELECT %s%s FROM %s AS x' % ('DISTINCT ' if rng.random() < 0.3 else '', cols, t)
     if rng.random() < 0.6:
-        inner += ' WHERE ' + pred(rng, ['x'] if False else [t + 'x'], 1).replace(t + 'x.', 'x.')
+        inner += ' WHERE ' + pred(rng, [mk_alias(t, 'x')], 1).replace(t + 'x.', 'x.')
     if rng.random() < 0.3:
         inner += ' UNION ALL SELECT %s FROM %s AS x' % (cols, t)
     return '(%s) AS %s' % (inner, alias)
@@ -122,11 +149,11 @@ def from_item(rng, t, alias):
 
 def select(rng, ncols):
     t = rng.choice(list(TABLES))
-    aliases = [t + 'a']
+    aliases = [mk_alias(t, 'a')]
     sql_from = from_item(rng, t, t + 'a')
     for i in range(rng.choice([0, 0, 1, 1, 2])):
         u = rng.choice(list(TABLES))
-        alias = u + 'bcd'[i]
+        alias = mk_alias(u, 'bcd'[i])
         kind = rng.choice(['INNER JOIN', 'INNER JOIN', 'LEFT JOIN'] + (['CROSS JOIN'] if RICH else []))
         if kind == 'CROSS JOIN':
             sql_from += ' CROSS JOIN %s' % from_item(rng, u, alias)
@@ -136,7 +163,7 @@ def select(rng, ncols):
     items = []
     for i in range(ncols):
         a = rng.choice(aliases)
-        c = '%s.%s' % (a, rng.choice(TABLES[a[:2]]))
+        c = '%s.%s' % (a, rng.choice(TABLES[tab(a)]))
         if RICH and rng.random() < 0.2:
             c = rng.choice(['%s + 0', 'CAST(%s AS INTEGER)', "%s || ''", 'abs(%s)', 'coalesce(%s, 0)']) % c
         items.append('%s AS k%d' % (c, i))
@@ -211,7 +238,7 @@ def having_pred(rng, alias, t, depth):
     if r < 0.90:
         return 'NOT (%s)' % having_pred(rng, alias, t, depth - 1)
     u = rng.choice(list(TABLES))
-    ualias = u + 'h%d' % rng.randint(0, 99)
+    ualias = mk_alias(u, 'h%d' % rng.randint(0, 99))
     return '%s %sIN (SELECT %s.%s FROM %s AS %s WHERE %s)' % (
         rng.choice(['COUNT(%s)', 'MIN(%s)', 'MAX(%s)']) % scalar(rng, alias, t),
         'NOT ' if rng.random() < 0.5 else '', ualias, rng.choice(TABLES[u]), u, ualias,
@@ -220,7 +247,7 @@ def having_pred(rng, alias, t, depth):
 
 def value_query(rng):
     t = rng.choice(list(NUM))
-    alias = t + 'a'
+    alias = mk_alias(t, 'a')
     where = ''
     if rng.random() < 0.6:
         where = ' WHERE ' + pred(rng, [alias], 1)
@@ -252,7 +279,12 @@ if __name__ == '__main__':
         RICH = True
     if '--focus' in sys.argv:
         FOCUS = True
-    args = [a for a in sys.argv[1:] if a not in ('--value', '--sqlite', '--rich', '--focus')]
+    argv = sys.argv[1:]
+    if '--schema' in argv:
+        i = argv.index('--schema')
+        use_schema(argv[i + 1])
+        del argv[i:i + 2]
+    args = [a for a in argv if a not in ('--value', '--sqlite', '--rich', '--focus')]
     n = int(args[0])
     rng = random.Random(int(args[1]) if len(args) > 1 else 0)
     for _ in range(n):

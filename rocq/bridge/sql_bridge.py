@@ -49,6 +49,12 @@ import subprocess
 
 import sqlglot
 from sqlglot import exp
+from sqlglot.dialects.mysql import MySQL
+
+# sqlglot prints `a REGEXP b` as REGEXP_LIKE(a, b), a MySQL 8 function that MariaDB
+# does not have; print the operator, which both accept.
+MySQL.Generator.TRANSFORMS[exp.RegexpLike] = lambda self, e: '(%s REGEXP %s)' % (
+    self.sql(e, 'this'), self.sql(e, 'expression'))
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CLI = os.path.join(HERE, '..', 'cli', 'valscope_mutate')
@@ -153,16 +159,26 @@ class Translation:
             return tree
         if w.args.get('recursive'):
             raise Unsupported('recursive CTE')
-        for cte in w.expressions:
-            if cte.args.get('alias') is not None and cte.args['alias'].columns:
-                raise Unsupported('CTE with a column list')
-            self.ctes[cte.alias_or_name.lower()] = cte.this
         tree = tree.copy()
         tree.set('with_' if 'with_' in tree.args else 'with', None)
         for sub in tree.find_all(exp.Select):
             if sub.args.get('with_') or sub.args.get('with'):
                 raise Unsupported('nested WITH')
-        return tree
+
+        def inline(node):
+            # every reference to a CTE, also inside atoms that are kept as text,
+            # becomes a derived table with the CTE's body
+            if isinstance(node, exp.Table) and not node.args.get('db') and node.name.lower() in self.ctes:
+                alias = node.alias_or_name
+                return exp.Subquery(this=self.ctes[node.name.lower()].copy(),
+                                    alias=exp.TableAlias(this=exp.to_identifier(alias)))
+            return node
+        for cte in w.expressions:
+            if cte.args.get('alias') is not None and cte.args['alias'].columns:
+                raise Unsupported('CTE with a column list')
+            # a CTE may refer to the CTEs before it
+            self.ctes[cte.alias_or_name.lower()] = cte.this.copy().transform(inline)
+        return tree.transform(inline)
 
     def _snapshot(self):
         return [len(x) for x in (self.tables, self.aliases, self.exprs, self.preds,
@@ -276,8 +292,6 @@ class Translation:
         body, alias = None, None
         if isinstance(node, exp.Subquery) and node.alias:
             body, alias = node.this, node.alias
-        elif isinstance(node, exp.Table) and not node.args.get('db') and node.name.lower() in self.ctes:
-            body, alias = self.ctes[node.name.lower()], node.alias_or_name
         if body is not None:
             if isinstance(node, exp.Subquery) and node.args['alias'].columns:
                 raise Unsupported('derived table with a column list')
@@ -291,8 +305,7 @@ class Translation:
                 except Unsupported:
                     self._restore(snap)
             # kept as an opaque table: it is not mutated inside
-            text = '(%s) AS %s' % (self._text(body), alias) if isinstance(node, exp.Table) else self._text(node)
-            self.tables.append(text)
+            self.tables.append(self._text(node))
             self.aliases.append(alias)
             return '(T %d 1)' % (len(self.tables) - 1), 1
         if isinstance(node, exp.Table):
@@ -312,6 +325,11 @@ class Translation:
     def _pred(self, node):
         if isinstance(node, exp.Paren):
             return self._pred(node.this)
+        if node.args.get('negate'):
+            # sqlglot writes `x NOT LIKE p`, `x NOT IN (...)`, ... as the node with negate=True
+            positive = node.copy()
+            positive.set('negate', None)
+            return '(Not %s)' % self._pred(positive)
         if isinstance(node, exp.And):
             return '(And %s %s)' % (self._pred(node.this), self._pred(node.expression))
         if isinstance(node, exp.Or):
@@ -607,8 +625,13 @@ class Translation:
             return '(%s) AS %s' % (self._q_sql(f[2]), self.named[int(f[1])])
         if tag in ('Inner', 'Left'):
             on, left, right = (f[1], f[2], f[3]) if tag == 'Inner' else (f[2], f[3], f[4])
-            text = '%s %s JOIN %s ON %s' % (self._from_sql(left), 'INNER' if tag == 'Inner' else 'LEFT',
-                                           self._from_sql(right, nested=True), self._p_sql(on))
+            if tag == 'Inner' and on == 'True':
+                # CROSS JOIN, not INNER JOIN ... ON 1 = 1: the same rows, and in SQLite it also
+                # keeps the join order that the query as written asks for
+                text = '%s CROSS JOIN %s' % (self._from_sql(left), self._from_sql(right, nested=True))
+            else:
+                text = '%s %s JOIN %s ON %s' % (self._from_sql(left), 'INNER' if tag == 'Inner' else 'LEFT',
+                                               self._from_sql(right, nested=True), self._p_sql(on))
             return '(%s)' % text if nested else text
         if tag in ('Distinct', 'Where'):
             # DISTINCT / WHERE over one table can be printed as a derived table that
@@ -646,6 +669,10 @@ class Translation:
         distinct, items, where = False, '*', None
         if q[0] == 'Distinct':
             distinct, q = True, q[1]
+            if q[0] in SET_SQL or q[0] in ('QAtom', 'Distinct'):
+                # DISTINCT around a query that is not a single SELECT
+                self.derived = getattr(self, 'derived', 0) + 1
+                return 'SELECT DISTINCT * FROM (%s) AS vs_d%d' % (self._q_sql(q), self.derived)
         if q[0] == 'Proj':
             # select-list atoms keep their exact text (it may end in "AS alias")
             items, q = ', '.join(self.exprs[int(e[1])] if e[0] == 'EAtom' else self._e_sql(e)

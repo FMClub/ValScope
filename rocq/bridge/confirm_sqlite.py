@@ -17,18 +17,18 @@ import tempfile
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gen_sqlite_db import build  # noqa: E402
 from sqlite_exec import SQLiteLib  # noqa: E402
-from checker import check_inclusion, check_value  # noqa: E402
+from checker import check_inclusion, check_value, sqlite_fold  # noqa: E402
 
 
-def recheck(rec, db):
+def recheck(rec, db, fold):
     try:
         base, res = db.query(rec['original']), db.query(rec['mutant'])
     except Exception as e:
         return 'error: %s' % e, None, None
     if rec['kind'] == 'value':
         relation, _, column = rec['expect'].split()
-        return check_value(relation, int(column), base, res), base, res
-    return check_inclusion(rec['expect'], base, res), base, res
+        return check_value(relation, int(column), base, res, fold=fold), base, res
+    return check_inclusion(rec['expect'], base, res, fold), base, res
 
 
 def main():
@@ -45,8 +45,9 @@ def main():
         if key not in cache:
             path = os.path.join(tmp, '%s_%d_%d.db' % (os.path.basename(lib or 'python'), seed, focus))
             db = SQLiteLib(lib, path)
-            build(db, seed, focus)
-            cache[key] = db
+            used = build(db, seed, focus)
+            fold = sqlite_fold(used)
+            cache[key] = (db, fold)
         return cache[key]
 
     libs = [None if lib == 'python' else lib for lib in args.libs]
@@ -55,12 +56,13 @@ def main():
     for i, rec in enumerate(recs, 1):
         per_version = {}
         for lib in libs + [None]:
-            db = db_for(lib, rec['seed'], rec.get('focus', False))
-            per_version[db.version] = recheck(rec, db)
+            db, fold = db_for(lib, rec['seed'], rec.get('focus', False))
+            per_version[db.version] = recheck(rec, db, fold)
         own = per_version[rec['version']][0]
         latest_version = SQLiteLib(None, ':memory:').version
         latest = per_version[latest_version][0]
-        ok = own not in ('ok', 'collation', 'incomparable') and not own.startswith('error') and latest == 'ok'
+        ok = own not in ('ok', 'collation', 'incomparable') and not own.startswith('error') \
+            and latest in ('ok', 'collation')
         confirmed += ok
         affected = sorted(v for v, r in per_version.items()
                           if r[0] not in ('ok', 'collation', 'incomparable') and not r[0].startswith('error'))

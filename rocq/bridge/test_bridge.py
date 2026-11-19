@@ -5,7 +5,7 @@ from decimal import Decimal
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sql_bridge import mutate_sql, mutate_value_sql, mutate_value, Translation, Unsupported  # noqa: E402
-from checker import check_inclusion, check_value  # noqa: E402
+from checker import check_inclusion, check_value, SQLiteFold  # noqa: E402
 
 failures = 0
 
@@ -43,6 +43,8 @@ SET_CASES = [
     ("SELECT t.a FROM t WHERE t.c LIKE 'a_c%'", 'Up', 'LIKE-generalise', "t.c LIKE 'a%c%'"),
     ("SELECT t.a FROM t WHERE t.c LIKE 'a_c%'", 'Down', 'LIKE-specialise', "t.c LIKE 'a_c_'"),
     ("SELECT t.a FROM t WHERE t.c LIKE 'it''s%'", 'Up', 'LIKE-generalise', "t.c LIKE 'it_s%'"),
+    # NOT LIKE flips the direction (regression: the negation was lost)
+    ("SELECT t.a FROM t WHERE t.c NOT LIKE 'a_c%'", 'Up', 'LIKE-specialise', "NOT (t.c LIKE 'a_c_')"),
     # rule 14: regular expressions of the fragment
     ("SELECT t.a FROM t WHERE t.c REGEXP '^ab+c$'", 'Up', 'REGEXP-generalise', "t.c REGEXP 'ab+c'"),
     ("SELECT t.a FROM t WHERE t.c REGEXP '^ab+c$'", 'Up', 'REGEXP-generalise', "t.c REGEXP '^ab*c$'"),
@@ -101,9 +103,13 @@ for sql, relation, rule, column, fragment in VALUE_CASES:
            '%-9s %-24s %s' % (relation, rule, sql))
 
 # an item that is not analysed is copied unchanged into every mutant
-_, mutants, _ = mutate_value_sql("SELECT VARIANCE(t.b) AS s, GROUP_CONCAT(t.c) AS g FROM t")
+_, mutants, _ = mutate_value_sql("SELECT VAR_SAMP(t.b) AS s, GROUP_CONCAT(t.c) AS g, SUM(DISTINCT t.d) AS d FROM t")
 report(any(r == 'VAR_SAMP->STDDEV_SAMP' for _, r, _, _ in mutants) and
-       all('(GROUP_CONCAT(t.c)) AS g' in m for _, _, _, m in mutants), 'opaque item GROUP_CONCAT copied')
+       all("(GROUP_CONCAT(t.c SEPARATOR ',')) AS g" in m for _, _, c, m in mutants if c == 0) and
+       all("(SUM(DISTINCT t.d)) AS d" in m for _, _, c, m in mutants if c != 2), 'opaque items copied unchanged')
+# in MySQL / MariaDB, VARIANCE is the population variance: it is not rule 21's VAR_SAMP
+_, mutants, _ = mutate_value_sql("SELECT VARIANCE(t.b) AS s FROM t")
+report(not any(r.startswith('VAR_SAMP') for _, r, _, _ in mutants), 'VARIANCE (population) is not VAR_SAMP')
 
 # FUNC(c * k) needs c >= 0: it must not fire when the argument can be negative
 _, mutants, _ = mutate_value_sql("SELECT FLOOR(AVG(t.x)) AS f FROM t")
@@ -140,7 +146,6 @@ REJECTED = [
     ("SELECT a FROM t WHERE b > @x", 'set', 'user variable'),
     ("SELECT a FROM t NATURAL JOIN u", 'set', 'NATURAL JOIN'),
     ("SELECT t.a, SUM(t.b) AS s FROM t GROUP BY t.c", 'value', 'non-key column in a grouped select'),
-    ("SELECT SUM(DISTINCT t.b) AS s FROM t", 'value', 'SUM(DISTINCT)'),
     ("SELECT DISTINCT t.a AS a FROM t", 'value', 'DISTINCT in a value query'),
     ("SELECT t.a AS a FROM t HAVING t.a > 1", 'value', 'HAVING without aggregation'),
     ("SELECT t.g AS g, SUM(t.x) AS s FROM t GROUP BY t.g HAVING s > 1", 'value', 'HAVING on a select alias'),
@@ -181,7 +186,15 @@ report('t.a' in probe and 't.b' in probe, 'type probe covers all select items')
 # ---- the checkers
 report(check_inclusion('Up', [(1,), (1,)], [(1,), (1,), (2,)]) == 'ok', 'inclusion respects multiplicities')
 report(check_inclusion('Up', [(1,), (1,)], [(1,), (2,)]) == 'violation', 'missing duplicate is a violation')
-report(check_inclusion('Up', [('A',)], [('a ',)]) == 'collation', 'case / trailing space difference is classified')
+# inclusion is checked modulo the DBMS's equality, and only that equality
+report(check_inclusion('Up', [('A',)], [('a',)]) == 'violation', 'binary: a case difference is a violation')
+report(check_inclusion('Up', [('A',)], [('a',)], SQLiteFold('NOCASE')) == 'collation', 'NOCASE: a case difference is a representative choice')
+report(check_inclusion('Up', [('A',)], [('a ',)], SQLiteFold('NOCASE')) == 'violation', 'NOCASE does not ignore trailing spaces')
+report(check_inclusion('Up', [('\u00c9',)], [('\u00e9',)], SQLiteFold('NOCASE')) == 'violation', 'NOCASE folds ASCII letters only')
+report(check_inclusion('Up', [(0.1 + 0.2,)], [(0.3,)]) == 'ok', 'last-bit float noise is not a violation')
+report(check_inclusion('Up', [(2**60 + 1,)], [(2**60,)]) == 'violation', 'big integers are compared exactly')
+report(check_value('Le', 0, [(2**60 + 1, 1)], [(2**60, 1)]) != 'ok', 'big integers: exact value relation')
+report(check_value('Le', 0, [(1, 'A')], [(2, 'a')], fold=SQLiteFold('NOCASE')) == 'ok', 'group key representative may differ modulo collation')
 rows = lambda *vals: [(1, v) for v in vals]
 report(check_value('Le', 1, rows(1, 5), rows(2, 5)) == 'ok', 'Le holds')
 report(check_value('Le', 1, rows(1, 5), rows(0, 5)) != 'ok', 'Le violated')

@@ -1,0 +1,10 @@
+-R theories ValScope
+
+theories/Bag.v
+theories/Logic3.v
+theories/Syntax.v
+theories/Semantics.v
+theories/Approx.v
+theories/Mutate.v
+theories/Counter.v
+theories/Extract.v

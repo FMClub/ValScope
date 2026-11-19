@@ -164,20 +164,29 @@ def main():
             ERRORS['bridge: %s %s' % (type(e).__name__, str(e)[:60])] += 1
             continue
         single = False
-        if args.value and target.dialect == 'mysql' and probe[0] is not None:
+        probes = trs[0].type_probes() if args.value else []
+        if args.value and target.dialect == 'mysql' and any(p[0] for p in probes):
             # The model computes with exact numbers.
             # - FLOAT / DOUBLE grouping keys: the server may compare rounded or unrounded
             #   values depending on the plan, so the number of groups is not determined;
             #   such queries are outside the model.
             # - single-precision inputs: results are compared with a looser tolerance.
-            _, probe_types = target.run(probe[0])
-            if probe_types is None:
+            failed = approximate = False
+            for probe_sql, nkeys in probes:          # one probe per arm of a UNION ALL
+                if probe_sql is None:
+                    continue
+                _, probe_types = target.run(probe_sql)
+                if probe_types is None:
+                    failed = True
+                    break
+                approximate |= any(t in target.APPROXIMATE_TYPES for t in probe_types[:nkeys])
+                single |= target.SINGLE in probe_types
+            if failed:
                 st['original_failed'] += 1
                 continue
-            if any(t in target.APPROXIMATE_TYPES for t in probe_types[:probe[1]]):
+            if approximate:
                 st['approximate_group_key'] += 1
                 continue
-            single = target.SINGLE in probe_types
         if args.value and target.dialect == 'sqlite':
             # an SQLite column can hold text in any row; aggregates then follow SQLite's
             # own rules, outside the model (see Translation.numeric_probe)

@@ -334,12 +334,13 @@ class Translation:
         self.kind = kind
         self.tables, self.aliases, self.exprs, self.preds = [], [], [], []
         self.item_alias, self.mono_ids = [], {}
+        self.item_alias_arms = []           # the column aliases of each arm of a value query
         self.named, self.qatoms, self.ctes, self.opaque_items = [], [], {}, []
         self._law_cache = {}
         tree = sqlglot.parse_one(sql, read=dialect)
         _check_deterministic(tree)
         tree = self._take_ctes(tree)
-        self.term = self._query(tree) if kind == 'set' else self._value_query(tree)
+        self.term = self._query(tree) if kind == 'set' else self._value_top(tree)
         why = outside_collation_law(self, self.term)
         if why:
             raise Unsupported('outside the model: ' + why)
@@ -676,6 +677,24 @@ class Translation:
         return '(Atom %d)' % (len(self.preds) - 1)
 
     # ---------------------------------------------------- value queries
+    def _value_top(self, node):
+        """A value query, or a UNION ALL of value queries with the same number of columns
+        (VUnion.v: one arm is mutated, the other arms' rows stay as they are)."""
+        node = self._unwrap(node)
+        if isinstance(node, exp.Union) and not node.args.get('distinct'):
+            for key in ('limit', 'offset', 'with_', 'with'):
+                if node.args.get(key):
+                    raise Unsupported('%s on a UNION ALL of value queries' % key)
+            left, right = self._value_top(node.this), self._value_top(node.expression)
+            return '(VUnionAll %s %s)' % (left, right)
+        return self._value_query(node)
+
+    def _value_arms(self, tree):
+        """The value queries of a (possibly UNION ALL) value term, left to right."""
+        if tree[0] == 'VUnionAll':
+            return self._value_arms(tree[1]) + self._value_arms(tree[2])
+        return [tree]
+
     def _value_query(self, node):
         node = self._unwrap(node)
         if not isinstance(node, exp.Select):
@@ -691,12 +710,14 @@ class Translation:
         key_texts = {_strip_parens(k).sql(dialect=self.dialect) for k in keys}
         has_agg = any(item.find(exp.AggFunc) is not None for item in node.expressions)
         source = self._source(node)
-        items = []
+        items, aliases = [], []
+        self.item_alias_arms.append(aliases)
         for j, item in enumerate(node.expressions):
             body = item.this if isinstance(item, exp.Alias) else item
             if isinstance(body, exp.Star) or (isinstance(body, exp.Column) and isinstance(body.this, exp.Star)):
                 raise Unsupported('* in a value query')
             self.item_alias.append(item.alias if isinstance(item, exp.Alias) and item.alias else 'c%d' % j)
+            aliases.append(self.item_alias[-1])
             items.append(self._item(body, key_texts if (keys or has_agg) else None))
         # HAVING is an ordinary predicate; its operands (aggregate expressions) are atoms
         having = 'True'
@@ -866,15 +887,33 @@ class Translation:
     def to_sql(self, term):
         tree = parse_sexp(term) if isinstance(term, str) else term
         tree = self.lift(tree)
-        if tree[0] in ('VProj', 'VGroup', 'VGlobal'):
-            return self._v_sql(tree)
+        if tree[0] in ('VProj', 'VGroup', 'VGlobal', 'VUnionAll'):
+            self._arm = 0
+            return self._vt_sql(tree)
         return self._q_sql(tree)
 
+    def _vt_sql(self, t):
+        if t[0] != 'VUnionAll':
+            return self._v_sql(t)
+        left, right = self._vt_sql(t[1]), self._vt_sql(t[2])
+        if self.dialect == 'sqlite':
+            if t[2][0] == 'VUnionAll':
+                right = 'SELECT * FROM (%s)' % right
+            return '%s UNION ALL %s' % (left, right)
+        return '(%s) UNION ALL (%s)' % (left, right)
+
     def type_probe(self):
-        """For a value query: (sql, number_of_keys).  The query returns no rows; its
-        columns are the grouping keys followed by every row-level expression used in
-        the select items, so a caller can inspect their types."""
-        keys, items, _, source = self._v_parts(parse_sexp(self.term))
+        """For a value query: (sql, number_of_keys) of its first arm (see type_probes)."""
+        return self.type_probes()[0]
+
+    def type_probes(self):
+        """For a value query: one (sql, number_of_keys) per arm.  The query returns no
+        rows; its columns are the grouping keys followed by every row-level expression
+        used in the select items, so a caller can inspect their types."""
+        return [self._type_probe_arm(v) for v in self._value_arms(parse_sexp(self.term))]
+
+    def _type_probe_arm(self, v):
+        keys, items, _, source = self._v_parts(v)
         atoms = []
 
         def collect(t):
@@ -913,8 +952,15 @@ class Translation:
         hold text in any row, and aggregates then follow SQLite's own rules (AVG converts
         text to a number, MAX orders text above every number).  This query counts the
         rows where an expression used in a select item is text or a blob; a value query
-        is inside the model only when it returns 0."""
-        keys, items, _, source = self._v_parts(parse_sexp(self.term))
+        is inside the model only when it returns 0.  For a UNION ALL, the counts of the
+        arms are added."""
+        probes = [p for p in (self._numeric_probe_arm(v) for v in self._value_arms(parse_sexp(self.term))) if p]
+        if not probes:
+            return None
+        return probes[0] if len(probes) == 1 else 'SELECT ' + ' + '.join('(%s)' % p for p in probes)
+
+    def _numeric_probe_arm(self, v):
+        keys, items, _, source = self._v_parts(v)
         atoms = []
 
         def collect(t):
@@ -1112,7 +1158,9 @@ class Translation:
         where = None
         if source[0] == 'Where':
             where, source = self._p_sql(source[1]), source[2]
-        cols = ', '.join('%s AS %s' % (self._a_sql(a), self.item_alias[j]) for j, a in enumerate(items))
+        aliases = self.item_alias_arms[min(getattr(self, '_arm', 0), len(self.item_alias_arms) - 1)]
+        self._arm = getattr(self, '_arm', 0) + 1
+        cols = ', '.join('%s AS %s' % (self._a_sql(a), aliases[j]) for j, a in enumerate(items))
         sql = 'SELECT %s FROM %s' % (cols, self._from_sql(source))
         if where:
             sql += ' WHERE ' + where
@@ -1175,6 +1223,9 @@ def _tree_key(node):
     """A hashable, parenthesis-free description of a syntax tree."""
     if isinstance(node, exp.Paren):
         return _tree_key(node.this)
+    if isinstance(node, exp.Subquery) and not node.args.get('alias') and \
+            not any(node.args.get(k) for k in ('order', 'limit', 'offset')):
+        return _tree_key(node.this)           # (SELECT ...) without alias: parentheses only
     if isinstance(node, exp.Expression):
         return (type(node).__name__,
                 tuple((k, _tree_key(v)) for k, v in sorted(node.args.items())

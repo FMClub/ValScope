@@ -163,6 +163,18 @@ report(any('FROM (SELECT DISTINCT * FROM u AS y) AS y WHERE y.a = x.a' in m for 
        not any('FROM u AS y WHERE y.a = x.a) AS y' in m for _, _, m in mutants),
        'correlated filter lifted out of a DISTINCT derived table')
 
+# UNION ALL of value queries (VUnion.v): one arm is mutated, the other stays
+_, mutants, _, _, having = mutate_value(
+    "SELECT t.g AS g, SUM(t.x) AS s FROM t GROUP BY t.g HAVING SUM(t.x) > 1 UNION ALL SELECT u.g, COUNT(u.y) FROM u GROUP BY u.g")
+report(any(r == 'SUM(c)->SUM(c*k)' and m.endswith('UNION ALL (SELECT u.g AS c0, COUNT(u.y) AS c1 FROM u GROUP BY u.g)')
+           for _, r, _, m in mutants) and any(r == 'COUNT->COUNT-DISTINCT' and 'SUM(t.x) AS s' in m for _, r, _, m in mutants)
+       and any(r == 'cond->TRUE' for _, r, _ in having), 'UNION ALL of value queries: each arm mutated alone')
+try:
+    mutate_value("SELECT t.g AS g, SUM(t.x) AS s FROM t GROUP BY t.g UNION SELECT u.g, COUNT(u.y) FROM u GROUP BY u.g")
+    report(False, 'UNION (DISTINCT) of value queries must be rejected')
+except Unsupported:
+    report(True, 'UNION (DISTINCT) of value queries rejected')
+
 # the ON condition of a LEFT JOIN must never be mutated (Counter.v)
 _, mutants, _ = mutate_sql("SELECT t.a FROM t LEFT JOIN u ON t.a = u.a AND u.b > 1 WHERE t.c = 2")
 touched = [m for _, _, m in mutants if 'LEFT JOIN u ON' in m and 'ON (t.a = u.a) AND (u.b > 1)' not in m]

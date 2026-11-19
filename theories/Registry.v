@@ -70,3 +70,25 @@ Theorem hmutate_sound : forall d v name v',
 Proof. intros d v name v'. apply hmut_sound. Qed.
 
 Print Assumptions hmutate_sound.
+
+(** ---------------- UNION ALL of value queries ---------------- *)
+
+From ValScope Require Import VUnion.
+
+(** Value mutation of one arm of a UNION ALL of value queries. *)
+Definition tmutate : vtop -> list tmutant := tmut value_rules.
+
+Theorem tmutate_sound : forall t name r j t',
+  In (name, (r, (j, t'))) (tmutate t) ->
+  forall env db, Forall2 (row_rel r j) (teval env db t) (teval env db t').
+Proof. intros t name r j t'. apply tmut_sound. Qed.
+
+Print Assumptions tmutate_sound.
+
+(** HAVING mutation of one arm. *)
+Definition thmutate : dir -> vtop -> list (string * vtop) := thmut pred_rules query_rules.
+
+Theorem thmutate_sound : forall d t name t', In (name, t') (thmutate d t) -> dle t_sub d t t'.
+Proof. intros d t name t'. apply thmut_sound. Qed.
+
+Print Assumptions thmutate_sound.

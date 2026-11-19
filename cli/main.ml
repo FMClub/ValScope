@@ -25,6 +25,7 @@
               | (AMax e) | (AAvg e) | (AVar e) | (AStd e) | (AAdd item item)
               | (AMul item item) | (AMono id item)
               | (AOpaque id)       an item that is not analysed (copied, never mutated)
+     vtop   ::= vquery | (VUnionAll vtop vtop)          UNION ALL of value queries
    Each mutant is printed as
      <Le|Ge|AwayZero|TowardOne|AwayOne> TAB <rule name> TAB <column> TAB <vquery>
    where the relation says how the mutated column of the mutant relates to the original.
@@ -257,12 +258,20 @@ let vquery_to = function
   | VGlobal (items, h, q) ->
       Printf.sprintf "(VGlobal (%s) %s %s)" (items_to items) (pred_to h) (query_to q)
 
+let rec vtop_of = function
+  | L [A "VUnionAll"; a; b] -> VUnionAll (vtop_of a, vtop_of b)
+  | t -> VOne (vquery_of t)
+
+let rec vtop_to = function
+  | VOne v -> vquery_to v
+  | VUnionAll (a, b) -> Printf.sprintf "(VUnionAll %s %s)" (vtop_to a) (vtop_to b)
+
 let rel_name = function
   | VLe -> "Le" | VGe -> "Ge" | VAwayZero -> "AwayZero"
   | VTowardOne -> "TowardOne" | VAwayOne -> "AwayOne"
 
 let is_value_query = function
-  | L (A ("VProj" | "VGroup" | "VGlobal") :: _) -> true
+  | L (A ("VProj" | "VGroup" | "VGlobal" | "VUnionAll") :: _) -> true
   | _ -> false
 
 let () =
@@ -278,14 +287,14 @@ let () =
           (try
              let term = parse_sexp line in
              if is_value_query term then begin
-               let v = vquery_of term in
+               let v = vtop_of term in
                List.iter (fun (name, (rel, (j, v'))) ->
-                 Printf.printf "%s\t%s\t%d\t%s\n" (rel_name rel) name j (vquery_to v'))
-                 (vmutate v);
+                 Printf.printf "%s\t%s\t%d\t%s\n" (rel_name rel) name j (vtop_to v'))
+                 (tmutate v);
                List.iter (fun d ->
                  List.iter (fun (name, v') ->
-                   Printf.printf "%s\t%s\t%s\n" (dir_name d) name (vquery_to v'))
-                   (hmutate d v)) [Up; Down]
+                   Printf.printf "%s\t%s\t%s\n" (dir_name d) name (vtop_to v'))
+                   (thmutate d v)) [Up; Down]
              end
              else begin
                let q = query_of term in

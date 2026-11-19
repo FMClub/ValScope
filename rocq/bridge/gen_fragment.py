@@ -1,7 +1,8 @@
 """Generate random queries inside the fragment the verified mutators support
 (selection, projection, DISTINCT, inner/left joins, set operations, EXISTS, NOT).
 
-    python3 bridge/gen_fragment.py N [SEED] > queries.sql
+    python3 bridge/gen_fragment.py N [SEED] > queries.sql            # set-semantic fragment
+    python3 bridge/gen_fragment.py --value N [SEED] > queries.sql    # value queries (aggregates)
 
 The schema is the sample schema of the Python generator (tables t1, t2, t3 with
 integer columns c1, c2 present in all three)."""
@@ -74,8 +75,66 @@ def query(rng, depth=2):
     return go(depth)
 
 
+# ---- value queries: one SELECT with aggregates over integer and decimal columns ----
+NUM = {'t1': ['c1', 'c4'], 't2': ['c1', 'c2', 'c3', 'c14', 'c15'], 't3': ['c1', 'c2', 'c3', 'c6', 'c7', 'c8', 'c9']}
+AGGS = ['SUM(%s)', 'MIN(%s)', 'MAX(%s)', 'AVG(%s)', 'COUNT(%s)', 'COUNT(DISTINCT %s)',
+        'VAR_SAMP(%s)', 'STDDEV_SAMP(%s)']
+
+
+def scalar(rng, alias, t):
+    c = '%s.%s' % (alias, rng.choice(NUM[t]))
+    r = rng.random()
+    if r < 0.45:
+        return c
+    if r < 0.75:      # shifted so that values, sums and averages can be negative
+        return '%s - %d' % (c, rng.choice([5, 50, 500, 5000]))
+    if r < 0.85:      # small values, so that variances below and above 1 both occur
+        return '%s %% %d' % (c, rng.choice([2, 3]))
+    return '%s.%s + %s.%s' % (alias, rng.choice(NUM[t]), alias, rng.choice(NUM[t]))
+
+
+def agg_item(rng, alias, t):
+    item = rng.choice(AGGS) % scalar(rng, alias, t)
+    r = rng.random()
+    if r < 0.15:
+        item = '%s + %d' % (item, rng.randint(1, 9))
+    elif r < 0.25:
+        item = '%s(%s)' % (rng.choice(['FLOOR', 'CEIL', 'ROUND', 'EXP', 'ATAN', 'SIGN']),
+                           'COUNT(%s)' % scalar(rng, alias, t) if rng.random() < 0.5 else item)
+        if item.startswith('EXP'):
+            item = 'ATAN' + item[3:]          # EXP overflows on large aggregates
+    elif r < 0.30:
+        item = '%s * %d' % (item, rng.randint(2, 4))
+    return item
+
+
+def value_query(rng):
+    t = rng.choice(list(NUM))
+    alias = t + 'a'
+    where = ''
+    if rng.random() < 0.6:
+        where = ' WHERE ' + pred(rng, [alias], 1)
+    shape = rng.random()
+    n = rng.randint(1, 4)
+    if shape < 0.25:      # no aggregation
+        items = [scalar(rng, alias, t) for _ in range(n)]
+        group = ''
+    elif shape < 0.45:    # aggregates without GROUP BY
+        items = [agg_item(rng, alias, t) for _ in range(n)]
+        group = ''
+    else:                 # GROUP BY
+        keys = ['%s.%s' % (alias, c) for c in rng.sample(NUM[t], rng.randint(1, 2))]
+        if rng.random() < 0.4:
+            keys = ['%s %% %d' % (keys[0], rng.choice([2, 3, 5]))]   # few, larger groups
+        items = keys + [agg_item(rng, alias, t) for _ in range(n)]
+        group = ' GROUP BY ' + ', '.join(keys)
+    cols = ', '.join('%s AS k%d' % (item, i) for i, item in enumerate(items))
+    return 'SELECT %s FROM %s AS %s%s%s' % (cols, t, alias, where, group)
+
+
 if __name__ == '__main__':
-    n = int(sys.argv[1])
-    rng = random.Random(int(sys.argv[2]) if len(sys.argv) > 2 else 0)
+    args = [a for a in sys.argv[1:] if a != '--value']
+    n = int(args[0])
+    rng = random.Random(int(args[1]) if len(args) > 1 else 0)
     for _ in range(n):
-        print(query(rng))
+        print(value_query(rng) if '--value' in sys.argv else query(rng))

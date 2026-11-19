@@ -24,6 +24,11 @@ Definition eval_expr (ctx : row) : expr -> value :=
         | VInt x, VInt y => VInt (x + y)
         | _, _ => VNull
         end
+    | EMul a b =>
+        match go a, go b with
+        | VInt x, VInt y => VInt (x * y)
+        | _, _ => VNull
+        end
     end.
 
 Definition rdedup  := dedup  row_eq_dec.

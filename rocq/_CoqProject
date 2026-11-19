@@ -9,6 +9,9 @@ theories/Rule.v
 theories/Engine.v
 theories/StdRules.v
 theories/ExtraRules.v
+theories/Value.v
+theories/VEngine.v
+theories/VRules.v
 theories/Registry.v
 theories/Counter.v
 theories/Extract.v

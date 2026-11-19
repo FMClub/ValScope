@@ -12,7 +12,8 @@ From ValScope Require Import Logic3.
 Inductive expr : Type :=
   | EConst : value -> expr
   | ECol   : nat -> expr
-  | EAdd   : expr -> expr -> expr.
+  | EAdd   : expr -> expr -> expr
+  | EMul   : expr -> expr -> expr.
 
 Inductive pred : Type :=
   | PTrue   : pred

@@ -6,11 +6,20 @@
              | (Inner p q q) | (Left pad p q q)
      pred  ::= True | False | (Cmp op e e) | (IsNull e) | (Not p) | (And p p)
              | (Or p p) | (Exists q) | (Atom id)
-     expr  ::= (Col id) | (Null) | (Int n) | (Add e e)
+     expr  ::= (Col id) | (Null) | (Int n) | (Add e e) | (Mul e e)
      op    ::= eq | ne | lt | le | gt | ge
    For every input line the program prints one line per mutant,
      <Up|Down> TAB <rule name> TAB <query>
    followed by a line "END".  `--rules` lists the registered plug-ins.
+
+   Value queries (one select item is mutated, the rows stay the same):
+     vquery ::= (VProj (item ...) q) | (VGroup (e ...) (item ...) q) | (VGlobal (item ...) q)
+     item   ::= (ACol e) | (AConst n) | (ACount e) | (ACountD e) | (ASum e) | (AMin e)
+              | (AMax e) | (AAvg e) | (AVar e) | (AStd e) | (AAdd item item)
+              | (AMul item item) | (AMono id item)
+   Each mutant is printed as
+     <Le|Ge|AwayZero|TowardOne|AwayOne> TAB <rule name> TAB <column> TAB <vquery>
+   where the relation says how the mutated column of the mutant relates to the original.
 
    This file is glue: it only parses, calls Valscope_core.mutate and prints. *)
 
@@ -55,6 +64,7 @@ let rec expr_of = function
   | L [A "Null"] -> EConst VNull
   | L [A "Int"; A n] -> EConst (VInt (int_of_string n))
   | L [A "Add"; a; b] -> EAdd (expr_of a, expr_of b)
+  | L [A "Mul"; a; b] -> EMul (expr_of a, expr_of b)
   | _ -> failwith "bad expression"
 
 let rec pred_of = function
@@ -87,6 +97,7 @@ let rec expr_to = function
   | EConst VNull -> "(Null)"
   | EConst (VInt n) -> Printf.sprintf "(Int %d)" n
   | EAdd (a, b) -> Printf.sprintf "(Add %s %s)" (expr_to a) (expr_to b)
+  | EMul (a, b) -> Printf.sprintf "(Mul %s %s)" (expr_to a) (expr_to b)
 
 let rec pred_to = function
   | PTrue -> "True"
@@ -116,21 +127,86 @@ and query_to = function
 
 let dir_name = function Up -> "Up" | Down -> "Down"
 
+(* ---- value queries ---- *)
+
+let rec item_of = function
+  | L [A "ACol"; e] -> ACol (expr_of e)
+  | L [A "AConst"; A n] -> AConst (int_of_string n)
+  | L [A "ACount"; e] -> ACount (expr_of e)
+  | L [A "ACountD"; e] -> ACountD (expr_of e)
+  | L [A "ASum"; e] -> ASum (expr_of e)
+  | L [A "AMin"; e] -> AMin (expr_of e)
+  | L [A "AMax"; e] -> AMax (expr_of e)
+  | L [A "AAvg"; e] -> AAvg (expr_of e)
+  | L [A "AVar"; e] -> AVarSamp (expr_of e)
+  | L [A "AStd"; e] -> AStdSamp (expr_of e)
+  | L [A "AAdd"; a; b] -> AAdd (item_of a, item_of b)
+  | L [A "AMul"; a; b] -> AMul (item_of a, item_of b)
+  | L [A "AMono"; A f; a] -> AMono (int_of_string f, item_of a)
+  | _ -> failwith "bad select item"
+
+let rec item_to = function
+  | ACol e -> Printf.sprintf "(ACol %s)" (expr_to e)
+  | AConst n -> Printf.sprintf "(AConst %d)" n
+  | ACount e -> Printf.sprintf "(ACount %s)" (expr_to e)
+  | ACountD e -> Printf.sprintf "(ACountD %s)" (expr_to e)
+  | ASum e -> Printf.sprintf "(ASum %s)" (expr_to e)
+  | AMin e -> Printf.sprintf "(AMin %s)" (expr_to e)
+  | AMax e -> Printf.sprintf "(AMax %s)" (expr_to e)
+  | AAvg e -> Printf.sprintf "(AAvg %s)" (expr_to e)
+  | AVarSamp e -> Printf.sprintf "(AVar %s)" (expr_to e)
+  | AStdSamp e -> Printf.sprintf "(AStd %s)" (expr_to e)
+  | AAdd (a, b) -> Printf.sprintf "(AAdd %s %s)" (item_to a) (item_to b)
+  | AMul (a, b) -> Printf.sprintf "(AMul %s %s)" (item_to a) (item_to b)
+  | AMono (f, a) -> Printf.sprintf "(AMono %d %s)" f (item_to a)
+
+let items_to l = String.concat " " (List.map item_to l)
+
+let vquery_of = function
+  | L [A "VProj"; L items; q] -> VProj (List.map item_of items, query_of q)
+  | L [A "VGroup"; L keys; L items; q] ->
+      VGroup (List.map expr_of keys, List.map item_of items, query_of q)
+  | L [A "VGlobal"; L items; q] -> VGlobal (List.map item_of items, query_of q)
+  | _ -> failwith "bad value query"
+
+let vquery_to = function
+  | VProj (items, q) -> Printf.sprintf "(VProj (%s) %s)" (items_to items) (query_to q)
+  | VGroup (keys, items, q) ->
+      Printf.sprintf "(VGroup (%s) (%s) %s)"
+        (String.concat " " (List.map expr_to keys)) (items_to items) (query_to q)
+  | VGlobal (items, q) -> Printf.sprintf "(VGlobal (%s) %s)" (items_to items) (query_to q)
+
+let rel_name = function
+  | VLe -> "Le" | VGe -> "Ge" | VAwayZero -> "AwayZero"
+  | VTowardOne -> "TowardOne" | VAwayOne -> "AwayOne"
+
+let is_value_query = function
+  | L (A ("VProj" | "VGroup" | "VGlobal") :: _) -> true
+  | _ -> false
+
 let () =
   if Array.length Sys.argv > 1 && Sys.argv.(1) = "--rules" then begin
     List.iter (fun r -> Printf.printf "pred\t%s\t%s\n" (dir_name r.pr_dir) r.pr_name) pred_rules;
-    List.iter (fun r -> Printf.printf "query\t%s\t%s\n" (dir_name r.qr_dir) r.qr_name) query_rules
+    List.iter (fun r -> Printf.printf "query\t%s\t%s\n" (dir_name r.qr_dir) r.qr_name) query_rules;
+    List.iter (fun r -> Printf.printf "value\t%s\t%s\n" (rel_name r.vr_rel) r.vr_name) value_rules
   end else
     try
       while true do
         let line = input_line stdin in
         if String.trim line <> "" then begin
           (try
-             let q = query_of (parse_sexp line) in
-             List.iter (fun d ->
-               List.iter (fun (name, q') ->
-                 Printf.printf "%s\t%s\t%s\n" (dir_name d) name (query_to q'))
-                 (mutate d q)) [Up; Down]
+             let term = parse_sexp line in
+             if is_value_query term then
+               List.iter (fun (name, (rel, (j, v'))) ->
+                 Printf.printf "%s\t%s\t%d\t%s\n" (rel_name rel) name j (vquery_to v'))
+                 (vmutate (vquery_of term))
+             else begin
+               let q = query_of term in
+               List.iter (fun d ->
+                 List.iter (fun (name, q') ->
+                   Printf.printf "%s\t%s\t%s\n" (dir_name d) name (query_to q'))
+                   (mutate d q)) [Up; Down]
+             end
            with Failure msg -> Printf.printf "ERROR\t%s\n" msg);
           print_endline "END"; flush stdout
         end

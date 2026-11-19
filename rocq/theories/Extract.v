@@ -8,7 +8,8 @@
 
 From Coq Require Import Extraction ExtrOcamlBasic ExtrOcamlNatInt ExtrOcamlZInt
   ExtrOcamlNativeString.
-From ValScope Require Import Logic3 Syntax Rule Engine Registry.
+From ValScope Require Import Logic3 Syntax Rule Engine Value VEngine Registry.
 
 Extraction Language OCaml.
-Extraction "extracted/valscope_core.ml" mutate mut_q mut_p pred_rules query_rules flip.
+Extraction "extracted/valscope_core.ml" mutate mut_q mut_p pred_rules query_rules flip
+  vmutate vmut value_rules.

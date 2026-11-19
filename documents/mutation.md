@@ -133,7 +133,7 @@ Based on the classification standards in Mutation Classification.md, this classi
 
 - **AggM_MonotonicMultiplication: Perform Multiplication on Function Arguments While Preserving Function Monotonicity**
   - Mutation pattern: `FUNC(c)` → `FUNC(c * k)`, where k is a constant and FUNC is a monotonic-preserving aggregate function
-  - Mutation direction: Determined by the value of k and function type (preserves monotonicity when k>0)
+  - Mutation direction: Determined by the value of k and function type (for k>0 the value grows only when the argument is non-negative; for a negative value the direction reverses, so the implementation checks the sign of the original value per row)
   - Supported functions: SUM (including SUM(DISTINCT)), AVG, MAX, MIN, etc.
   - Description: For numeric columns, performs multiplication mutations on aggregate function arguments while preserving the monotonicity properties of the function
 
@@ -156,7 +156,7 @@ Based on the classification standards in Mutation Classification.md, this classi
     - Regular column: `c` → `c * 2`
     - Aggregate function: `SUM(c)` → `SUM(c) * 3`
     - Arithmetic expression: `a * b` → `a * b * 0.5`
-  - Mutation direction: Determined by the value of k (results become larger when k>1, smaller when 0<k<1)
+  - Mutation direction: Determined by the value of k (for non-negative expr the result becomes larger when k>1 and smaller when 0<k<1; for negative expr the direction reverses, so the implementation checks the sign of the original value per row)
   - Special handling: For trigonometric functions, only perform addition mutations to avoid unreasonable changes to trigonometric function properties caused by multiplication
 
 

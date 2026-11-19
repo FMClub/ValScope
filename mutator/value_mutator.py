@@ -332,10 +332,10 @@ class ValueMutator:
             
         # Create sort key: non-target columns and non-window function columns first, then target columns
         key = []
+        mutated_indexes = {mutated_column['index'] for mutated_column in mutated_columns}
         for col_idx, col_value in enumerate(row):
-            for mutated_column in mutated_columns:
-                if col_idx != mutated_column['index'] and col_idx not in window_function_columns:
-                    key.append(self._make_comparable(col_value))
+            if col_idx not in mutated_indexes and col_idx not in window_function_columns:
+                key.append(self._make_comparable(col_value))
         # Add target column values to the end of the sort key
         for mutated_column in mutated_columns:
             if 0 <= mutated_column['index'] < len(row):
@@ -357,8 +357,10 @@ class ValueMutator:
             pass
         
         # Add values from non-target columns and non-window function columns
-        in_mutated_index=False
         for col_idx, col_value in enumerate(row):
+            # decided per column (the flag used to stay set after the first hit,
+            # which dropped every later column from the signature)
+            in_mutated_index=False
             for mutated_column in mutated_columns:
                 if col_idx == mutated_column['index']:
                     in_mutated_index=True
@@ -1049,6 +1051,17 @@ class ValueMutator:
             node = node_info['node']
             func_name = node_info['func_name']
             parent_type=node_info['parent_type']
+
+            # Where does the mutated value go? Skip the node if no relation can
+            # be asserted for the result of the whole query.
+            try:
+                lineage = self._lineage_columns(
+                    node, injective=node_info.get('node_type') in ('regular_column', 'scalar_function'))
+            except Exception:
+                lineage = self.LEGACY
+            if lineage is None:
+                continue
+            node_info['lineage_columns'] = lineage
             
             # Check node type, perform constant mutation for regular columns and scalar functions
             if node_info.get('node_type') == 'regular_column':
@@ -1524,6 +1537,215 @@ class ValueMutator:
         except Exception as e:
             pass  # Silently handle exceptions
 
+    # ------------------------------------------------------------------
+    # Lineage of a mutated select item
+    #
+    # A value mutation is only checkable if every use of the mutated value is a
+    # plain projection up to the result of the whole query. _lineage_columns
+    # follows the select item through derived tables, CTEs, UNION ALL and
+    # scalar subqueries in a select list and returns
+    #   - a list of output column indexes of the top-level query that carry the
+    #     value (an empty list means the value is never output),
+    #   - None if the value is used where it changes the set of rows or passes
+    #     through an arbitrary expression (join key, WHERE/HAVING, function
+    #     argument, window, ...): no relation can be asserted, the mutation
+    #     must be skipped,
+    #   - LEGACY if the context is not modelled here (subquery in WHERE / IN /
+    #     EXISTS, DISTINCT set operations) and the older heuristics apply.
+    # ------------------------------------------------------------------
+    LEGACY = 'legacy'
+
+    def _lineage_columns(self, node, injective):
+        alias_node = node.parent
+        if alias_node is None or alias_node.__class__.__name__ != 'Alias':
+            return self.LEGACY
+        select = alias_node.parent
+        if select is None or select.__class__.__name__ != 'Select' or alias_node.arg_key != 'expressions':
+            return self.LEGACY
+        index = next((i for i, e in enumerate(select.expressions) if e is alias_node), None)
+        if index is None:
+            return self.LEGACY
+        return self._propagate_item(select, alias_node.alias, index, injective, 0)
+
+    def _combine(self, results):
+        combined = set()
+        for result in results:
+            if result is None:
+                return None
+            if result == self.LEGACY:
+                return self.LEGACY
+            combined.update(result)
+        return sorted(combined)
+
+    def _propagate_item(self, select, name, index, injective, depth):
+        if depth > 20:
+            return None
+        name_l = (name or '').lower()
+        # The select's own HAVING / GROUP BY may refer to the item by its alias
+        for key in ('having', 'group', 'qualify'):
+            clause = select.args.get(key)
+            if clause is not None and name_l:
+                for column in clause.find_all(sqlglot.expressions.Column):
+                    if not column.table and column.name.lower() == name_l:
+                        return None
+        if select.args.get('limit') is not None or select.args.get('offset') is not None:
+            # with LIMIT the chosen rows depend on the order of the mutated value
+            parent = select.parent
+            scalar_in_select_list = (
+                parent is not None and parent.__class__.__name__ == 'Subquery'
+                and parent.parent is not None and parent.parent.__class__.__name__ == 'Alias')
+            if not scalar_in_select_list:
+                return None
+
+        current = select
+        parent = current.parent
+        while parent is not None and parent.__class__.__name__ == 'Paren':
+            current, parent = parent, parent.parent
+        if parent is None:
+            return [index]
+        parent_name = parent.__class__.__name__
+
+        if parent_name in ('Union', 'Intersect', 'Except'):
+            return self._propagate_set_operation(parent, name, index, injective, depth)
+        if parent_name == 'CTE':
+            return self._propagate_cte(parent, name, index, injective, depth)
+        if parent_name != 'Subquery':
+            return self.LEGACY
+
+        subquery = parent
+        holder = subquery.parent
+        holder_name = holder.__class__.__name__ if holder is not None else None
+        if holder_name in ('Union', 'Intersect', 'Except'):
+            return self._propagate_set_operation(holder, name, index, injective, depth)
+        if holder_name in ('From', 'Join'):
+            table_alias = subquery.alias
+            outer = holder.parent if holder_name == 'From' else holder.parent
+            if not table_alias or outer is None or outer.__class__.__name__ != 'Select':
+                return self.LEGACY
+            return self._propagate_references(outer, table_alias, name, injective, depth, exclude=subquery)
+        if holder_name == 'Alias':
+            # scalar subquery in a select list: its value is the item's value
+            outer = holder.parent
+            if (outer is not None and outer.__class__.__name__ == 'Select'
+                    and holder.arg_key == 'expressions' and len(select.expressions) == 1):
+                outer_index = next((i for i, e in enumerate(outer.expressions) if e is holder), None)
+                if outer_index is not None:
+                    return self._propagate_item(outer, holder.alias, outer_index, injective, depth + 1)
+            return self.LEGACY
+        return self.LEGACY
+
+    def _propagate_set_operation(self, set_node, name, index, injective, depth):
+        # Only UNION ALL keeps rows one to one; the DISTINCT set operations are
+        # left to the existing handling (conversion to UNION ALL).
+        if set_node.__class__.__name__ != 'Union' or set_node.args.get('distinct'):
+            return self.LEGACY
+        if set_node.args.get('limit') is not None or set_node.args.get('offset') is not None:
+            return None
+        current = set_node
+        parent = current.parent
+        while parent is not None and parent.__class__.__name__ in ('Paren',):
+            current, parent = parent, parent.parent
+        if parent is None:
+            return [index]
+        parent_name = parent.__class__.__name__
+        if parent_name in ('Union', 'Intersect', 'Except'):
+            return self._propagate_set_operation(parent, name, index, injective, depth)
+        # The column names of a set operation come from its leftmost SELECT
+        leftmost = set_node
+        while leftmost.__class__.__name__ in ('Union', 'Intersect', 'Except', 'Subquery', 'Paren'):
+            leftmost = leftmost.this
+        if leftmost.__class__.__name__ != 'Select' or index >= len(leftmost.expressions):
+            return self.LEGACY
+        column_name = leftmost.expressions[index].alias_or_name
+        if parent_name == 'CTE':
+            return self._propagate_cte(parent, column_name, index, injective, depth)
+        if parent_name == 'Subquery':
+            holder = parent.parent
+            holder_name = holder.__class__.__name__ if holder is not None else None
+            if holder_name in ('Union', 'Intersect', 'Except'):
+                return self._propagate_set_operation(holder, column_name, index, injective, depth)
+            if holder_name in ('From', 'Join') and parent.alias and holder.parent is not None \
+                    and holder.parent.__class__.__name__ == 'Select':
+                return self._propagate_references(holder.parent, parent.alias, column_name,
+                                                  injective, depth, exclude=parent)
+        return self.LEGACY
+
+    def _propagate_cte(self, cte, name, index, injective, depth):
+        cte_name = (cte.alias or '').lower()
+        root = cte.root()
+        if not cte_name:
+            return self.LEGACY
+        results = []
+        for table in root.find_all(sqlglot.expressions.Table):
+            if table.name.lower() != cte_name or table.args.get('db'):
+                continue
+            holder = table.parent
+            holder_name = holder.__class__.__name__ if holder is not None else None
+            if holder_name not in ('From', 'Join') or holder.parent is None \
+                    or holder.parent.__class__.__name__ != 'Select':
+                return None
+            results.append(self._propagate_references(
+                holder.parent, table.alias or table.name, name, injective, depth, exclude=None))
+        return self._combine(results)
+
+    def _propagate_references(self, outer, table_alias, name, injective, depth, exclude):
+        """Follow every reference to table_alias.name inside the SELECT `outer`."""
+        table_l = table_alias.lower()
+        name_l = (name or '').lower()
+        if not name_l:
+            return None
+        for join in outer.args.get('joins') or []:
+            if join.args.get('using') or str(join.args.get('method') or '').upper() == 'NATURAL':
+                return None
+        for item in outer.expressions:
+            if item.find(sqlglot.expressions.Star) is not None and item.__class__.__name__ != 'Count':
+                star_owner = item.find(sqlglot.expressions.Star).parent
+                if star_owner is None or star_owner.__class__.__name__ != 'Count':
+                    return None
+        results = []
+        for column in outer.find_all(sqlglot.expressions.Column):
+            if exclude is not None:
+                inside = column
+                while inside is not None and inside is not exclude:
+                    inside = inside.parent
+                if inside is exclude:
+                    continue
+            if column.name.lower() != name_l:
+                continue
+            # locate the SELECT that owns the reference and the clause it is in
+            child, owner = column, column.parent
+            while owner is not None and owner.__class__.__name__ != 'Select':
+                child, owner = owner, owner.parent
+            if not column.table:
+                if owner is outer:
+                    return None  # ambiguous unqualified reference
+                continue
+            if column.table.lower() != table_l:
+                continue
+            if owner is not outer:
+                return None  # used inside a nested (correlated) subquery
+            clause = child.arg_key
+            if clause == 'expressions':
+                item = column.parent if column.parent is not outer else column
+                is_plain_item = (item is column) or (
+                    item.__class__.__name__ == 'Alias' and item.parent is outer and item.this is column)
+                if not is_plain_item:
+                    return None  # wrapped in an expression: direction unknown
+                outer_index = next((i for i, e in enumerate(outer.expressions) if e is item), None)
+                if outer_index is None:
+                    return None
+                results.append(self._propagate_item(outer, item.alias_or_name, outer_index, injective, depth + 1))
+            elif clause == 'order':
+                if outer.args.get('limit') is not None:
+                    return None
+            elif clause == 'group':
+                # grouping by an injective transformation keeps the groups
+                if not injective:
+                    return None
+            else:
+                return None  # join key, WHERE, HAVING, window, ...
+        return self._combine(results)
+
     @staticmethod
     def _effective_direction(node_info, original_val):
         """Expected direction of the value change for one row.
@@ -1579,9 +1801,14 @@ class ValueMutator:
         self.node_info_stack=[]
         # Push node_info onto the stack
         self.node_info_stack.append(node_info)
-        branch_type=self.get_branch_type(node_info,comparison_result)
+        lineage = node_info.get('lineage_columns', self.LEGACY)
+        if isinstance(lineage, list):
+            # The output columns carrying the mutated value are known exactly
+            branch_type = 'column_value_affected' if lineage else 'same'
+        else:
+            branch_type=self.get_branch_type(node_info,comparison_result)
         # Return comparison result
-        if self.node_info_stack:
+        if self.node_info_stack and not isinstance(lineage, list):
             node_info = self.node_info_stack[0]
         reversed_list=node_info['node_path_list_reversed']
         self._compare_by_branch(comparison_result, branch_type, node_info, reversed_list, original_sql, root_node)
@@ -2257,6 +2484,13 @@ class ValueMutator:
                     # Not a set type, use root_node directly
                     target_nodes.append(root_node)
             
+            lineage = node_info.get('lineage_columns', self.LEGACY)
+            if isinstance(lineage, list):
+                # Exact lineage is available: no need to search for the columns
+                target_nodes = []
+                mutated_columns_index = [
+                    {'index': i, 'name': None, 'node': node_info.get('node'), 'stack_node_info': node_info}
+                    for i in lineage]
             # Iterate through all target nodes (could be a single root node or multiple subqueries from set operations)
             for target in target_nodes:
                 if target and hasattr(target, 'expressions'):

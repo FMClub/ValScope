@@ -200,6 +200,8 @@ class SetMutator:
                 self._process_intersect(node, current_flag)
             elif name == 'Except':
                 self._process_except(node, current_flag)
+            elif name == 'Union':
+                self._process_union(node, current_flag)
             visit(node.args.get('this'), current_flag)
             # The right operand of EXCEPT is an antitone position
             visit(node.args.get('expression'), current_flag ^ 1 if name == 'Except' else current_flag)
@@ -331,8 +333,8 @@ class SetMutator:
             }
             self.mutable_nodes.append(node_info)
 
-    def _process_union(self, node):
-        """Process UNION node"""
+    def _process_union(self, node, flag=1):
+        """Process UNION node (rule 2: UNION -> UNION ALL; the inverse shrinks the result)"""
         if hasattr(node, 'args') and 'distinct' in node.args:
             node_info = {
                 'node_id': id(node),
@@ -341,7 +343,7 @@ class SetMutator:
                 'attr_name': 'args',
                 'sub_attr': 'distinct',
                 'direction': 1,  # Default direction, indicates result expansion
-                'flag': 1  # Flag bit, 1 means positive
+                'flag': flag  # polarity of the position of the UNION
             }
             self.mutable_nodes.append(node_info)
     
@@ -439,6 +441,7 @@ class SetMutator:
             # The (preprocessed) original query failed: an error is not an empty
             # result, so no relation can be checked.
             return self.ast
+        original_column_types = getattr(executor, 'last_column_types', None)
         # Unpack result data
         if isinstance(result_data, tuple) and len(result_data) == 2:
             result = result_data[0]  # Result set
@@ -479,6 +482,9 @@ class SetMutator:
             if transformed_result_data is None:
                 # The mutated query failed to execute: skip instead of treating
                 # the error as an empty result set
+                continue
+            if not self._same_column_types(original_column_types, getattr(executor, 'last_column_types', None)):
+                # The result columns changed type: values are not comparable
                 continue
             # Unpack mutated result data
             if isinstance(transformed_result_data, tuple) and len(transformed_result_data) == 2:
@@ -958,6 +964,30 @@ class SetMutator:
             except (ValueError, OverflowError):
                 return value
         return value
+
+    # pymysql FIELD_TYPE codes grouped by how values of the type are compared
+    _NUMERIC_TYPES = {0, 1, 2, 3, 4, 5, 8, 9, 13, 246}
+    _TEMPORAL_TYPES = {7, 10, 11, 12, 14}
+
+    @classmethod
+    def _type_category(cls, type_code):
+        if type_code in cls._NUMERIC_TYPES:
+            return 'numeric'
+        if type_code in cls._TEMPORAL_TYPES:
+            return 'temporal'
+        return type_code
+
+    def _same_column_types(self, original_types, mutated_types):
+        """The inclusion relation compares values, which is only meaningful when both
+        queries return the same kind of value in every column. Set operations unify the
+        column types of their operands, so dropping or replacing an operand (rules 3, 4)
+        can change them, e.g. INT vs BLOB or BIT vs INT."""
+        if original_types is None or mutated_types is None:
+            return True  # executor does not report types: nothing to compare
+        if len(original_types) != len(mutated_types):
+            return False
+        return all(self._type_category(a) == self._type_category(b)
+                   for a, b in zip(original_types, mutated_types))
 
     def _normalize_rows(self, rows):
         return [tuple(self._normalize_value(v) for v in row) for row in rows]

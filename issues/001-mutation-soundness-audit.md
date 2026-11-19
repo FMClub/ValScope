@@ -35,6 +35,32 @@ Breakdown of the 97 reports before the fixes:
 
 ---
 
+## Progress
+
+Latest measurements (same seeds, same MariaDB 10.11.14):
+
+| Mode | Before any fix | After the first round | After the second round |
+| --- | --- | --- | --- |
+| Value-semantic | 97 reports | 52 | 1 |
+| Set-semantic | 2 reports | 2 | 0 |
+
+The one remaining value-semantic report is not a false positive: it is a candidate MariaDB bug (the same `HAVING MAX(enum_col) <> 3` returns different groups depending on whether the select list contains `COUNT(DISTINCT x)` or `COUNT(x)`). It is written up separately.
+
+Cost in coverage, measured on the same generated data: the value-semantic mutator executed 442 checks before the lineage analysis (424 as expected, 4 reported, 14 left undecided) and 370 after it (369 as expected, 1 reported, none undecided). In set mode the column-type guard skipped 51 of 1564 checks.
+
+| Problem | Status |
+| --- | --- |
+| 1. Propagation analysis | Partly addressed. `ValueMutator._lineage_columns` follows the mutated select item through derived tables, CTEs, `UNION ALL` and scalar subqueries in a select list, and returns the exact output columns that carry the value. It returns "skip" when the value is used as a join key, in `WHERE`/`HAVING`/`GROUP BY`/window clauses, under `LIMIT`, or inside an expression. Contexts that are not modelled yet (subqueries in `WHERE`/`IN`/`EXISTS`, `DISTINCT` set operations) still use the old heuristics. Row pairing is still sort-based. Two bugs in the row signature and the sort key were fixed on the way: the "is this column mutated" flag was never reset, and the sort key was appended once per mutated column. |
+| 2. Column types of set operations | Addressed with the "skip" option. A mutation is not checked when the result columns of the original and the mutated query have different type categories (numeric, temporal, or the exact type code). The alternative of keeping the set operation and emptying one operand is not implemented. |
+| 3. Python comparison semantics | Open. |
+| 4. Preprocessing rewrites the query | Open. |
+| 5. Polarity rules | Three-valued analysis in place (earlier round). Refinements for `ALL`/`ANY`, left joins and aggregates over subqueries are open. |
+| 6. Data-dependent preconditions | Documentation corrected (rules 21, 22, 25, 26 in `mutation.md`, `documents/mutation.md`, `trigger bug rules.md`). The checks are done per row at run time. The set of "monotone functions" for rule 26 is still undefined. |
+| 7. Inconsistencies | Rule 2 (`UNION` ↔ `UNION ALL`) is re-enabled and takes the polarity of its position (170 more mutation points in the set-mode campaign, no new false positives). The default configuration, the missing sources and the unpinned dependencies are open. |
+| 8. Rocq formalisation | Open (planning). |
+
+---
+
 ## Problem 1: the value-semantic "approximation propagation analysis" has no sound basis
 
 **Symptom.** The value-semantic mutator rewrites any column, scalar function or aggregate directly under an `Alias` (including those in subqueries and CTEs). It then assumes that the rows of the original and the mutated result correspond one to one and that only one column changes monotonically. In many contexts this assumption does not hold.
@@ -231,3 +257,11 @@ Value-semantic mutator (`mutator/value_mutator.py`):
 - `AVG(c) → MAX(c)` is applied to numeric columns only. For a `TIME` column, `AVG` returns a number such as `41852.0000` while `MAX` returns `10:11:12`, which is 36672 in seconds and would be judged as "MAX is smaller than AVG".
 - `_mutate_monotonic_multiplication` referenced an unassigned variable for `AVG`; the exception was swallowed further up and all remaining mutations of that query were skipped.
 - Results are no longer compared when no mutation was applied (for example for non-numeric columns).
+
+Second round:
+
+- `generate_signature` kept the "this column is mutated" flag set after the first mutated column, so every later column was left out of the row signature. The flag is now decided per column.
+- `get_sort_key` appended every non-mutated column once per mutated column, which made the sort key depend on the number of mutated columns. Each column is now added once.
+- Rule 2 (`UNION` ↔ `UNION ALL`) was commented out in the traversal and registered with a fixed polarity. It is re-enabled and takes the polarity of its position.
+- The executor now records the column types of the last result, and the set-semantic mutator skips a check when the types of the original and the mutated result differ.
+- Rule preconditions in `mutation.md`, `documents/mutation.md` and `trigger bug rules.md` are stated precisely (`VAR_SAMP(c) < 1`, `STDDEV_SAMP(c) > 1`, `c >= 0` for `FUNC(c * k)`).

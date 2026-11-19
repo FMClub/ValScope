@@ -5,7 +5,7 @@
 > Each item says where it comes from and what is missing. Items that are solved are not
 > listed; see `issues/001-mutation-soundness-audit.md` (Progress) and PR #4 for those.
 
-## A. The Python implementation on `main`
+## A. The original Python implementation (branch `vanilla-python`)
 
 These come from the audit in `issues/001-mutation-soundness-audit.md`. The implementation
 fixes of PR #1 are merged; the design problems below are still open.
@@ -31,7 +31,7 @@ fixes of PR #1 are merged; the design problems below are still open.
    (registration always sets direction 1); `documents/mutation.md` lists mutators that do
    not exist (for example `AggM_AvgToMin`).
 
-## B. The Rocq version (branch `claude/rocq-core`, PR #4)
+## B. The Rocq version (branch `main`, PR #4)
 
 ### Solved in the second round (kept here for reference)
 
@@ -116,7 +116,7 @@ fixes of PR #1 are merged; the design problems below are still open.
 2. **MariaDB `GROUP BY` on DOUBLE**: plan-dependent number of groups; not analysed.
 3. **SQLite: 42 confirmed violations, causes mostly not analysed.** 37 from the first
    campaign (all re-confirmed with the exact collation check) and 5 from a second campaign
-   with the extended model (`rocq/results/sqlite-campaign.md`). Open:
+   with the extended model (`results/sqlite-campaign.md`). Open:
    - root causes: one is analysed (the `DISTINCT` of a compound arm is ignored under `UNION`
      when the column is `COLLATE NOCASE`); the others are not;
    - the pairs are not reduced, not grouped by root cause, and not mapped to SQLite tickets;
@@ -130,7 +130,7 @@ fixes of PR #1 are merged; the design problems below are still open.
 5. **Generator tuning is manual**; there is no feedback- or coverage-driven generation.
 6. No DBMS outside MariaDB and SQLite was run. The runner can now reach any MySQL-protocol
    server and any SQLite file, and documents how to add another DBMS
-   (`rocq/docs/USAGE.md`, section 9), but no PostgreSQL target exists.
+   (`docs/USAGE.md`, section 9), but no PostgreSQL target exists.
 
 ## D. Environment
 

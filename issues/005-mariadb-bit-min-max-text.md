@@ -15,8 +15,8 @@ different bytes for the same column type.
 
 ## How it was found
 
-By the Rocq version of ValScope (branch `claude/rocq-core`), running the set-semantic rules
-on the queries of the Python generator (`generated_sql/seedQuery.sql`) against the sample
+By the Rocq version of ValScope (branch `main`), running the set-semantic rules
+on the queries of the Python generator (`data/python-generator-queries.sql`) against the sample
 schema, where `t2.c12` is `BIT(8)`. The rule `DISTINCT-add` wraps an operand of an `EXCEPT`
 in `SELECT DISTINCT * FROM (...)`. The theorem says the mutant returns a subset of the
 original's rows; it returned a row the original did not have, because the operand

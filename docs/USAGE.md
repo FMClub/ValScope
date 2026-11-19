@@ -3,8 +3,12 @@
 This guide covers the whole process: preparing a machine, building and checking the proofs,
 generating queries, and testing a database server, an SQLite file or old SQLite releases. It
 also covers reading the results and adding a rule. Every step is a command that can be copied.
-All paths are relative to the `rocq/` directory of branch `claude/rocq-core` unless stated
-otherwise.
+All paths are relative to the root of the repository (branch `main`).
+
+**In a hurry:** after the installation of section 2, `scripts/demo.sh sqlite` runs everything
+(proof check, build, tests, a test of a random SQLite database), and
+`scripts/setup_mariadb.sh && scripts/demo.sh mariadb` does the same with MariaDB. The rest
+of this guide explains each step and how to go further.
 
 Contents
 
@@ -66,7 +70,7 @@ git clone https://github.com/FMClub/ValScope.git
 ```
 
 ```bash
-cd ValScope && git checkout claude/rocq-core && cd rocq
+cd ValScope
 ```
 
 ### 2.2 Rocq / Coq, OCaml and build tools
@@ -95,15 +99,18 @@ The development has not been built with Rocq 9.x; the theories use the `Coq` lib
 ### 2.3 Python packages
 
 ```bash
-python3 -m pip install "sqlglot==30.33.0" pymysql
+python3 -m pip install -r requirements.txt
 ```
+
+(`requirements.txt` pins `sqlglot==30.33.0` and asks for `pymysql`.)
 
 sqlglot changes its syntax tree between releases; the bridge was written for 30.33.0. Pin
 it. `pymysql` is only needed to test MySQL-protocol servers.
 
 ### 2.4 A database to test (optional for the first steps)
 
-**MariaDB or MySQL on the same machine:**
+**MariaDB or MySQL on the same machine:** `scripts/setup_mariadb.sh` (section 6.1) does the
+following steps itself; by hand:
 
 ```bash
 sudo apt-get install -y mariadb-server
@@ -259,46 +266,47 @@ and of an SQLite file with:
 sqlite3 shop.db "SELECT m.name || '.' || p.name FROM sqlite_master m, pragma_table_info(m.name) p WHERE m.type = 'table' AND p.type IN ('INTEGER', 'INT', 'REAL', 'NUMERIC', 'DECIMAL', 'FLOAT', 'DOUBLE')"
 ```
 
-### 5.2 The original Python generator
+### 5.2 Queries of the original Python generator
 
-The queries of the original ValScope generator can be fed in directly. The repository holds
-a sample in `generated_sql/seedQuery.sql` (870 queries for the sample schema, one per line):
+`data/python-generator-queries.sql` holds 870 queries produced by the original ValScope
+generator for the sample database (one per line; the leading `USE test;` line is skipped).
+They can be used as they are:
 
 ```bash
-grep -E '^(SELECT|WITH|\()' ../generated_sql/seedQuery.sql > py_queries.sql
+python3 bridge/run_on_db.py data/python-generator-queries.sql --port 3306 --user root --password 123456 --database test
 ```
 
-To generate new ones, run the generator in a separate copy of the repository, because it
-overwrites the tracked files in `generated_sql/`:
+To generate new ones, use the original implementation on branch `vanilla-python`, in a
+separate worktree (it writes into its own `generated_sql/` directory):
 
 ```bash
-git -C .. worktree add /tmp/valscope-gen claude/rocq-core
-```
-
-```bash
-cd /tmp/valscope-gen && python3 -c "from generate_random_sql import Generate; Generate(subquery_depth=2, total_insert_statements=40, num_queries=500, query_type='default', use_database_tables=False, db_config={'host': '127.0.0.1', 'port': 3306, 'database': 'test', 'user': 'root', 'password': '123456'})"
-```
-
-This writes `generated_sql/schema.sql` (tables and rows), `generated_sql/indexes.sql` and
-`generated_sql/queries.sql`. Load the schema and the indexes into the server, and keep only
-the query lines:
-
-```bash
-mariadb -uroot -p123456 < /tmp/valscope-gen/generated_sql/schema.sql
+git worktree add /tmp/valscope-vanilla vanilla-python
 ```
 
 ```bash
-mariadb -uroot -p123456 test < /tmp/valscope-gen/generated_sql/indexes.sql
+cd /tmp/valscope-vanilla && python3 -c "from generate_random_sql import Generate; Generate(subquery_depth=2, total_insert_statements=40, num_queries=500, query_type='default', use_database_tables=False, db_config={'host': '127.0.0.1', 'port': 3306, 'database': 'test', 'user': 'root', 'password': '123456'})"
+```
+
+This writes a new random database (`generated_sql/schema.sql`, `generated_sql/indexes.sql`)
+and queries for it (`generated_sql/queries.sql`). Load the database and keep only the
+query lines:
+
+```bash
+mariadb -uroot -p123456 < /tmp/valscope-vanilla/generated_sql/schema.sql
 ```
 
 ```bash
-grep -E '^(SELECT|WITH|\()' /tmp/valscope-gen/generated_sql/queries.sql > py_queries.sql
+mariadb -uroot -p123456 test < /tmp/valscope-vanilla/generated_sql/indexes.sql
 ```
 
-About 40% of these queries are inside the fragment the bridge translates (for example, 374
-of the 870 sample queries); the rest use `LIMIT` without `ORDER BY` in subqueries, `RIGHT
-JOIN`, window functions, `SELECT DISTINCT` with aggregates and similar features, and are
-reported as `unsupported`.
+```bash
+grep -E '^(SELECT|WITH|\()' /tmp/valscope-vanilla/generated_sql/queries.sql > py_queries.sql
+```
+
+About 40% of these queries are inside the fragment the bridge translates (374 of the 870
+sample queries); the rest use `LIMIT` without `ORDER BY` in subqueries, `RIGHT JOIN`,
+window functions, `SELECT DISTINCT` with aggregates and similar features, and are reported
+as `unsupported`.
 
 ### 5.3 Your own queries
 
@@ -312,14 +320,28 @@ any other server that speaks the MySQL protocol, local or remote.
 
 ### 6.1 Prepare a database
 
-To use the sample schema of the repository (tables `t1`, `t2`, `t3` with data):
+To use the sample database of the repository (tables `t1`, `t2`, `t3` with rows and
+indexes, from `data/mariadb/`):
 
 ```bash
-mariadb -uroot -p123456 < ../generated_sql/schema.sql
+scripts/setup_mariadb.sh
+```
+
+It connects to `127.0.0.1:3306` as `root` with password `123456`, starts a local MariaDB
+first if none answers, and (re)creates the database `test`. Another server:
+
+```bash
+HOST=db.example.internal PORT=3306 DB_USER=root PASSWORD=secret scripts/setup_mariadb.sh
+```
+
+To load the files by hand instead:
+
+```bash
+mariadb -uroot -p123456 < data/mariadb/schema.sql
 ```
 
 ```bash
-mariadb -uroot -p123456 test < ../generated_sql/indexes.sql
+mariadb -uroot -p123456 test < data/mariadb/indexes.sql
 ```
 
 For your own database nothing needs to be loaded; generate queries for its schema

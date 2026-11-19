@@ -62,7 +62,7 @@ Observed on `10.11.14-MariaDB-0ubuntu0.24.04.1` with the default `optimizer_swit
 
 ## How it was found
 
-By the Rocq version of ValScope (branch `claude/rocq-core`, `rocq/`), in a run of value-semantic mutations on generated queries with `HAVING`. The rule `COUNT(c) → COUNT(DISTINCT c)` changes one select item and must not change which groups are returned. For this query it did (0 rows before, 1 row after):
+By the Rocq version of ValScope (branch `main`), in a run of value-semantic mutations on generated queries with `HAVING`. The rule `COUNT(c) → COUNT(DISTINCT c)` changes one select item and must not change which groups are returned. For this query it did (0 rows before, 1 row after):
 
 ```sql
 SELECT (t2a.c2 % 5) AS k0, ..., COUNT((t2a.c1 - 50)) AS k4

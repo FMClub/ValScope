@@ -311,6 +311,10 @@ class Translation:
         if isinstance(node, exp.Table):
             if node.args.get('joins') or node.args.get('laterals'):
                 raise Unsupported('nested join')
+            if not isinstance(node.this, exp.Identifier) and node.this.find(exp.Column) is not None:
+                # json_each(t.c): a table that depends on another FROM item (a lateral
+                # join); a table of the model does not depend on the row context
+                raise Unsupported('table function with column arguments')
             self.tables.append(self._text(node))
             self.aliases.append(node.alias_or_name)
             return '(T %d 1)' % (len(self.tables) - 1), 1

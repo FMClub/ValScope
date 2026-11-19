@@ -34,6 +34,10 @@ position, and the theorem says that the mutant outputs the same rows plus possib
  SQL text -> algebra term -> mutants -> SQL text   (bridge/sql_bridge.py)
 ```
 
+**Step-by-step instructions** (environment, build, generating queries, testing a MySQL-
+compatible server, an SQLite file, old SQLite releases or another DBMS, reading the
+results): [`docs/USAGE.md`](docs/USAGE.md).
+
 ## Build and test
 
 Requires Coq/Rocq 8.18 or newer, OCaml with ocamlfind, and for the bridge Python 3 with
@@ -46,8 +50,9 @@ make cli    # build cli/valscope_mutate
 make test   # SQL -> mutants -> SQL round trip (no database needed)
 ```
 
-The proofs use no axioms: `Print Assumptions mutate_sound` prints
-`Closed under the global context`.
+The set-semantic proofs use no axioms: `Print Assumptions mutate_sound` prints
+`Closed under the global context`. The value-semantic ones use the axioms of Coq's `Reals`
+library (see "What is proved").
 
 Try it on a query:
 
@@ -65,7 +70,8 @@ List the plugged-in rules:
 ./cli/valscope_mutate --rules
 ```
 
-Check every mutant of a file of queries against a MySQL-compatible server:
+Check every mutant of a file of queries against a MySQL-compatible server (or, with
+`--sqlite FILE.db`, an SQLite database file):
 
 ```bash
 python3 bridge/gen_fragment.py 400 7 > queries.sql
@@ -120,6 +126,41 @@ A value rule is added the same way (`theories/VRules.v`): a rewrite of a select 
 a theorem relating the value of the rewritten item to the original on every group of
 rows, `mk_vrule`, and one line in `value_rules`.
 
+## The SQL model
+
+`theories/Semantics.v` gives SQL a bag semantics with three-valued logic and correlated
+subqueries. Values are `NULL`, integers, rationals (decimals) and strings. Everything that
+differs between DBMSs is a parameter of the **world** (`db_t`), and the theorems hold for
+every world that satisfies the laws:
+
+| Part of the world | What it models |
+| --- | --- |
+| `tables` | the contents of the tables |
+| `vcmp` | comparison of values (type coercions, collations); UNKNOWN when incomparable |
+| `vadd`, `vmul` | arithmetic |
+| `veq` | the **collation equivalence**: which values DISTINCT, UNION, INTERSECT, EXCEPT and IN treat as equal |
+| `to_text`, `ceq` | conversion to text and character comparison for `LIKE` / `REGEXP` (case sensitivity) |
+| `atoms`, `eatoms`, `qatoms` | the meaning of predicates, expressions and subqueries the mutators do not analyse |
+
+Laws: `veq` is an equivalence; comparisons satisfy the weakening laws (`x < y` implies
+`x <= y`, ...); every operation respects `veq` (equivalent inputs give the same truth value
+and equivalent results); multiplying by an integer constant multiplies numbers (used by
+rule 23 only). Bags are compared modulo `veq`: `q_le q q'` means that every row of `q`
+occurs in `q'` at least as often, counting rows that are equivalent under the collation as
+the same row. A compatibility theorem (`Approx.compat`) shows that evaluation respects
+`veq`. `Counter.v` builds a concrete world that satisfies every law.
+
+Why the laws matter: if an operation could tell apart two values that `DISTINCT` treats as
+equal (`LENGTH('a ')` and `LENGTH('a')` under a PAD SPACE collation), the result of a query
+would depend on which representative `DISTINCT` keeps, which SQL does not specify. Such
+queries have no determined result, and no rule can promise anything about them.
+
+The value-semantic layer (`Value.v`) reads values as real numbers: integers and decimals
+are numbers, text and NULL are not; `COUNT` counts non-NULL values and `COUNT(DISTINCT)`
+counts collation classes. Select items it does not analyse (`VAR_POP`, `GROUP_CONCAT`,
+`SUM(DISTINCT)`, scalar subqueries) are opaque items: copied into every mutant and never
+mutated.
+
 ## Value relations
 
 Several rules of the original table hold only under a condition on the data (sign of
@@ -144,10 +185,11 @@ value cannot be read off the result.
 
 | File | Content |
 | --- | --- |
-| `theories/Bag.v` | Bags as lists, SQL set operations, the inclusion relation `bag_le` |
-| `theories/Logic3.v` | Values with NULL, three-valued logic ordered `F < U < T`, comparisons |
+| `theories/Bag.v` | Bags as lists modulo an equivalence, SQL set operations, the inclusion relation `bag_le` |
+| `theories/Logic3.v` | Values (NULL, integers, rationals, strings), three-valued logic ordered `F < U < T`, comparisons |
+| `theories/Pattern.v` | `LIKE` patterns and a fragment of regular expressions, with their generalisation lemmas |
 | `theories/Syntax.v` | Expressions, predicates and queries (mutually inductive) |
-| `theories/Semantics.v` | Bag semantics with correlated subqueries; the relations `q_le` and `p_le` |
+| `theories/Semantics.v` | The world record with its laws; bag semantics with correlated subqueries; `q_le` and `p_le` |
 | `theories/Approx.v` | Monotone / antitone behaviour of every constructor |
 | `theories/Rule.v` | The plug-in interface: a rule is a rewrite packaged with its theorem |
 | `theories/Engine.v` | The generic mutator and `engine_sound`, for all rule sets |
@@ -158,20 +200,32 @@ value cannot be read off the result.
 | `theories/VRules.v` | Rules 18 to 26, each a theorem plus a packaged plug-in |
 | `theories/VHaving.v` | Mutation of the HAVING predicate (rules 15, 16), `hmut_sound` |
 | `theories/Registry.v` | The plugged-in rules and the three mutators with their theorems: `mutate`, `vmutate`, `hmutate` |
-| `theories/Counter.v` | Proofs that some positions must not be mutated |
+| `theories/Counter.v` | A concrete lawful world; proofs that some positions must not be mutated |
 | `theories/Extract.v` | Extraction to OCaml |
 | `cli/main.ml` | Command-line front end of the extracted core (S-expression protocol) |
 | `bridge/sql_bridge.py` | SQL text to algebra term and back |
-| `bridge/checker.py` | Bag inclusion and the five value relations on query results |
+| `bridge/checker.py` | Bag inclusion modulo the DBMS's collation, and the five value relations |
 | `bridge/test_bridge.py` | Tests of the bridge and the checkers (no database needed) |
-| `bridge/gen_fragment.py` | Random queries inside the supported fragments |
-| `bridge/run_on_db.py` | Translation validation, execution of mutants, relation checks |
+| `bridge/gen_fragment.py` | Random queries inside the supported fragments, for any schema |
+| `bridge/run_on_db.py` | Translation validation, execution of mutants, relation checks (MySQL protocol or SQLite file) |
+| `bridge/gen_sqlite_db.py` | Random SQLite databases for the campaigns |
+| `bridge/sqlite_exec.py` | Runs SQL on any SQLite shared library through ctypes |
+| `bridge/build_old_sqlite.sh` | Builds old SQLite releases as shared libraries |
+| `bridge/campaign_sqlite.py` | Differential campaign on several SQLite releases |
+| `bridge/confirm_sqlite.py` | Re-checks recorded violations from scratch and writes a report |
+| `docs/USAGE.md` | End-to-end usage guide |
+| `results/` | The SQLite campaign: summary, confirmed pairs (report and data) |
 
 ## What is proved
 
 - `engine_sound` (and its instance `mutate_sound`): for every list of rules, every query,
-  direction and database, each mutant is a super-bag (`Up`) or a sub-bag (`Down`) of the
-  original.
+  direction and lawful world (any data, any collation, any type coercion), each mutant is a
+  super-bag (`Up`) or a sub-bag (`Down`) of the original, modulo the collation equivalence.
+- `compat` (`Approx.v`): evaluation respects the collation equivalence: equivalent row
+  contexts give equal truth values and equivalent bags.
+- `LIKE` and `REGEXP` (`Pattern.v`): replacing `_` by `%` or a character by `_`, dropping an
+  anchor and turning `x+` into `x*` make a pattern match more strings; turning `%` into `_`
+  and adding both anchors make it match fewer, for any character comparison.
 - Polarity (`Approx.v`): `NOT` and the right operand of `EXCEPT` are antitone; `AND`, `OR`,
   `EXISTS`, `IN (subquery)`, `DISTINCT`, `UNION [ALL]`, `INTERSECT`, `WHERE`, `INNER JOIN`
   and the left input of a `LEFT JOIN` are monotone. `x IN (subquery)` is modelled with
@@ -186,7 +240,8 @@ value cannot be read off the result.
 - `hmut_sound` (and its instance `hmutate_sound`): for every list of predicate and query
   rules, a mutant of the `HAVING` predicate outputs a super-list (`Up`) or a sub-list
   (`Down`) of the original rows. The operands of `HAVING` are opaque: the theorem holds for
-  any function from groups to values, so it does not depend on which aggregates are used.
+  any function from groups to values (integers, decimals, text), so it does not depend on
+  which aggregates are used.
 
 Axioms: the set-semantic part uses none. The value-semantic part uses real numbers
 (AVG needs division, STDDEV a square root) and therefore depends on the three axioms of
@@ -203,6 +258,10 @@ as reported by `Print Assumptions vmutate_sound`.
 | `OR-drop-operand` | Down | not in the table |
 | `cmp-weaken` | Up | 8, 9, 10 |
 | `cmp-strengthen` | Down | 8, 9, 10 backwards |
+| `LIKE-generalise` | Up | 7 (`_` -> `%`, a character -> `_`) |
+| `LIKE-specialise` | Down | 7 backwards (every `%` -> `_`) |
+| `REGEXP-generalise` | Up | 14 (drop an anchor, `x+` -> `x*`) |
+| `REGEXP-specialise` | Down | 14 backwards (add both anchors) |
 | `DISTINCT-drop` / `DISTINCT-add` | Up / Down | 1 |
 | `UNION->UNION-ALL` / `UNION-ALL->UNION` | Up / Down | 2 |
 | `EXCEPT->left` | Up | 3 |
@@ -231,29 +290,40 @@ is non-negative by construction (counts, non-negative constants, their sums and 
 
 ## Measured
 
-MariaDB 10.11.14, sample schema of the Python generator.
+MariaDB 10.11.14, sample schema of the Python generator (`generated_sql/schema.sql`).
 
-| Run | Queries | Checks passed | Violations |
-| --- | --- | --- | --- |
-| Set-semantic with `IN` subqueries, seeds 7, 8, 9 (`gen_fragment.py 400`) | 1200 | 40736 | 0 |
-| Value-semantic with `HAVING`, seeds 11 to 16 (`gen_fragment.py --value 500`) | 3000 (2736 used) | 37572 | 1 |
+| Run | Queries | Supported | Checks passed | Violations |
+| --- | --- | --- | --- | --- |
+| Set-semantic, Python generator queries (`generated_sql/seedQuery.sql`) | 870 | 327 | 4005 | 1 (candidate bug, below) |
+| Value-semantic and HAVING, same queries | 870 | 69 | 671 | 0 |
+| Set-semantic, `gen_fragment.py 300 7` | 300 | 300 | 10726 | 0 |
+| Value-semantic and HAVING, `gen_fragment.py --value 300 11` | 300 | 277 | 3388 | 1 (known candidate, PR #5) |
+| Earlier runs: set seeds 7-9 / value seeds 11-16 | 1200 / 3000 | all / 2736 | 40736 / 37572 | 0 / 1 |
 
-- Every query passed translation validation (the query as written and the query
-  re-printed from its term returned the same rows).
-- Negative controls (`--flip`): 1850 violations on 400 set queries, 1791 on 500 value
-  queries.
-- 264 value queries were not used because they group by a FLOAT / DOUBLE expression (see
-  "Observation" below).
-- The one violation is a candidate MariaDB bug, not a false alarm: `HAVING COUNT(x) IN
-  (subquery)` returns no rows where a row is expected. It is written up in
-  `issues/003-mariadb-having-count-in-subquery.md` (separate PR).
-- Of 511 queries produced by the Python generator, only 6 are inside the set-semantic
-  fragment (the rest use CTEs, window functions or aggregates the model does not have).
+- Negative controls (`--flip`) report violations by the thousand (for example 1018 on the
+  300 value queries above).
+- Of the queries of the original Python generator, 374 of 870 are now inside the fragment
+  (6 of 511 before derived tables, CTEs, opaque set-operation arms, opaque select items,
+  `LIKE` and `REGEXP` were added). The rest use `LIMIT` without `ORDER BY` in a subquery
+  (nondeterministic, rejected), `SELECT DISTINCT` with aggregates, `RIGHT JOIN` and window
+  functions.
+- Translation validation rejected 2 queries: one with `ORDER BY ... LIMIT` over ties (its
+  result is not determined), and one that exposed a bridge bug (`NOT LIKE` lost its
+  negation; fixed).
+- **Candidate MariaDB bug** (set-semantic, Python generator query): `MIN` / `MAX` over a
+  `BIT(8)` column return the decimal text of the value (`'2'`, `'242'`) when the query has
+  no `GROUP BY`, while the result metadata says `BIT` and the same aggregate under a
+  derived table, `UNION ALL` or `GROUP BY` returns the bit value (`0x02`). Minimal case:
+  `CREATE TABLE b (x BIT(8)); INSERT INTO b VALUES (2), (242); SELECT MIN(x), MAX(x) FROM b;`
+  Written up in `issues/005-mariadb-bit-min-max-text.md` (separate PR).
+- The value violation on generated queries is the known `HAVING COUNT(x) IN (subquery)`
+  candidate (`issues/003-mariadb-having-count-in-subquery.md`).
 
-Testing found three defects in the unverified bridge and checker, all fixed and covered
-by tests: an atom was put back without parentheses (`t.c - 5000 * 2`); FLOAT results were
-compared exactly; and rows were matched on exact floats, although floating-point
-aggregates can differ in their last bits between two plans of the same query.
+Testing found defects in the unverified bridge and checker, all fixed and covered by
+tests: an atom put back without parentheses (`t.c - 5000 * 2`); FLOAT results compared
+exactly; rows matched on exact floats; `NOT LIKE` printed as `LIKE`; `REGEXP_LIKE` printed
+for MariaDB; CTE names left inside opaque atoms after inlining; big integers compared as
+floats.
 
 ### Observation (not analysed further)
 
@@ -274,31 +344,40 @@ value queries whose grouping keys are FLOAT or DOUBLE.
 ## How the bridge fails closed
 
 The bridge (`bridge/sql_bridge.py`) is not verified, so it is written to refuse rather
-than to guess:
+than to guess. Its module docstring states, for each encoding, why a lawful world exists
+in which the term means what the SQL text means.
 
 - **One atom per occurrence.** Expressions, tables and unanalysed predicates are replaced
-  by numbered atoms. Two occurrences never share an atom, even with identical text, so
-  alias shadowing cannot make the term mean something else than the SQL.
+  by numbered atoms (`EAtom`, `T`, `Atom`). Two occurrences never share an atom, even with
+  identical text, so alias shadowing cannot make the term mean something else.
 - **Parenthesised atoms.** An atom is printed in parentheses unless it is a plain name or
   number, because a mutant may put it into a context it was not written in.
-- **Rejected, not approximated:** `LIMIT`, `GROUP BY` / aggregates in set-semantic queries,
-  `HAVING` without aggregation, window functions, CTEs, `USING` / `NATURAL` / `RIGHT` / `FULL` joins,
-  `INTERSECT ALL` / `EXCEPT ALL`, `SUM(DISTINCT)`, aggregates that are not modelled,
-  non-aggregated select items that are not grouping keys, non-deterministic functions and
-  user variables.
-- **Translation validation** (`run_on_db.py`): the query as written and the query
-  re-printed from its term must return the same bag of rows, otherwise the query is not
-  used and the mismatch is reported.
+- **Analysed when in the fragment, opaque otherwise.** Derived tables and CTE references
+  are translated (`Named`) when their body is in the fragment, otherwise kept as opaque
+  tables; arms of set operations outside the fragment are opaque queries (`QAtom`); `LIKE`
+  with a literal pattern without escapes, and `REGEXP` with a literal pattern of the
+  fragment (`^`, `$`, literal characters, `.`, `?`, `*`, `+`) are analysed, other patterns
+  are opaque predicates; select items that are not analysed are opaque items.
+- **Rejected, not approximated:** `LIMIT` at the top or without `ORDER BY` in a subquery,
+  aggregates and window functions in set-semantic select lists, `HAVING` without
+  aggregation, window functions in value queries, `RIGHT` / `FULL` / `USING` / `NATURAL`
+  joins, `INTERSECT ALL` / `EXCEPT ALL`, recursive CTEs, table functions with column
+  arguments, non-aggregated select items that are not grouping keys, value queries whose
+  clauses refer to a select alias, non-deterministic functions (`RAND`, `NOW`, SQLite
+  `random()`, `date('now')`, ...) and user variables.
+- **Translation validation** (`run_on_db.py`, `campaign_sqlite.py`): the query as written
+  and the query re-printed from its term must return the same rows, otherwise the query is
+  not used and the mismatch is reported.
 - **Type guards:** a set-semantic check is skipped when the column types of the two results
   differ; a value check is `incomparable` when the mutated column is not numeric; value
-  queries with FLOAT / DOUBLE grouping keys are rejected; single-precision inputs are
-  compared with a looser tolerance (1e-4 relative instead of 1e-9).
-- **Opaque when in doubt:** `IN` with a row constructor, with a `*` subquery or with a value
-  list, and `EXISTS` / `IN` subqueries the bridge cannot translate, are kept as one opaque
-  predicate that can only be replaced as a whole.
-- **Collation:** an inclusion that holds only up to case and trailing spaces is classified
-  `collation`, not `violation`.
-- **Failing mutants** are skipped, never treated as empty results.
+  queries with FLOAT / DOUBLE grouping keys (MariaDB) or text inputs (SQLite) are skipped;
+  single-precision inputs are compared with a looser tolerance (1e-4 relative instead of
+  1e-9); integers and decimals are compared exactly.
+- **Collation:** inclusion is checked modulo the database's own string equality, computed
+  exactly (`WEIGHT_STRING` on MariaDB / MySQL; `NOCASE` / `RTRIM` on SQLite). A result
+  that is included only modulo that equality is reported as `collation`, not as a violation.
+- **Failing mutants** are skipped, never treated as empty results; a lost server connection
+  stops the run.
 
 ## Results on SQLite
 
@@ -309,35 +388,39 @@ root-cause notes and how to reproduce: [`results/sqlite-campaign.md`](results/sq
 
 ## Not done yet
 
-- Window functions, scalar subqueries, CTEs, `IN` with a row constructor.
-- Strings, `LIKE`, `REGEXP` (rules 7, 14).
-- Value mutation is applied to the select items of one top-level SELECT. Following a
+- Value mutation applies to the select items of one top-level `SELECT`. Following a
   mutated value through derived tables or `UNION ALL` (what the Python lineage analysis
-  does) is not modelled.
-- The value model has integer inputs. DECIMAL and FLOAT columns are tested through the
-  bridge, but the theorems do not speak about rounding.
-- Derived tables are opaque to the bridge (they are not mutated). About 10% of the
-  set-semantic mutants cannot be printed as SQL (`DISTINCT` around a join) and are dropped.
+  does) is not modelled; value queries with `SELECT DISTINCT` are rejected.
+- Window functions and `IN` with a row constructor are opaque or rejected.
+- About 5% to 10% of the set-semantic mutants cannot be printed as SQL (`DISTINCT` around a
+  join below a projection) and are dropped. `DISTINCT` added around the table of a
+  correlated subquery is printed as a derived table, which MySQL / MariaDB reject (the
+  correlation is out of scope); those mutants fail and are dropped.
+- Only the MySQL and SQLite dialects of sqlglot were tested.
 
 ## Trusted base and caveats
 
 - Verified: the rules, the engine and the registry, with respect to the SQL model in
-  `Semantics.v`.
+  `Semantics.v`, for every lawful world.
 - Not verified: `cli/main.ml` (parsing and printing of terms), `bridge/sql_bridge.py`,
-  sqlglot, and Rocq's extraction. The bridge is responsible for the algebra term meaning
-  the same as the SQL text; it rejects what it does not model instead of approximating.
-- The model is not MySQL: bag semantics, three-valued logic, integers and NULL only,
-  exact arithmetic, `DISTINCT` set operations, no `ORDER BY`, no errors, no overflow.
-  A real DBMS can deviate from it (collation, type coercion, floating point,
-  plan-dependent behaviour); the proofs do not cover that.
-- The list of monotone functions (`EXP`, `FLOOR`, `CEIL`, `ROUND`, `ATAN`, `SIGN`) is an
-  assumption of the bridge. In the model a monotone function is any non-decreasing
-  function on the reals.
-- In the model the operands of `HAVING` take integer or NULL values, like every value of
-  the set-semantic model. The `HAVING` rules use only the order and the three-valued
-  logic, but real-valued aggregates (AVG, STDDEV) are not literally covered.
-- The checker matches rows by sorting within groups of rows that agree outside the mutated
-  column. This is justified because the intended transformations are non-decreasing; it is
-  not proved.
+  sqlglot, Rocq's extraction, and the checker. The bridge is responsible for the algebra
+  term meaning the same as the SQL text; it rejects what it does not model instead of
+  approximating.
+- The world's laws are assumptions about the DBMS. Known places where a real DBMS breaks
+  them: functions that tell apart strings the collation treats as equal (`LENGTH`, `HEX`,
+  `LIKE` against trailing spaces under PAD SPACE, `BINARY` casts); approximate (FLOAT /
+  DOUBLE) arithmetic, which is not exact and not associative; errors and overflow (the
+  model has none); plan-dependent behaviour such as grouping by DOUBLE values.
+- `LIKE` and `REGEXP` are modelled as character-by-character matching with the world's
+  character comparison. Collations with contractions or expansions (`'ss' = 'ß'` in some
+  Unicode collations) do not compare character by character.
+- The list of monotone functions (`EXP`, `FLOOR`, `CEIL`, `ROUND`, `ATAN`, `SIGN`; `ROUND`
+  only on SQLite) is an assumption of the bridge. In the model a monotone function is any
+  non-decreasing function on the reals.
+- The checker matches rows of a value check by sorting the mutated column within groups of
+  rows that agree outside it. This is justified because the rule functions are
+  non-decreasing and keep the side of the pivot (0 or 1); it is not proved.
+- When a database uses several collations, the checker applies the coarsest one to every
+  result column; a real difference only in case on a binary column is then missed.
 - After extraction the proofs are erased, so OCaml code can build an unproved rule record.
   Plug-ins should be written and registered in Rocq.

@@ -155,6 +155,7 @@ REJECTED = [
     ("WITH RECURSIVE r AS (SELECT 1 AS n UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT n FROM r",
      'set', 'recursive CTE'),
     ("SELECT a, ROW_NUMBER() OVER () FROM t", 'set', 'window function'),
+    ("SELECT j.value FROM t AS x, json_each(x.doc) AS j", 'set', 'table function with column arguments'),
 ]
 for sql, kind, what in REJECTED:
     try:

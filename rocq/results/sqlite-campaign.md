@@ -13,13 +13,16 @@ Every violation was then re-checked from scratch by `bridge/confirm_sqlite.py`.
 
 ## Result
 
-**37 distinct (original, mutant) query pairs violate the relation that the rule's theorem
-guarantees.** All 37 are confirmed:
+**42 distinct (original, mutant) query pairs violate the relation that the rule's theorem
+guarantees.** 37 were found by the first campaign and 5 more by a second campaign run
+after the model was extended (strings, decimals, collations, opaque atoms; see below). All
+42 are confirmed:
 
 - the database of the seed was rebuilt by each SQLite library and both queries were run
   again;
 - the violation reproduces on the version that reported it;
-- the relation holds on SQLite 3.53.1, the version Python ships.
+- the relation holds on SQLite 3.53.1, the version Python ships (for one pair it holds
+  modulo the `NOCASE` collation, which is what the theorem states).
 
 So the old releases return results that contradict each other, and a later release returns
 results that are consistent with the theorem.
@@ -32,20 +35,24 @@ results that are consistent with the theorem.
 | Relation checks that passed | 9687625 |
 | Violations recorded on all versions, before de-duplication | 228 |
 | Distinct violating query pairs, confirmed | **37** (from 26 different databases) |
+| Second campaign (`--focus --rich`, seeds 2001-2030, 60 queries per kind) | 3600 queries, 386891 checks passed, 17 violations = **5 new distinct pairs**, all confirmed |
+| Total confirmed pairs | **42** (from 29 databases) |
 | Negative control (`--flip`, 300 queries) | 1544 violations reported |
 
 The rule of the mutation that exposed each pair:
 
 | Rule | Pairs |
 | --- | --- |
-| `UNION->UNION-ALL` | 19 |
+| `UNION->UNION-ALL` | 20 |
 | `UNION-ALL->UNION` | 9 |
-| `DISTINCT-add` | 4 |
-| `EXCEPT->left` | 2 |
+| `DISTINCT-add` | 6 |
+| `EXCEPT->left` | 3 |
 | `cond->TRUE` | 2 |
 | `LEFT->INNER-JOIN` | 1 |
+| `INTERSECT->operand` | 1 |
 
-The number of pairs violated on each version (a pair can be violated on several):
+The number of pairs of the first campaign violated on each version (a pair can be violated
+on several):
 
 | Version | Pairs |
 | --- | --- |
@@ -54,7 +61,7 @@ The number of pairs violated on each version (a pair can be violated on several)
 | 3.31.1 | 31 |
 | 3.34.0 | 31 |
 
-All 37 come from set-semantic rules. The value-semantic and HAVING mutators did not find a
+All 42 come from set-semantic rules. The value-semantic and HAVING mutators did not find a
 violation on these SQLite versions.
 
 24 of the 37 pairs were found in focus mode (`--focus`: more compound queries, more
@@ -96,8 +103,32 @@ Such queries are now skipped by `numeric_probe`. A bug that made the probe miss 
 select item was found and fixed on the way. None of the 37 pairs is of this kind; all 37
 are consistent on 3.53.1.
 
-A difference that disappears when strings are compared up to case and trailing spaces is
-classified as `collation` and is not counted as a violation.
+## Collation
+
+The theorems promise inclusion modulo the database's equality of values. Since the second
+campaign, the checker computes that equality exactly from the declared collations: `BINARY`,
+`NOCASE` (the 26 ASCII letters only) and `RTRIM` (trailing spaces). A result that is
+included only modulo that equality is classified as `collation` and is not a violation. The
+first campaign used a fixed approximation instead (case folding and trailing spaces on every
+column). All 37 pairs of the first campaign were re-checked with the exact equality and all
+are still confirmed.
+
+## The second campaign
+
+Run with the extended model and bridge: opaque expressions as `EAtom`, analysed `LIKE`,
+derived tables mutated inside, opaque set-operation arms, the exact collation check, and
+`DISTINCT` around set operations printed as a derived table.
+
+```bash
+L=/tmp/sqlite-libs; python3 bridge/campaign_sqlite.py --focus --rich --libs $L/libsqlite3-3260000.so $L/libsqlite3-3300100.so $L/libsqlite3-3310100.so $L/libsqlite3-3340000.so --seeds 2001-2030 --queries 60 --out violations2.jsonl
+```
+
+- 17 violations, 5 distinct pairs (seeds 2004, 2011, 2022), all fixed in 3.53.1.
+- 4 translation mismatches, all on seed 2010 and only on the old releases: the query as
+  written (with `CROSS JOIN`) and the re-printed query (then with `INNER JOIN ... ON 1 = 1`)
+  returned different rows on 3.26.0 to 3.34.0. These are inconsistencies of the old releases
+  too, but are not counted. The bridge now prints `CROSS JOIN` again.
+- 2964 value queries skipped because an aggregated input held text (`non_numeric_input`).
 
 ## Reproduce
 
@@ -115,7 +146,7 @@ L=/tmp/sqlite-libs; python3 bridge/confirm_sqlite.py results/sqlite-confirmed.js
 
 `results/sqlite-confirmed.md` is the output of the last command. For every pair it has the
 queries, the first rows of both results and the verdict on each version.
-`results/sqlite-confirmed.jsonl` holds the 37 pairs as data.
+`results/sqlite-confirmed.jsonl` holds the 42 pairs as data.
 
 ## Limitations
 
@@ -123,5 +154,5 @@ queries, the first rows of both results and the verdict on each version.
   from npm packages.
 - "Confirmed" means inconsistent on the old version and consistent on 3.53.1. It does not
   prove which of the two results on the old version is the wrong one.
-- The 37 pairs most likely share a few root causes; only one cause is analysed, and the
+- The 42 pairs most likely share a few root causes; only one cause is analysed, and the
   test cases are not reduced.

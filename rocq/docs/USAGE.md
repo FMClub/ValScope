@@ -417,7 +417,7 @@ there are any (`non_numeric_input`): SQLite's `AVG` converts text to numbers whi
 The campaign builds random databases, runs random queries and their mutants on several
 SQLite releases, and re-checks each violation on the newest SQLite. A violation on an old
 release that disappears on the newest one is a bug the newer release fixed; this is how the
-37 confirmed pairs in `results/sqlite-campaign.md` were found.
+42 confirmed pairs in `results/sqlite-campaign.md` were found.
 
 ### 8.1 Build old SQLite releases
 

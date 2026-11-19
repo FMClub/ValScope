@@ -1,6 +1,6 @@
 # SQLite violations found by the verified mutators
 
-37 recorded, 37 confirmed (reproduced on the reporting version, relation holds on SQLite 3.53.1).
+42 recorded, 42 confirmed (reproduced on the reporting version, relation holds on SQLite 3.53.1).
 
 | # | Reported on | Seed | Rule | Expected | Rows (original / mutant) | Violated on | Confirmed |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -41,6 +41,11 @@
 | 35 | 3.26.0 | 340 | `UNION-ALL->UNION` | Down | 7 / 8 | 3.26.0, 3.30.1, 3.31.1, 3.34.0 | yes |
 | 36 | 3.26.0 | 352 | `UNION-ALL->UNION` | Down | 409 / 10 | 3.26.0, 3.30.1, 3.31.1, 3.34.0 | yes |
 | 37 | 3.26.0 | 515 | `UNION->UNION-ALL` | Up | 14 / 13 | 3.26.0 | yes |
+| 38 | 3.26.0 | 2004 | `DISTINCT-add` | Down | 15 / 16 | 3.26.0, 3.30.1, 3.31.1, 3.34.0 | yes |
+| 39 | 3.26.0 | 2011 | `UNION->UNION-ALL` | Up | 81 / 72 | 3.26.0, 3.30.1, 3.31.1, 3.34.0 | yes |
+| 40 | 3.26.0 | 2011 | `INTERSECT->operand` | Up | 81 / 73 | 3.26.0, 3.30.1, 3.31.1, 3.34.0 | yes |
+| 41 | 3.26.0 | 2022 | `DISTINCT-add` | Down | 0 / 1 | 3.26.0 | yes |
+| 42 | 3.26.0 | 2022 | `EXCEPT->left` | Up | 11 / 43 | 3.26.0, 3.30.1, 3.31.1, 3.34.0 | yes |
 
 ## 1. `UNION->UNION-ALL` on SQLite 3.26.0 (seed 1004)
 
@@ -670,4 +675,89 @@ Original rows: `['(-1, None)', '(0, None)', '(1, 3)', '(1, 4)', '(1, None)', '(2
 Mutant rows: `['(-1, None)', '(0, None)', '(1, 3)', '(1, 4)', '(1, None)', '(2, 3)', '(2, 4)', '(2, None)', '(2, None)', '(3, 3)', '(3, 4)', '(3, None)']`
 
 Per version: 3.26.0: violation, 3.30.1: ok, 3.31.1: ok, 3.34.0: ok, 3.53.1: ok
+
+## 38. `DISTINCT-add` on SQLite 3.26.0 (seed 2004)
+
+Expected relation: Down. Verdict: violation.
+
+```sql
+-- original
+SELECT DISTINCT COALESCE(t1a.c1, 0) AS k0, t1a.c1 || '' AS k1 FROM t1 AS t1a LEFT JOIN t3 AS t3b ON EXISTS (SELECT t2s93.c1 FROM t2 AS t2s93 WHERE t2s93.c14 <> t1a.c4) WHERE t3b.c1 <> (-1) UNION ALL SELECT DISTINCT t1a.c1 AS k0, ABS(t1a.c1) AS k1 FROM t1 AS t1a WHERE NOT (EXISTS (SELECT t2s0.c1 FROM t2 AS t2s0 WHERE (t1a.c4 = 1) AND (t2s0.c3 < 7))) EXCEPT SELECT DISTINCT t2a.c15 AS k0, t2a.c15 AS k1 FROM t2 AS t2a INNER JOIN t3 AS t3b ON NOT (EXISTS (SELECT t1s38.c1 FROM t1 AS t1s38 WHERE t2a.c14 >= t3b.c8));
+-- mutant
+SELECT DISTINCT * FROM (SELECT DISTINCT COALESCE(t1a.c1, 0) AS k0, t1a.c1 || '' AS k1 FROM t1 AS t1a LEFT JOIN t3 AS t3b ON EXISTS (SELECT t2s93.c1 FROM t2 AS t2s93 WHERE t2s93.c14 <> t1a.c4) WHERE t3b.c1 <> (-1)) AS vs_d4 UNION ALL SELECT DISTINCT t1a.c1 AS k0, ABS(t1a.c1) AS k1 FROM t1 AS t1a WHERE NOT (EXISTS (SELECT t2s0.c1 FROM t2 AS t2s0 WHERE (t1a.c4 = 1) AND (t2s0.c3 < 7))) EXCEPT SELECT DISTINCT t2a.c15 AS k0, t2a.c15 AS k1 FROM t2 AS t2a INNER JOIN t3 AS t3b ON NOT (EXISTS (SELECT t1s38.c1 FROM t1 AS t1s38 WHERE t2a.c14 >= t3b.c8));
+```
+
+Original rows: `["('-1', '-1')", "('-1', 1.0)", "('01', '01')", "('01', 1.0)", "('1', '1')", "('1', 1.0)", "('3', '3')", "('3', 3.0)", "('A', 'A')", "('A', 0.0)", "('a', 'a')", "('x', 'x')"]`
+
+Mutant rows: `["('-1', '-1')", "('-1', 1.0)", "('01', '01')", "('01', 1.0)", "('1', '1')", "('1', 1.0)", "('3', '3')", "('3', 3.0)", "('A', 'A')", "('A', 0.0)", "('a', 'a')", "('a', 0.0)"]`
+
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: collation
+
+## 39. `UNION->UNION-ALL` on SQLite 3.26.0 (seed 2011)
+
+Expected relation: Up. Verdict: violation.
+
+```sql
+-- original
+SELECT t1a.c1 AS k0, t3b.c2 AS k1, t1a.c4 AS k2 FROM t1 AS t1a INNER JOIN (SELECT x.c1 AS c1, x.c2 AS c2, x.c3 AS c3, x.c6 AS c6, x.c7 AS c7, x.c8 AS c8, x.c9 AS c9 FROM t3 AS x UNION ALL SELECT x.c1 AS c1, x.c2 AS c2, x.c3 AS c3, x.c6 AS c6, x.c7 AS c7, x.c8 AS c8, x.c9 AS c9 FROM t3 AS x) AS t3b ON 1 = 1 WHERE t3b.c9 = t1a.c4 INTERSECT SELECT DISTINCT t3a.c2 AS k0, t3a.c7 AS k1, t3a.c1 AS k2 FROM t3 AS t3a WHERE (t3a.c9 BETWEEN 7 AND 7) UNION SELECT DISTINCT t3a.c9 || '' AS k0, t2b.c1 AS k1, t3a.c7 AS k2 FROM t3 AS t3a INNER JOIN (SELECT x.c1 AS c1, x.c2 AS c2, x.c3 AS c3, x.c14 AS c14, x.c15 AS c15 FROM t2 AS x UNION ALL SELECT x.c1 AS c1, x.c2 AS c2, x.c3 AS c3, x.c14 AS c14, x.c15 AS c15 FROM t2 AS x) AS t2b ON 1 = 1 WHERE t2b.c1 <> 10;
+-- mutant
+SELECT t1a.c1 AS k0, t3b.c2 AS k1, t1a.c4 AS k2 FROM t1 AS t1a INNER JOIN (SELECT x.c1 AS c1, x.c2 AS c2, x.c3 AS c3, x.c6 AS c6, x.c7 AS c7, x.c8 AS c8, x.c9 AS c9 FROM t3 AS x UNION ALL SELECT x.c1 AS c1, x.c2 AS c2, x.c3 AS c3, x.c6 AS c6, x.c7 AS c7, x.c8 AS c8, x.c9 AS c9 FROM t3 AS x) AS t3b ON 1 = 1 WHERE t3b.c9 = t1a.c4 INTERSECT SELECT DISTINCT t3a.c2 AS k0, t3a.c7 AS k1, t3a.c1 AS k2 FROM t3 AS t3a WHERE (t3a.c9 BETWEEN 7 AND 7) UNION ALL SELECT DISTINCT t3a.c9 || '' AS k0, t2b.c1 AS k1, t3a.c7 AS k2 FROM t3 AS t3a INNER JOIN (SELECT x.c1 AS c1, x.c2 AS c2, x.c3 AS c3, x.c14 AS c14, x.c15 AS c15 FROM t2 AS x UNION ALL SELECT x.c1 AS c1, x.c2 AS c2, x.c3 AS c3, x.c14 AS c14, x.c15 AS c15 FROM t2 AS x) AS t2b ON 1 = 1 WHERE t2b.c1 <> 10;
+```
+
+Original rows: `["('-1', '', 'x')", "('-1', '-3', 'x')", "('-1', '0', 'x')", "('-1', '01', 'x')", "('-1', '2', 'x')", "('-1', '4', 'x')", "('-1', 'B', 'x')", "('-1', 'a', 'x')", "('-1', 'b', 'x')", "('-3', '', 'a')", "('-3', '', 'x')", "('-3', '-3', 'a')"]`
+
+Mutant rows: `["('-1', '', 'x')", "('-1', '-3', 'x')", "('-1', '0', 'x')", "('-1', '01', 'x')", "('-1', '2', 'x')", "('-1', '4', 'x')", "('-1', 'a', 'x')", "('-1', 'b', 'x')", "('-3', '', 'a')", "('-3', '', 'x')", "('-3', '-3', 'a')", "('-3', '-3', 'x')"]`
+
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+
+## 40. `INTERSECT->operand` on SQLite 3.26.0 (seed 2011)
+
+Expected relation: Up. Verdict: violation.
+
+```sql
+-- original
+SELECT t1a.c1 AS k0, t3b.c2 AS k1, t1a.c4 AS k2 FROM t1 AS t1a INNER JOIN (SELECT x.c1 AS c1, x.c2 AS c2, x.c3 AS c3, x.c6 AS c6, x.c7 AS c7, x.c8 AS c8, x.c9 AS c9 FROM t3 AS x UNION ALL SELECT x.c1 AS c1, x.c2 AS c2, x.c3 AS c3, x.c6 AS c6, x.c7 AS c7, x.c8 AS c8, x.c9 AS c9 FROM t3 AS x) AS t3b ON 1 = 1 WHERE t3b.c9 = t1a.c4 INTERSECT SELECT DISTINCT t3a.c2 AS k0, t3a.c7 AS k1, t3a.c1 AS k2 FROM t3 AS t3a WHERE (t3a.c9 BETWEEN 7 AND 7) UNION SELECT DISTINCT t3a.c9 || '' AS k0, t2b.c1 AS k1, t3a.c7 AS k2 FROM t3 AS t3a INNER JOIN (SELECT x.c1 AS c1, x.c2 AS c2, x.c3 AS c3, x.c14 AS c14, x.c15 AS c15 FROM t2 AS x UNION ALL SELECT x.c1 AS c1, x.c2 AS c2, x.c3 AS c3, x.c14 AS c14, x.c15 AS c15 FROM t2 AS x) AS t2b ON 1 = 1 WHERE t2b.c1 <> 10;
+-- mutant
+SELECT DISTINCT t3a.c2 AS k0, t3a.c7 AS k1, t3a.c1 AS k2 FROM t3 AS t3a WHERE (t3a.c9 BETWEEN 7 AND 7) UNION SELECT DISTINCT t3a.c9 || '' AS k0, t2b.c1 AS k1, t3a.c7 AS k2 FROM t3 AS t3a INNER JOIN (SELECT x.c1 AS c1, x.c2 AS c2, x.c3 AS c3, x.c14 AS c14, x.c15 AS c15 FROM t2 AS x UNION ALL SELECT x.c1 AS c1, x.c2 AS c2, x.c3 AS c3, x.c14 AS c14, x.c15 AS c15 FROM t2 AS x) AS t2b ON 1 = 1 WHERE t2b.c1 <> 10;
+```
+
+Original rows: `["('-1', '', 'x')", "('-1', '-3', 'x')", "('-1', '0', 'x')", "('-1', '01', 'x')", "('-1', '2', 'x')", "('-1', '4', 'x')", "('-1', 'B', 'x')", "('-1', 'a', 'x')", "('-1', 'b', 'x')", "('-3', '', 'a')", "('-3', '', 'x')", "('-3', '-3', 'a')"]`
+
+Mutant rows: `["('-1', '', 'x')", "('-1', '-3', 'x')", "('-1', '0', 'x')", "('-1', '01', 'x')", "('-1', '2', 'x')", "('-1', '4', 'x')", "('-1', 'a', 'x')", "('-1', 'b', 'x')", "('-3', '', 'a')", "('-3', '', 'x')", "('-3', '-3', 'a')", "('-3', '-3', 'x')"]`
+
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+
+## 41. `DISTINCT-add` on SQLite 3.26.0 (seed 2022)
+
+Expected relation: Down. Verdict: violation.
+
+```sql
+-- original
+SELECT DISTINCT t1b.c1 AS k0, t1a.c4 AS k1, t1a.c1 AS k2 FROM t1 AS t1a INNER JOIN (SELECT x.c1 AS c1, x.c4 AS c4 FROM t1 AS x) AS t1b ON 1 = 1 WHERE (EXISTS (SELECT t2s79.c1 FROM t2 AS t2s79 WHERE (CAST(t2s79.c14 AS INTEGER)) = 1)) AND (NOT (t1a.c4 IS NULL)) INTERSECT SELECT DISTINCT t3a.c6 AS k0, t3a.c3 AS k1, t3a.c7 AS k2 FROM t3 AS t3a INNER JOIN t2 AS t2b ON (t3a.c2 || '') = ('7') WHERE (COALESCE(t2b.c15, 1)) > 10 UNION ALL SELECT DISTINCT t3b.c1 AS k0, t3b.c3 || '' AS k1, t1a.c4 AS k2 FROM t1 AS t1a INNER JOIN (SELECT DISTINCT x.c1 AS c1, x.c2 AS c2, x.c3 AS c3, x.c6 AS c6, x.c7 AS c7, x.c8 AS c8, x.c9 AS c9 FROM t3 AS x WHERE x.c1 = 10 UNION ALL SELECT x.c1 AS c1, x.c2 AS c2, x.c3 AS c3, x.c6 AS c6, x.c7 AS c7, x.c8 AS c8, x.c9 AS c9 FROM t3 AS x) AS t3b ON t3b.c1 < 7 WHERE ((t3b.c7 IS NOT 5)) AND ((t3b.c8 < 2) AND ((t1a.c1 IS 2)));
+-- mutant
+SELECT DISTINCT t1b.c1 AS k0, t1a.c4 AS k1, t1a.c1 AS k2 FROM t1 AS t1a INNER JOIN (SELECT x.c1 AS c1, x.c4 AS c4 FROM t1 AS x) AS t1b ON 1 = 1 WHERE (EXISTS (SELECT t2s79.c1 FROM t2 AS t2s79 WHERE (CAST(t2s79.c14 AS INTEGER)) = 1)) AND (NOT (t1a.c4 IS NULL)) INTERSECT SELECT DISTINCT t3a.c6 AS k0, t3a.c3 AS k1, t3a.c7 AS k2 FROM t3 AS t3a INNER JOIN t2 AS t2b ON (t3a.c2 || '') = ('7') WHERE (COALESCE(t2b.c15, 1)) > 10 UNION ALL SELECT DISTINCT t3b.c1 AS k0, t3b.c3 || '' AS k1, t1a.c4 AS k2 FROM t1 AS t1a INNER JOIN (SELECT DISTINCT x.c1 AS c1, x.c2 AS c2, x.c3 AS c3, x.c6 AS c6, x.c7 AS c7, x.c8 AS c8, x.c9 AS c9 FROM t3 AS x WHERE x.c1 = 10 UNION ALL SELECT DISTINCT x.c1 AS c1, x.c2 AS c2, x.c3 AS c3, x.c6 AS c6, x.c7 AS c7, x.c8 AS c8, x.c9 AS c9 FROM t3 AS x) AS t3b ON t3b.c1 < 7 WHERE ((t3b.c7 IS NOT 5)) AND ((t3b.c8 < 2) AND ((t1a.c1 IS 2)));
+```
+
+Original rows: `[]`
+
+Mutant rows: `["('2', '1', None)"]`
+
+Per version: 3.26.0: violation, 3.30.1: ok, 3.31.1: ok, 3.34.0: ok, 3.53.1: ok
+
+## 42. `EXCEPT->left` on SQLite 3.26.0 (seed 2022)
+
+Expected relation: Up. Verdict: violation.
+
+```sql
+-- original
+SELECT t1c.c4 AS k0, t2a.c3 AS k1, t2a.c3 AS k2 FROM t2 AS t2a INNER JOIN t1 AS t1b ON (CAST(t2a.c3 AS INTEGER)) = 1 LEFT JOIN t1 AS t1c ON t1b.c1 IN (SELECT t2i1.c1 FROM t2 AS t2i1 WHERE t1b.c4 >= 2) UNION ALL SELECT DISTINCT t1a.c4 AS k0, t1a.c4 AS k1, t1a.c4 AS k2 FROM (SELECT x.c1 AS c1, x.c4 AS c4 FROM t1 AS x) AS t1a EXCEPT SELECT CAST(t3c.c7 AS INTEGER) AS k0, t1a.c1 AS k1, t1a.c4 AS k2 FROM t1 AS t1a LEFT JOIN t1 AS t1b ON t1b.c1 <= 7 INNER JOIN t3 AS t3c ON (t1b.c1 < t1b.c1) OR (t1a.c4 >= 0) WHERE ((t3c.c7 > 1)) = 1;
+-- mutant
+SELECT t1c.c4 AS k0, t2a.c3 AS k1, t2a.c3 AS k2 FROM t2 AS t2a INNER JOIN t1 AS t1b ON (CAST(t2a.c3 AS INTEGER)) = 1 LEFT JOIN t1 AS t1c ON t1b.c1 IN (SELECT t2i1.c1 FROM t2 AS t2i1 WHERE t1b.c4 >= 2) UNION ALL SELECT DISTINCT t1a.c4 AS k0, t1a.c4 AS k1, t1a.c4 AS k2 FROM (SELECT x.c1 AS c1, x.c4 AS c4 FROM t1 AS x) AS t1a;
+```
+
+Original rows: `["('0', '0', '0')", "('0', 1.0, 1.0)", "('1', '1', '1')", "('1', 1.0, 1.0)", "('2', '2', '2')", "('2', 1.0, 1.0)", "('A', 'A', 'A')", "('A', 1.0, 1.0)", "('a', 'a', 'a')", '(None, 1.0, 1.0)', '(None, None, None)']`
+
+Mutant rows: `["('0', '0', '0')", "('0', 1.0, 1.0)", "('0', 1.0, 1.0)", "('1', '1', '1')", "('1', 1.0, 1.0)", "('1', 1.0, 1.0)", "('1', 1.0, 1.0)", "('1', 1.0, 1.0)", "('2', '2', '2')", "('2', 1.0, 1.0)", "('2', 1.0, 1.0)", "('A', 1.0, 1.0)"]`
+
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
 

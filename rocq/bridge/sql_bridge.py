@@ -341,7 +341,8 @@ class Translation:
                 else:
                     for x in t[1:]:
                         collect(x)
-        collect(items)
+        for item in items:          # a list of items, not a tagged node
+            collect(item)
         where = None
         if source[0] == 'Where':
             where, source = self._p_sql(source[1]), source[2]
@@ -363,6 +364,33 @@ class Translation:
             return None, 0
         sql = 'SELECT %s FROM %s' % (', '.join(cols), self._from_sql(source))
         return sql + (' WHERE ' + where if where else '') + ' LIMIT 0', len(keys)
+
+    def numeric_probe(self):
+        """SQLite only.  The value model computes with numbers, but an SQLite column can
+        hold text in any row, and aggregates then follow SQLite's own rules (AVG converts
+        text to a number, MAX orders text above every number).  This query counts the
+        rows where an expression used in a select item is text or a blob; a value query
+        is inside the model only when it returns 0."""
+        keys, items, _, source = self._v_parts(parse_sexp(self.term))
+        atoms = []
+
+        def collect(t):
+            if isinstance(t, list):
+                if t and t[0] == 'Col':
+                    atoms.append(self._e_sql(t))
+                else:
+                    for x in t[1:]:
+                        collect(x)
+        for node in list(items) + list(keys):     # lists of items / keys, not tagged nodes
+            collect(node)
+        if not atoms:
+            return None
+        where = None
+        if source[0] == 'Where':
+            where, source = self._p_sql(source[1]), source[2]
+        bad = ' OR '.join("typeof(%s) IN ('text', 'blob')" % a for a in atoms)
+        cond = '(%s)' % bad if where is None else '(%s) AND (%s)' % (where, bad)
+        return 'SELECT COUNT(*) FROM %s WHERE %s' % (self._from_sql(source), cond)
 
     def reprint(self):
         """SQL of the unmutated term: the query the mutants are compared with."""
@@ -454,6 +482,13 @@ class Translation:
     def _q_sql(self, q):
         tag = q[0]
         if tag in SET_SQL:
+            if self.dialect == 'sqlite':
+                # no parentheses around compound operands in SQLite; compounds are
+                # left-associative, so a compound right operand becomes a derived table
+                right = self._q_sql(q[2])
+                if q[2][0] in SET_SQL:
+                    right = 'SELECT * FROM (%s)' % right
+                return '%s %s %s' % (self._q_sql(q[1]), SET_SQL[tag], right)
             return '(%s) %s (%s)' % (self._q_sql(q[1]), SET_SQL[tag], self._q_sql(q[2]))
         distinct, items, where = False, '*', None
         if q[0] == 'Distinct':
@@ -552,12 +587,14 @@ def mutate_value_sql(sql, cli=DEFAULT_CLI, dialect='mysql'):
     return mutate_value(sql, cli, dialect)[:3]
 
 
-def mutate_value(sql, cli=DEFAULT_CLI, dialect='mysql'):
+def mutate_value(sql, cli=DEFAULT_CLI, dialect='mysql', translation=None):
     """Like mutate_value_sql, with two more components: the result of
     Translation.type_probe, and the mutants of the HAVING predicate as
     (direction, rule, mutant_sql).  For those, 'Up' means the mutant returns the
     same rows and possibly more, 'Down' a subset."""
     tr = Translation(sql, dialect, kind='value')
+    if translation is not None:
+        translation.append(tr)
     mutants, having_mutants, skipped = [], [], 0
     for fields in _run_cli(tr.term, cli):
         try:

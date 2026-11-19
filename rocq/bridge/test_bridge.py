@@ -130,6 +130,14 @@ for sql in ["SELECT t.a FROM t WHERE (t.a, t.b) IN (SELECT u.a, u.b FROM u WHERE
     tr = Translation(sql)
     report('(In ' not in tr.term and '(Atom ' in tr.term, 'kept opaque: %s' % sql)
 
+# the probes see every select item, including the first one
+tr = Translation("SELECT AVG(t.a) + 2 AS k0, MAX(t.b) AS k1 FROM t", dialect='sqlite', kind='value')
+probe = tr.numeric_probe() or ''
+report('typeof(t.a)' in probe and 'typeof(t.b)' in probe, 'numeric probe covers all select items')
+tr = Translation("SELECT AVG(t.a) AS k0, MAX(t.b) AS k1 FROM t GROUP BY t.g", kind='value')
+probe = tr.type_probe()[0] or ''
+report('t.a' in probe and 't.b' in probe, 'type probe covers all select items')
+
 # ---- the checkers
 report(check_inclusion('Up', [(1,), (1,)], [(1,), (1,), (2,)]) == 'ok', 'inclusion respects multiplicities')
 report(check_inclusion('Up', [(1,), (1,)], [(1,), (2,)]) == 'violation', 'missing duplicate is a violation')

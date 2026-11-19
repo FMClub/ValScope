@@ -8,13 +8,15 @@
 
 From Coq Require Import List ZArith Lia.
 Import ListNotations.
-From ValScope Require Import Bag Logic3 Syntax Semantics Approx Mutate.
+From Coq Require Import String.
+From ValScope Require Import Bag Logic3 Syntax Semantics Approx Rule Engine Registry.
 
 Definition a_tbl : query := QTable 0 1.
 Definition b_tbl : query := QTable 1 1.
 
 Definition db_ex : db_t :=
-  fun n => match n with 0 => [[VInt 1]] | 1 => [[VInt 2]] | _ => [] end.
+  mk_world (fun n => match n with 0 => [[VInt 1]] | 1 => [[VInt 2]] | _ => [] end)
+           (fun _ _ => U3).
 
 (** The ON condition of a LEFT JOIN: [ON FALSE -> ON TRUE] weakens the predicate
     (and is sound for an INNER JOIN, see [q_le_inner_join]) but does NOT give a
@@ -61,31 +63,31 @@ Qed.
 Definition not_exists_q : query :=
   QWhere (PNot (PExists (QWhere (PCmp CLt (ECol 0) (EConst (VInt 5))) b_tbl))) a_tbl.
 
+Definition not_exists_mutant : query :=
+  QWhere (PNot (PExists (QWhere PFalse b_tbl))) a_tbl.
+
 Example up_enters_not_exists_with_false :
-  In (QWhere (PNot (PExists (QWhere PFalse b_tbl))) a_tbl) (mut_q Up not_exists_q).
+  In ("cond->FALSE"%string, not_exists_mutant) (mutate Up not_exists_q).
 Proof.
   vm_compute. repeat first [ left; reflexivity | right ].
 Qed.
 
 (** And the soundness theorem says that this mutant is indeed a super-bag. *)
-Example not_exists_mutant_is_sound :
-  q_le not_exists_q (QWhere (PNot (PExists (QWhere PFalse b_tbl))) a_tbl).
+Example not_exists_mutant_is_sound : q_le not_exists_q not_exists_mutant.
 Proof.
-  apply (mut_q_sound Up not_exists_q). exact up_enters_not_exists_with_false.
+  apply (mutate_sound Up not_exists_q _ _ up_enters_not_exists_with_false).
 Qed.
 
-(** The ON condition and the right input of a LEFT JOIN are never mutated: every
-    mutant of a LEFT JOIN is a root rewrite or only changes the left input. *)
-Lemma left_join_only_left_entered : forall d pad p a b q',
-  In q' (mut_q d (QLeftJoin pad p a b)) ->
-  q' = QDistinct (QLeftJoin pad p a b) \/ q' = QInnerJoin p a b \/
+(** The ON condition and the right input of a LEFT JOIN are never mutated,
+    whatever rules are plugged in: every mutant of a LEFT JOIN is a root rewrite
+    or only changes the left input. *)
+Lemma left_join_only_left_entered : forall prs qrs d pad p a b name q',
+  In (name, q') (mut_q prs qrs d (QLeftJoin pad p a b)) ->
+  In (name, q') (fire_q qrs d (QLeftJoin pad p a b)) \/
   exists a', q' = QLeftJoin pad p a' b.
 Proof.
-  intros d pad p a b q' H. simpl mut_q in H. unfold base_q in H.
-  destruct d; simpl in H.
-  - apply in_map_iff in H as [a' [<- _]]. right; right. exists a'. reflexivity.
-  - destruct H as [E|[E|H]].
-    + left. symmetry. exact E.
-    + right; left. symmetry. exact E.
-    + apply in_map_iff in H as [a' [<- _]]. right; right. exists a'. reflexivity.
+  intros prs qrs d pad p a b name q' H. simpl mut_q in H.
+  apply in_app_or in H as [H|H]; [left; exact H|right].
+  unfold lmap in H. apply in_map_iff in H as [[n a'] [E _]].
+  inversion E; subst. exists a'. reflexivity.
 Qed.

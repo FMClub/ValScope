@@ -1,16 +1,14 @@
-(** Extract.v: extraction of the verified mutators to OCaml.
+(** Extract.v: extraction of the verified framework to OCaml.
 
-    The generated module [extracted/valscope_core.ml] contains [mut_q] and [mut_p].
-    Because [Mutate.mutate_sound] is proved for exactly these functions, every query
-    they return is a super-bag (direction [Up]) or a sub-bag (direction [Down]) of the
-    input on every database.  The OCaml/Python glue only has to parse SQL into
-    [Syntax.query], call these functions and print the result.
+    [extracted/valscope_core.ml] contains the generic engine ([mut_q], [mut_p]),
+    the rule records and the registry ([mutate]).  Proofs are erased: a rule
+    becomes a record (name, direction, rewrite function).  Inside Rocq a rule
+    cannot be built without its proof; OCaml code that builds rule records by hand
+    bypasses that guarantee, so plug-ins should be written and registered in Rocq. *)
 
-    Integers are extracted to native OCaml [int]: the mutators never do arithmetic on
-    SQL integers (they only copy constants), so this does not affect soundness. *)
-
-From Coq Require Import Extraction ExtrOcamlBasic ExtrOcamlNatInt ExtrOcamlZInt.
-From ValScope Require Import Logic3 Syntax Mutate.
+From Coq Require Import Extraction ExtrOcamlBasic ExtrOcamlNatInt ExtrOcamlZInt
+  ExtrOcamlNativeString.
+From ValScope Require Import Logic3 Syntax Rule Engine Registry.
 
 Extraction Language OCaml.
-Extraction "extracted/valscope_core.ml" mut_p mut_q flip.
+Extraction "extracted/valscope_core.ml" mutate mut_q mut_p pred_rules query_rules flip.

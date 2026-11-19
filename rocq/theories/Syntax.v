@@ -23,6 +23,7 @@ Inductive pred : Type :=
   | PAnd    : pred -> pred -> pred
   | POr     : pred -> pred -> pred
   | PExists : query -> pred
+  | PAtom   : nat -> pred          (* opaque predicate, interpreted by the world *)
 with query : Type :=
   | QTable     : nat -> nat -> query                (* table id, arity *)
   | QProject   : list expr -> query -> query

@@ -5,6 +5,10 @@ theories/Logic3.v
 theories/Syntax.v
 theories/Semantics.v
 theories/Approx.v
-theories/Mutate.v
+theories/Rule.v
+theories/Engine.v
+theories/StdRules.v
+theories/ExtraRules.v
+theories/Registry.v
 theories/Counter.v
 theories/Extract.v

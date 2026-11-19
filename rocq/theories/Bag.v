@@ -207,6 +207,20 @@ Proof.
   - lia.
 Qed.
 
+Lemma inter_le_left : forall a b, bag_le (inter a b) a.
+Proof.
+  intros a b x. unfold inter. rewrite count_filter, count_nodup.
+  destruct (in_dec dec x b); lia.
+Qed.
+
+Lemma inter_le_right : forall a b, bag_le (inter a b) b.
+Proof.
+  intros a b x. unfold inter. rewrite count_filter, count_nodup.
+  destruct (in_dec dec x b) as [Hb|Hb].
+  - apply count_In in Hb. lia.
+  - lia.
+Qed.
+
 Lemma bag_le_exc_l : forall a a' b,
   bag_le a a' -> bag_le (exc a b) (exc a' b).
 Proof.

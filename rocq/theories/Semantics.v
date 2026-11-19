@@ -7,7 +7,12 @@ From Coq Require Import List ZArith.
 Import ListNotations.
 From ValScope Require Import Bag Logic3 Syntax.
 
-Definition db_t := nat -> list row.
+(** A world gives the contents of the tables and the meaning of the opaque
+    predicate atoms (any SQL predicate the model does not analyse). *)
+Record db_t := mk_world {
+  tables : nat -> list row;
+  atoms  : nat -> row -> tv
+}.
 
 Definition eval_expr (ctx : row) : expr -> value :=
   fix go e :=
@@ -40,7 +45,7 @@ Definition left_matches (P : row -> bool) (pad : nat) (r1 : row) (rhs : list row
 
 Fixpoint eval_q (db : db_t) (ctx : row) (q : query) : list row :=
   match q with
-  | QTable n _ => db n
+  | QTable n _ => tables db n
   | QProject es q =>
       map (fun r => map (eval_expr (r ++ ctx)) es) (eval_q db ctx q)
   | QWhere p q =>
@@ -70,6 +75,7 @@ with eval_p (db : db_t) (ctx : row) (p : pred) : tv :=
   | PAnd p q => tv_and (eval_p db ctx p) (eval_p db ctx q)
   | POr p q => tv_or (eval_p db ctx p) (eval_p db ctx q)
   | PExists q => match eval_q db ctx q with [] => F3 | _ => T3 end
+  | PAtom n => atoms db n ctx
   end.
 
 (** Approximation relations.  [q_le q1 q2] holds when, for every database and every

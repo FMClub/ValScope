@@ -1,24 +1,98 @@
-(** Logic3.v: SQL values, three-valued logic and comparisons.
+(** Logic3.v: SQL values, three-valued logic and comparison operators.
 
-    [tv_le] orders the truth values [F3 < U3 < T3].  A WHERE/ON/HAVING clause keeps a
-    row exactly when the predicate is [T3], so a predicate that is larger in this
+    Values are NULL, integers, rational numbers and text.  Rationals cover DECIMAL and
+    every finite FLOAT / DOUBLE value exactly (a finite binary floating-point number is
+    a rational).  How values are compared, converted and collated is NOT fixed here: it
+    depends on the DBMS and is supplied by the world (Semantics.v), together with the
+    few laws the theorems need.
+
+    [tv_le] orders the truth values [F3 < U3 < T3].  A WHERE / ON / HAVING clause keeps
+    a row exactly when the predicate is [T3], so a predicate that is larger in this
     order keeps more rows.  [NOT] reverses the order, which is why the polarity of a
     position matters. *)
 
-From Coq Require Import ZArith List Arith Lia.
+From Coq Require Import ZArith QArith String List Arith Lia.
 Import ListNotations.
+Local Open Scope nat_scope.
 
 Inductive value : Type :=
   | VNull : value
-  | VInt : Z -> value.
+  | VInt  : Z -> value
+  | VNum  : Q -> value
+  | VStr  : string -> value.
 
 Definition row := list value.
 
+Lemma Q_struct_dec : forall a b : Q, {a = b} + {a <> b}.
+Proof.
+  intros [n d] [n' d']. destruct (Z.eq_dec n n') as [->|Hn]; destruct (Pos.eq_dec d d') as [->|Hd];
+    [left; reflexivity|right; congruence|right; congruence|right; congruence].
+Defined.
+
 Lemma value_eq_dec : forall a b : value, {a = b} + {a <> b}.
-Proof. decide equality. apply Z.eq_dec. Defined.
+Proof. decide equality; [apply Z.eq_dec|apply Q_struct_dec|apply string_dec]. Defined.
 
 Lemma row_eq_dec : forall a b : row, {a = b} + {a <> b}.
 Proof. apply list_eq_dec. apply value_eq_dec. Defined.
+
+(** Column-wise lifting of an equivalence on values to rows. *)
+Fixpoint list_eqb {X : Type} (f : X -> X -> bool) (a b : list X) : bool :=
+  match a, b with
+  | [], [] => true
+  | x :: a', y :: b' => f x y && list_eqb f a' b'
+  | _, _ => false
+  end.
+
+Section ListEqb.
+Context {X : Type} (f : X -> X -> bool).
+Hypothesis f_refl : forall x, f x x = true.
+Hypothesis f_sym : forall x y, f x y = true -> f y x = true.
+Hypothesis f_trans : forall x y z, f x y = true -> f y z = true -> f x z = true.
+
+Lemma list_eqb_refl : forall a, list_eqb f a a = true.
+Proof. induction a as [|x a IH]; simpl; [reflexivity|]. rewrite f_refl, IH. reflexivity. Qed.
+
+Lemma list_eqb_sym : forall a b, list_eqb f a b = true -> list_eqb f b a = true.
+Proof.
+  induction a as [|x a IH]; intros b H; destruct b as [|y b]; simpl in *; try congruence.
+  apply andb_prop in H as [H1 H2]. rewrite (f_sym _ _ H1), (IH _ H2). reflexivity.
+Qed.
+
+Lemma list_eqb_trans : forall a b c, list_eqb f a b = true -> list_eqb f b c = true -> list_eqb f a c = true.
+Proof.
+  induction a as [|x a IH]; intros b c H1 H2; destruct b as [|y b]; destruct c as [|z c];
+    simpl in *; try congruence.
+  apply andb_prop in H1 as [E1 R1]. apply andb_prop in H2 as [E2 R2].
+  rewrite (f_trans _ _ _ E1 E2), (IH _ _ R1 R2). reflexivity.
+Qed.
+
+Lemma list_eqb_app : forall a a' b b', list_eqb f a a' = true -> list_eqb f b b' = true ->
+  list_eqb f (a ++ b) (a' ++ b') = true.
+Proof.
+  induction a as [|x a IH]; intros a' b b' H1 H2; destruct a' as [|y a']; simpl in *;
+    try congruence.
+  apply andb_prop in H1 as [E1 R1]. rewrite E1, (IH _ _ _ R1 H2). reflexivity.
+Qed.
+
+Lemma list_eqb_nth : forall a b i d, f d d = true -> list_eqb f a b = true -> f (nth i a d) (nth i b d) = true.
+Proof.
+  induction a as [|x a IH]; intros b i d Hd H; destruct b as [|y b]; simpl in H; try discriminate.
+  - destruct i; exact Hd.
+  - apply andb_prop in H as [E R]. destruct i; simpl; [exact E|apply IH; assumption].
+Qed.
+
+Lemma list_eqb_map : forall {Y : Type} (g : Y -> X) (h : Y -> X) (l : list Y),
+  (forall y, f (g y) (h y) = true) -> list_eqb f (map g l) (map h l) = true.
+Proof.
+  intros Y g h l H. induction l as [|y l IH]; simpl; [reflexivity|]. rewrite H, IH. reflexivity.
+Qed.
+
+Lemma list_eqb_repeat : forall x n, list_eqb f (repeat x n) (repeat x n) = true.
+Proof. intros x n. apply list_eqb_refl. Qed.
+
+End ListEqb.
+
+(** ---------------- three-valued logic ---------------- *)
 
 Inductive tv : Type := F3 | U3 | T3.
 
@@ -45,12 +119,10 @@ Proof. intro a. destruct a; unfold tv_le; simpl; lia. Qed.
 Lemma tv_not_anti : forall a b, tv_le a b -> tv_le (tv_not b) (tv_not a).
 Proof. intros a b. destruct a, b; unfold tv_le; simpl; lia. Qed.
 
-Lemma tv_and_mono : forall a a' b b',
-  tv_le a a' -> tv_le b b' -> tv_le (tv_and a b) (tv_and a' b').
+Lemma tv_and_mono : forall a a' b b', tv_le a a' -> tv_le b b' -> tv_le (tv_and a b) (tv_and a' b').
 Proof. intros a a' b b'. destruct a, a', b, b'; unfold tv_le; simpl; lia. Qed.
 
-Lemma tv_or_mono : forall a a' b b',
-  tv_le a a' -> tv_le b b' -> tv_le (tv_or a b) (tv_or a' b').
+Lemma tv_or_mono : forall a a' b b', tv_le a a' -> tv_le b b' -> tv_le (tv_or a b) (tv_or a' b').
 Proof. intros a a' b b'. destruct a, a', b, b'; unfold tv_le; simpl; lia. Qed.
 
 Lemma tv_or_lub : forall a b t, tv_le a t -> tv_le b t -> tv_le (tv_or a b) t.
@@ -71,34 +143,19 @@ Proof. intros a b. destruct a, b; unfold tv_le; simpl; lia. Qed.
 Lemma is_true_mono : forall a b, tv_le a b -> is_true a = true -> is_true b = true.
 Proof. intros a b. destruct a, b; unfold tv_le; simpl; intros; try lia; congruence. Qed.
 
-(** ---- comparisons (NULL on either side gives UNKNOWN) ---- *)
-
-Inductive cmp : Type := CEq | CNe | CLt | CLe | CGt | CGe.
-
-Definition cmp3 (c : cmp) (v1 v2 : value) : tv :=
-  match v1, v2 with
-  | VInt a, VInt b =>
-      of_bool (match c with
-               | CEq => Z.eqb a b
-               | CNe => negb (Z.eqb a b)
-               | CLt => Z.ltb a b
-               | CLe => Z.leb a b
-               | CGt => Z.gtb a b
-               | CGe => Z.geb a b
-               end)
-  | _, _ => U3
-  end.
-
-Lemma tv_le_of_bool : forall b1 b2 : bool,
-  (b1 = true -> b2 = true) -> tv_le (of_bool b1) (of_bool b2).
+Lemma tv_le_of_bool : forall b1 b2 : bool, (b1 = true -> b2 = true) -> tv_le (of_bool b1) (of_bool b2).
 Proof.
   intros b1 b2 H. destruct b1, b2; unfold tv_le, of_bool, rk; simpl;
     first [ lia | exfalso; discriminate (H eq_refl) ].
 Qed.
 
-(** Weakening comparisons (rules 8, 9, 10): [a < b] implies [a <= b], [a > b]
-    implies [a >= b], and [a = b] implies both [a <= b] and [a >= b].  Read
-    backwards, the same facts give the strengthening rules. *)
+(** ---------------- comparison operators ---------------- *)
+
+Inductive cmp : Type := CEq | CNe | CLt | CLe | CGt | CGe.
+
+(** [cmp_weaker c c']: [x c y] implies [x c' y] for every pair of values that the
+    DBMS compares in the usual way.  Rules 8, 9, 10 weaken [c] to [c']; read
+    backwards they strengthen. *)
 Inductive cmp_weaker : cmp -> cmp -> Prop :=
   | W_lt_le : cmp_weaker CLt CLe
   | W_gt_ge : cmp_weaker CGt CGe
@@ -107,17 +164,24 @@ Inductive cmp_weaker : cmp -> cmp -> Prop :=
   | W_lt_ne : cmp_weaker CLt CNe
   | W_gt_ne : cmp_weaker CGt CNe.
 
-Lemma cmp3_weaker : forall c c' x y,
-  cmp_weaker c c' -> tv_le (cmp3 c x y) (cmp3 c' x y).
+(** A comparison defined from a three-way comparison (None = NULL or incomparable)
+    satisfies the weakening laws automatically, whatever the order is: numeric,
+    lexicographic, case-insensitive, with type coercions, ... *)
+Definition cmp_of_compare (c : cmp) (o : option comparison) : tv :=
+  match o with
+  | None => U3
+  | Some r =>
+      of_bool (match c, r with
+               | CEq, Eq | CLe, Eq | CGe, Eq => true
+               | CLt, Lt | CLe, Lt | CNe, Lt => true
+               | CGt, Gt | CGe, Gt | CNe, Gt => true
+               | _, _ => false
+               end)
+  end.
+
+Lemma cmp_of_compare_weaker : forall c c' o,
+  cmp_weaker c c' -> tv_le (cmp_of_compare c o) (cmp_of_compare c' o).
 Proof.
-  intros c c' x y H. destruct x as [|a]; destruct y as [|b]; simpl;
-    try apply tv_le_refl.
-  apply tv_le_of_bool. intro Hb.
-  destruct H.
-  - apply Z.ltb_lt in Hb. apply Z.leb_le. lia.
-  - apply Z.gtb_gt in Hb. apply Z.geb_le. lia.
-  - apply Z.eqb_eq in Hb. apply Z.leb_le. lia.
-  - apply Z.eqb_eq in Hb. apply Z.geb_le. lia.
-  - apply Z.ltb_lt in Hb. apply Bool.negb_true_iff. apply Z.eqb_neq. lia.
-  - apply Z.gtb_gt in Hb. apply Bool.negb_true_iff. apply Z.eqb_neq. lia.
+  intros c c' [r|] H; [|apply tv_le_refl]. simpl. apply tv_le_of_bool.
+  destruct H, r; simpl; congruence.
 Qed.

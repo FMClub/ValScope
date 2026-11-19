@@ -10,7 +10,7 @@
 
 From Coq Require Import List String.
 Import ListNotations.
-From ValScope Require Import Bag Logic3 Syntax Semantics Approx Rule Engine Value.
+From ValScope Require Import Bag Logic3 Pattern Syntax Semantics Approx Rule Engine Value.
 
 Section Having.
 Variable prs : list prule.

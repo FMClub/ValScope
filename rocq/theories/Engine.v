@@ -67,6 +67,8 @@ with mut_q (d : dir) (q : query) {struct q} : list (string * query) :=
   | QLeftJoin n p a b =>
       (* only the LEFT input is monotone; see Counter.v *)
       lmap (fun a' => QLeftJoin n p a' b) (mut_q d a)
+  | QNamed n a => lmap (QNamed n) (mut_q d a)
+  | QAtom _ _ => []
   end.
 
 (** ---------------- soundness, for every rule set ---------------- *)
@@ -156,6 +158,10 @@ Proof.
     intros e q IHq d. simpl mut_p. rewrite Forall_app; split; [apply fire_p_sound|].
     apply (fa_mono q_le p_le (PIn e)); [|apply IHq].
     intros u v H. apply p_le_in. exact H.
+  - (* PLike *)
+    intros e l d. simpl mut_p. rewrite Forall_app; split; [apply fire_p_sound|apply Forall_nil].
+  - (* PRegex *)
+    intros e r d. simpl mut_p. rewrite Forall_app; split; [apply fire_p_sound|apply Forall_nil].
   - (* PAtom *)
     intros n d. simpl mut_p. rewrite Forall_app; split; [apply fire_p_sound|apply Forall_nil].
   - (* QTable *)
@@ -217,6 +223,12 @@ Proof.
     intros n p IHp a IHa b IHb d. simpl mut_q. rewrite Forall_app; split; [apply fire_q_sound|].
     apply (fa_mono q_le q_le (fun a' => QLeftJoin n p a' b)); [|apply IHa].
     intros u v H. apply q_le_left_join_left. exact H.
+  - (* QNamed *)
+    intros n a IHa d. simpl mut_q. rewrite Forall_app; split; [apply fire_q_sound|].
+    apply (fa_mono q_le q_le (QNamed n)); [|apply IHa].
+    intros u v H. apply q_le_named. exact H.
+  - (* QAtom: opaque, never entered *)
+    intros n k d. simpl mut_q. rewrite Forall_app; split; [apply fire_q_sound|apply Forall_nil].
 Qed.
 
 (** The statement used from outside: whatever the rules, a mutant labelled [Up]

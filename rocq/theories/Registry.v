@@ -6,11 +6,12 @@
 From Coq Require Import List String.
 Import ListNotations.
 From Coq Require Import ZArith Lia.
-From ValScope Require Import Bag Logic3 Syntax Semantics Approx Rule Engine StdRules ExtraRules.
+From ValScope Require Import Bag Logic3 Pattern Syntax Semantics Approx Rule Engine StdRules ExtraRules.
 From ValScope Require Import Value VEngine VRules VHaving.
 
 Definition pred_rules : list prule :=
-  [ r_true; r_false; r_and_drop; r_or_drop; r_cmp_weaken; r_cmp_strengthen ].
+  [ r_true; r_false; r_and_drop; r_or_drop; r_cmp_weaken; r_cmp_strengthen;
+    r_like_up; r_like_down; r_rx_up; r_rx_down ].
 
 Definition query_rules : list qrule :=
   [ r_distinct_drop; r_distinct_add; r_union_all; r_union_distinct;

@@ -1,28 +1,30 @@
 (** Value.v: the value-semantic layer.
 
-    A value-semantic mutation changes one select item of a query and leaves the
-    set of rows alone.  The result rows of the original and the mutant then
-    correspond one to one, and the mutated column is related by a VALUE RELATION.
+    A value-semantic mutation changes one select item of a query and leaves the set
+    of rows alone.  The result rows of the original and the mutant then correspond
+    one to one, and the mutated column is related by a VALUE RELATION.
 
     Select items are aggregate expressions ([aexpr]) evaluated on a group of rows.
-    Inputs are integers (with NULL); results are real numbers (with NULL), because
-    AVG needs division and STDDEV a square root.
+    Aggregates follow SQL: COUNT counts the non-NULL values of any type; COUNT
+    DISTINCT counts them modulo the collation of the world; SUM, MIN, MAX, AVG,
+    VAR_SAMP and STDDEV_SAMP work on the numeric values (integers and rationals, so
+    DECIMAL and every finite FLOAT / DOUBLE) and are NULL when there are none.
+    Results are real numbers.
 
     Several rules of ValScope only hold under a condition on the data (sign,
     below/above 1).  Instead of a precondition, each rule states an unconditional
     relation that mentions the original value:
       - [VLe]        : the value does not decrease
       - [VGe]        : the value does not increase
-      - [VAwayZero]  : a non-negative value does not decrease, a non-positive
-                       one does not increase            (v -> v * k, k >= 1)
+      - [VAwayZero]  : a non-negative value does not decrease, a non-positive one
+                       does not increase                    (v -> v * k, k >= 1)
       - [VTowardOne] : a value <= 1 does not decrease, a value >= 1 does not
-                       increase                         (v -> sqrt v)
-      - [VAwayOne]   : the converse                     (s -> s * s)
-    The checker only has to know these five relations. *)
+                       increase                             (v -> sqrt v)
+      - [VAwayOne]   : the converse                         (s -> s * s) *)
 
-From Coq Require Import List ZArith Reals Lra Lia.
+From Coq Require Import List ZArith QArith Qreals Reals Lra Lia.
 Import ListNotations.
-From ValScope Require Import Logic3 Syntax Semantics.
+From ValScope Require Import Bag Logic3 Pattern Syntax Semantics.
 Local Open Scope R_scope.
 
 (** ---------------- value relations ---------------- *)
@@ -51,45 +53,38 @@ Definition rel_holds (r : vrel) (x y : option R) : Prop :=
 Definition is_mono (r : vrel) : bool :=
   match r with VLe | VGe => true | _ => false end.
 
-(** ---------------- aggregates over integer columns ---------------- *)
+(** ---------------- aggregates ---------------- *)
 
-Fixpoint ints (vs : list value) : list Z :=
+(** The numeric value of a value as a real number. *)
+Definition num (v : value) : option R := option_map Q2R (numq v).
+
+Fixpoint nums (vs : list value) : list R :=
   match vs with
   | [] => []
-  | VInt z :: t => z :: ints t
-  | VNull :: t => ints t
+  | v :: t => match num v with Some x => x :: nums t | None => nums t end
   end.
 
-(** Non-NULL values of [e] over the rows of a group. *)
-Definition col (e : expr) (g : list row) : list Z :=
-  ints (map (fun r => eval_expr r e) g).
+Definition vals (db : db_t) (e : expr) (g : list row) : list value :=
+  map (fun r => eval_expr db r e) g.
 
-Definition zsum (l : list Z) : Z := fold_right Z.add 0%Z l.
+(** The numeric values of [e] over the rows of a group. *)
+Definition col (db : db_t) (e : expr) (g : list row) : list R := nums (vals db e g).
 
-Definition zmax (l : list Z) : option Z :=
-  match l with [] => None | x :: t => Some (fold_right Z.max x t) end.
+Definition nonnull (vs : list value) : list value :=
+  filter (fun v => match v with VNull => false | _ => true end) vs.
 
-Definition zmin (l : list Z) : option Z :=
-  match l with [] => None | x :: t => Some (fold_right Z.min x t) end.
+Definition rsum (l : list R) : R := fold_right Rplus 0 l.
+Definition rmax (l : list R) : option R := match l with [] => None | x :: t => Some (fold_right Rmax x t) end.
+Definition rmin (l : list R) : option R := match l with [] => None | x :: t => Some (fold_right Rmin x t) end.
+Definition rlen (l : list R) : R := INR (length l).
+Definition mean (l : list R) : R := rsum l / rlen l.
 
-Definition zlen (l : list Z) : Z := Z.of_nat (length l).
-
-Definition mean (l : list Z) : R := IZR (zsum l) / IZR (zlen l).
-
-Fixpoint sumsq (m : R) (l : list Z) : R :=
-  match l with
-  | [] => 0
-  | x :: t => (IZR x - m) * (IZR x - m) + sumsq m t
-  end.
+Fixpoint sumsq (m : R) (l : list R) : R :=
+  match l with [] => 0 | x :: t => (x - m) * (x - m) + sumsq m t end.
 
 (** Sample variance; NULL for fewer than two values, as in MySQL. *)
-Definition var_samp (l : list Z) : option R :=
-  if (2 <=? length l)%nat
-  then Some (sumsq (mean l) l / IZR (zlen l - 1))
-  else None.
-
-Definition oIZR (o : option Z) : option R :=
-  match o with Some z => Some (IZR z) | None => None end.
+Definition var_samp (l : list R) : option R :=
+  if (2 <=? length l)%nat then Some (sumsq (mean l) l / (rlen l - 1)) else None.
 
 Definition olift2 (f : R -> R -> R) (x y : option R) : option R :=
   match x, y with Some a, Some b => Some (f a b) | _, _ => None end.
@@ -112,83 +107,74 @@ Inductive aexpr : Type :=
   | AMono    : nat -> aexpr -> aexpr. (* a monotone (non-decreasing) scalar function *)
 
 (** Interpretation of the monotone function symbols, and of the operands of a
-    HAVING clause.
-
-    A HAVING predicate is an ordinary predicate ([pred]) whose operands are opaque:
-    [hrow g] gives, for a group [g], the values they take.  It is an arbitrary
-    function of the group, so the theorems about HAVING hold whatever the
-    aggregate expressions in it are.  The values are integers or NULL as everywhere
-    in the set-semantic model; what the HAVING rules use is only the order and the
-    three-valued logic. *)
+    HAVING clause ([hrow g] gives their values for the group [g]; it is an arbitrary
+    function of the group, so the HAVING theorems hold whatever the aggregates in it
+    are). *)
 Record venv : Type := mk_venv {
   mfn : nat -> R -> R;
   mfn_mono : forall n x y, x <= y -> mfn n x <= mfn n y;
   hrow : list row -> row
 }.
 
-Fixpoint aeval (env : venv) (g : list row) (a : aexpr) : option R :=
+Fixpoint aeval (env : venv) (db : db_t) (g : list row) (a : aexpr) : option R :=
   match a with
-  | ACol e =>
-      match g with
-      | r :: _ => match eval_expr r e with VInt z => Some (IZR z) | VNull => None end
-      | [] => None
-      end
+  | ACol e => match g with r :: _ => num (eval_expr db r e) | [] => None end
   | AConst k => Some (IZR k)
-  | ACount e => Some (IZR (zlen (col e g)))
-  | ACountD e => Some (IZR (zlen (nodup Z.eq_dec (col e g))))
-  | ASum e => match col e g with [] => None | l => Some (IZR (zsum l)) end
-  | AMin e => oIZR (zmin (col e g))
-  | AMax e => oIZR (zmax (col e g))
-  | AAvg e => match col e g with [] => None | l => Some (mean l) end
-  | AVarSamp e => var_samp (col e g)
-  | AStdSamp e => match var_samp (col e g) with Some v => Some (sqrt v) | None => None end
-  | AAdd a b => olift2 Rplus (aeval env g a) (aeval env g b)
-  | AMul a b => olift2 Rmult (aeval env g a) (aeval env g b)
-  | AMono f a => match aeval env g a with Some x => Some (mfn env f x) | None => None end
+  | ACount e => Some (INR (length (nonnull (vals db e g))))
+  | ACountD e => Some (INR (length (dedup (veq db) (nonnull (vals db e g)))))
+  | ASum e => match col db e g with [] => None | l => Some (rsum l) end
+  | AMin e => rmin (col db e g)
+  | AMax e => rmax (col db e g)
+  | AAvg e => match col db e g with [] => None | l => Some (mean l) end
+  | AVarSamp e => var_samp (col db e g)
+  | AStdSamp e => match var_samp (col db e g) with Some v => Some (sqrt v) | None => None end
+  | AAdd a b => olift2 Rplus (aeval env db g a) (aeval env db g b)
+  | AMul a b => olift2 Rmult (aeval env db g a) (aeval env db g b)
+  | AMono f a => match aeval env db g a with Some x => Some (mfn env f x) | None => None end
   end.
 
 (** ---------------- facts about the aggregates ---------------- *)
 
-Lemma max_ge : forall t x y, In y (x :: t) -> (y <= fold_right Z.max x t)%Z.
+Lemma max_ge : forall t x y, In y (x :: t) -> y <= fold_right Rmax x t.
 Proof.
   induction t as [|z t IH]; intros x y H; simpl in *.
-  - destruct H as [->|[]]. lia.
+  - destruct H as [->|[]]. lra.
   - destruct H as [->|[->|H]].
-    + specialize (IH y y (or_introl eq_refl)). lia.
-    + lia.
-    + specialize (IH x y (or_intror H)). lia.
+    + specialize (IH y y (or_introl eq_refl)). eapply Rle_trans; [exact IH|apply Rmax_r].
+    + apply Rmax_l.
+    + specialize (IH x y (or_intror H)). eapply Rle_trans; [exact IH|apply Rmax_r].
 Qed.
 
-Lemma min_le : forall t x y, In y (x :: t) -> (fold_right Z.min x t <= y)%Z.
+Lemma min_le : forall t x y, In y (x :: t) -> fold_right Rmin x t <= y.
 Proof.
   induction t as [|z t IH]; intros x y H; simpl in *.
-  - destruct H as [->|[]]. lia.
+  - destruct H as [->|[]]. lra.
   - destruct H as [->|[->|H]].
-    + specialize (IH y y (or_introl eq_refl)). lia.
-    + lia.
-    + specialize (IH x y (or_intror H)). lia.
+    + specialize (IH y y (or_introl eq_refl)). eapply Rle_trans; [apply Rmin_r|exact IH].
+    + apply Rmin_l.
+    + specialize (IH x y (or_intror H)). eapply Rle_trans; [apply Rmin_r|exact IH].
 Qed.
 
-Lemma zsum_le : forall l m, (forall y, In y l -> (y <= m)%Z) -> (zsum l <= zlen l * m)%Z.
+Lemma rsum_le : forall l m, (forall y, In y l -> y <= m) -> rsum l <= rlen l * m.
 Proof.
-  induction l as [|x l IH]; intros m H.
-  - simpl. lia.
-  - unfold zlen in *. simpl length. rewrite Nat2Z.inj_succ. simpl zsum.
-    assert (x <= m)%Z by (apply H; left; reflexivity).
-    assert (zsum l <= Z.of_nat (length l) * m)%Z by (apply IH; intros; apply H; right; assumption).
-    lia.
+  induction l as [|x l IH]; intros m H; unfold rlen in *; simpl.
+  - lra.
+  - assert (x <= m) by (apply H; left; reflexivity).
+    assert (rsum l <= INR (length l) * m) by (apply IH; intros; apply H; right; assumption).
+    destruct (length l); simpl in *; lra.
 Qed.
 
-Lemma length_nodup_le : forall l : list Z, (length (nodup Z.eq_dec l) <= length l)%nat.
+Lemma dedup_length : forall {A : Type} (eqb : A -> A -> bool) (l : list A),
+  (length (dedup eqb l) <= length l)%nat.
 Proof.
-  induction l as [|x l IH]; simpl; [lia|].
-  destruct (in_dec Z.eq_dec x l); simpl; lia.
+  intros A eqb l. induction l as [|x l IH]; simpl; [lia|].
+  destruct (existsb (eqb x) l); simpl; lia.
 Qed.
 
 Lemma sumsq_nonneg : forall m l, 0 <= sumsq m l.
 Proof.
   induction l as [|x l IH]; simpl; [lra|].
-  assert (0 <= (IZR x - m) * (IZR x - m)) by apply Rle_0_sqr. lra.
+  assert (0 <= (x - m) * (x - m)) by apply Rle_0_sqr. lra.
 Qed.
 
 Lemma var_samp_nonneg : forall l v, var_samp l = Some v -> 0 <= v.
@@ -197,7 +183,8 @@ Proof.
   destruct (2 <=? length l)%nat eqn:E; [|discriminate].
   inversion H; subst. apply Nat.leb_le in E.
   unfold Rdiv. apply Rmult_le_pos; [apply sumsq_nonneg|].
-  left. apply Rinv_0_lt_compat. apply IZR_lt. unfold zlen. lia.
+  left. apply Rinv_0_lt_compat. unfold rlen.
+  assert (1 < INR (length l)) by (apply lt_1_INR; lia). lra.
 Qed.
 
 (** The mathematical core of rules 21 and 22. *)
@@ -215,40 +202,33 @@ Proof.
   set (s := sqrt v) in *. simpl. split; intro H; nra.
 Qed.
 
-(** Scaling a column scales its sum (rule 23). *)
-Lemma eval_mul_const : forall r e k,
-  eval_expr r (EMul e (EConst (VInt k))) =
-  match eval_expr r e with VInt x => VInt (x * k) | VNull => VNull end.
-Proof. intros r e k. reflexivity. Qed.
-
-Lemma col_scale : forall e k g,
-  col (EMul e (EConst (VInt k))) g = map (fun z => (z * k)%Z) (col e g).
+(** Scaling a column scales its numeric values (rule 23). *)
+Lemma col_scale : forall db e k g,
+  col db (EMul e (EConst (VInt k))) g = map (fun x => x * IZR k) (col db e g).
 Proof.
-  intros e k g. unfold col. induction g as [|r g IH]; [reflexivity|].
-  cbn [map]. rewrite eval_mul_const.
-  destruct (eval_expr r e); cbn [ints map]; rewrite IH; reflexivity.
+  intros db e k g. unfold col, vals.
+  change (fun r => eval_expr db r (EMul e (EConst (VInt k))))
+    with (fun r => vmul db (eval_expr db r e) (VInt k)).
+  induction g as [|r g IH]; [reflexivity|]. cbn [map nums].
+  pose proof (vmul_num db (eval_expr db r e) k) as L. unfold num.
+  destruct (numq (vmul db (eval_expr db r e) (VInt k))) as [a|];
+    destruct (numq (eval_expr db r e)) as [b|]; try contradiction; cbn [option_map map];
+    unfold num in IH; rewrite IH; [|reflexivity].
+  apply Qeq_eqR in L. rewrite L, Q2R_mult. unfold Q2R at 2. simpl. f_equal. f_equal. field.
 Qed.
 
-Lemma zsum_scale : forall k l, zsum (map (fun z => (z * k)%Z) l) = (zsum l * k)%Z.
-Proof.
-  intros k l. induction l as [|x l IH]; simpl; [reflexivity|]. rewrite IH. lia.
-Qed.
+Lemma rsum_scale : forall k l, rsum (map (fun x => x * k) l) = rsum l * k.
+Proof. intros k l. induction l as [|x l IH]; unfold rsum in *; simpl; [lra|]. rewrite IH. lra. Qed.
 
 (** ---------------- monotone contexts ---------------- *)
 
 Lemma ctx_add_l : forall r u u' w, is_mono r = true ->
   rel_holds r u u' -> rel_holds r (olift2 Rplus u w) (olift2 Rplus u' w).
-Proof.
-  intros r u u' w Hm H. destruct r; try discriminate;
-    destruct u, u', w; simpl in *; try tauto; lra.
-Qed.
+Proof. intros r u u' w Hm H. destruct r; try discriminate; destruct u, u', w; simpl in *; try tauto; lra. Qed.
 
 Lemma ctx_add_r : forall r u u' w, is_mono r = true ->
   rel_holds r u u' -> rel_holds r (olift2 Rplus w u) (olift2 Rplus w u').
-Proof.
-  intros r u u' w Hm H. destruct r; try discriminate;
-    destruct u, u', w; simpl in *; try tauto; lra.
-Qed.
+Proof. intros r u u' w Hm H. destruct r; try discriminate; destruct u, u', w; simpl in *; try tauto; lra. Qed.
 
 Lemma ctx_mul_const : forall r u u' k, is_mono r = true -> (0 <= k)%Z ->
   rel_holds r u u' ->
@@ -263,8 +243,7 @@ Qed.
 (** The three shapes of a SELECT whose items are mutated:
     - [VProj]   : no aggregation, every row is its own group;
     - [VGroup]  : GROUP BY keys, with a HAVING predicate ([PTrue] when absent);
-    - [VGlobal] : aggregates without GROUP BY (one group, even on empty input),
-                  with a HAVING predicate. *)
+    - [VGlobal] : aggregates without GROUP BY (one group, even on empty input). *)
 Inductive vquery : Type :=
   | VProj   : list aexpr -> query -> vquery
   | VGroup  : list expr -> list aexpr -> pred -> query -> vquery
@@ -287,39 +266,36 @@ Definition with_having (v : vquery) (h : pred) : vquery :=
   | VGlobal i _ q => VGlobal i h q
   end.
 
-(** Does the group pass the HAVING predicate? *)
-Definition keep (env : venv) (db : db_t) (h : pred) (g : list row) : bool :=
-  is_true (eval_p db (hrow env g) h).
+Definition key_of (db : db_t) (keys : list expr) (r : row) : row :=
+  map (eval_expr db r) keys.
 
-Definition key_of (keys : list expr) (r : row) : list value :=
-  map (eval_expr r) keys.
-
-Definition key_dec := list_eq_dec value_eq_dec.
-
-(** All groups, before HAVING.  They depend neither on the select items nor on
-    the HAVING predicate. *)
+(** All groups, before HAVING.  Grouping uses the collation of the world.  The groups
+    depend neither on the select items nor on the HAVING predicate. *)
 Definition all_groups (db : db_t) (v : vquery) : list (list row) :=
   match v with
   | VProj _ q => map (fun r => [r]) (eval_q db [] q)
   | VGroup keys _ _ q =>
       let rows := eval_q db [] q in
-      map (fun k => filter (fun r => if key_dec (key_of keys r) k then true else false) rows)
-          (nodup key_dec (map (key_of keys) rows))
+      map (fun k => filter (fun r => req db (key_of db keys r) k) rows)
+          (dedup (req db) (map (key_of db keys) rows))
   | VGlobal _ _ q => [eval_q db [] q]
   end.
 
 Definition vhaving (v : vquery) : pred :=
   match v with VProj _ _ => PTrue | VGroup _ _ h _ | VGlobal _ h _ => h end.
 
+(** Does the group pass the HAVING predicate? *)
+Definition keep (env : venv) (db : db_t) (h : pred) (g : list row) : bool :=
+  is_true (eval_p db (hrow env g) h).
+
 (** The groups that are output. *)
 Definition vgroups (env : venv) (db : db_t) (v : vquery) : list (list row) :=
   filter (keep env db (vhaving v)) (all_groups db v).
 
 Definition veval (env : venv) (db : db_t) (v : vquery) : list (list (option R)) :=
-  map (fun g => map (aeval env g) (vitems v)) (vgroups env db v).
+  map (fun g => map (aeval env db g) (vitems v)) (vgroups env db v).
 
-Lemma vgroups_with_items : forall env db v i,
-  vgroups env db (with_items v i) = vgroups env db v.
+Lemma vgroups_with_items : forall env db v i, vgroups env db (with_items v i) = vgroups env db v.
 Proof. intros env db v i. destruct v; reflexivity. Qed.
 
 Lemma vitems_with_items : forall v i, vitems (with_items v i) = i.
@@ -351,8 +327,7 @@ Qed.
 Lemma sub_map : forall {X Y : Type} (f : X -> Y) l l', Sub l l' -> Sub (map f l) (map f l').
 Proof. intros X Y f l l' H. induction H; simpl; constructor; assumption. Qed.
 
-(** [v_sub v v']: on every database the result of [v] is a sub-list of the result
-    of [v']. *)
+(** [v_sub v v']: on every world the result of [v] is a sub-list of the result of [v']. *)
 Definition v_sub (v v' : vquery) : Prop :=
   forall env db, Sub (veval env db v) (veval env db v').
 
@@ -363,8 +338,7 @@ Lemma vitems_with_having : forall v h, vitems (with_having v h) = vitems v.
 Proof. intros v h. destruct v; reflexivity. Qed.
 
 (** A weaker HAVING predicate keeps more groups. *)
-Lemma having_mono : forall v h h',
-  vhaving v = h -> vhaving (with_having v h') = h' ->
+Lemma having_mono : forall v h h', vhaving v = h -> vhaving (with_having v h') = h' ->
   p_le h h' -> v_sub v (with_having v h').
 Proof.
   intros v h h' E E' H env db. unfold veval, vgroups.
@@ -373,8 +347,7 @@ Proof.
   exact (is_true_mono _ _ (H db (hrow env g)) Hg).
 Qed.
 
-Lemma having_anti : forall v h h',
-  vhaving v = h -> vhaving (with_having v h') = h' ->
+Lemma having_anti : forall v h h', vhaving v = h -> vhaving (with_having v h') = h' ->
   p_le h' h -> v_sub (with_having v h') v.
 Proof.
   intros v h h' E E' H env db. unfold veval, vgroups.

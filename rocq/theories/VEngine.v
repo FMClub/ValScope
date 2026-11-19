@@ -13,14 +13,14 @@
 
 From Coq Require Import List String ZArith Reals Lra.
 Import ListNotations.
-From ValScope Require Import Logic3 Syntax Semantics Value.
+From ValScope Require Import Bag Logic3 Pattern Syntax Semantics Value.
 
 Record vrule : Type := mk_vrule {
   vr_name  : string;
   vr_rel   : vrel;
   vr_fun   : aexpr -> list aexpr;
   vr_sound : forall a a', In a' (vr_fun a) ->
-             forall env g, rel_holds vr_rel (aeval env g a) (aeval env g a')
+             forall env db g, rel_holds vr_rel (aeval env db g a) (aeval env db g a')
 }.
 
 (** A mutant of an item: rule name, relation, new item. *)
@@ -51,7 +51,7 @@ Fixpoint mut_a (a : aexpr) : list vmutant :=
   end.
 
 Definition vok (a : aexpr) (z : vmutant) : Prop :=
-  forall env g, rel_holds (fst (snd z)) (aeval env g a) (aeval env g (snd (snd z))).
+  forall env db g, rel_holds (fst (snd z)) (aeval env db g a) (aeval env db g (snd (snd z))).
 
 Lemma vfire_sound : forall l a, Forall (vok a) (vfire l a).
 Proof.
@@ -59,13 +59,13 @@ Proof.
   - apply Forall_nil.
   - rewrite Forall_app; split; [|apply IH].
     apply Forall_forall. intros z Hz. apply in_map_iff in Hz as [a' [<- Hin]].
-    unfold vok. simpl. intros env g. apply (vr_sound r). exact Hin.
+    unfold vok. simpl. intros env db g. apply (vr_sound r). exact Hin.
 Qed.
 
 Lemma vctx_sound : forall (C : aexpr -> aexpr) x l,
   (forall r x', is_mono r = true ->
-     (forall env g, rel_holds r (aeval env g x) (aeval env g x')) ->
-     forall env g, rel_holds r (aeval env g (C x)) (aeval env g (C x'))) ->
+     (forall env db g, rel_holds r (aeval env db g x) (aeval env db g x')) ->
+     forall env db g, rel_holds r (aeval env db g (C x)) (aeval env db g (C x'))) ->
   Forall (vok x) l -> Forall (vok (C x)) (vctx C l).
 Proof.
   intros C x l HC H. unfold vctx. apply Forall_forall. intros z Hz.
@@ -81,19 +81,19 @@ Proof.
   - (* AAdd *)
     rewrite Forall_app; split.
     + apply (vctx_sound (fun x' => AAdd x' a2)); [|exact IHa1].
-      intros r x' Hm H env g. simpl. apply ctx_add_l; [exact Hm|apply H].
+      intros r x' Hm H env db g. simpl. apply ctx_add_l; [exact Hm|apply H].
     + apply (vctx_sound (fun y' => AAdd a1 y')); [|exact IHa2].
-      intros r y' Hm H env g. simpl. apply ctx_add_r; [exact Hm|apply H].
+      intros r y' Hm H env db g. simpl. apply ctx_add_r; [exact Hm|apply H].
   - (* AMul by a non-negative constant *)
     destruct a2; try apply Forall_nil.
     destruct (0 <=? z)%Z eqn:E; [|apply Forall_nil]. apply Z.leb_le in E.
     apply (vctx_sound (fun x' => AMul x' (AConst z))); [|exact IHa1].
-    intros r x' Hm H env g. simpl. apply ctx_mul_const; [exact Hm|exact E|apply H].
+    intros r x' Hm H env db g. simpl. apply ctx_mul_const; [exact Hm|exact E|apply H].
   - (* AMono *)
     apply (vctx_sound (AMono n)); [|exact IHa].
-    intros r x' Hm H env g. simpl. specialize (H env g).
+    intros r x' Hm H env db g. simpl. specialize (H env db g).
     destruct r; try discriminate;
-      destruct (aeval env g a), (aeval env g x'); simpl in *; try tauto;
+      destruct (aeval env db g a), (aeval env db g x'); simpl in *; try tauto;
       apply mfn_mono; exact H.
 Qed.
 
@@ -138,7 +138,7 @@ Proof.
   unfold vok in Hok. simpl in Hok.
   unfold veval. rewrite vgroups_with_items, vitems_with_items, Hs.
   induction (vgroups env db v) as [|g gs IH]; simpl; constructor; [|exact IH].
-  exists (map (aeval env g) pre), (aeval env g a), (aeval env g a'), (map (aeval env g) post).
+  exists (map (aeval env db g) pre), (aeval env db g a), (aeval env db g a'), (map (aeval env db g) post).
   rewrite !map_app. simpl. repeat split; try reflexivity.
   - apply map_length.
   - apply Hok.

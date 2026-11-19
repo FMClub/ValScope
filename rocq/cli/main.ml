@@ -4,9 +4,15 @@
      query ::= (T id arity) | (Proj (e ...) q) | (Where p q) | (Distinct q)
              | (UnionAll q q) | (Union q q) | (Intersect q q) | (Except q q)
              | (Inner p q q) | (Left pad p q q)
+             | (Named id q)          a derived table or CTE reference, kept as written
+             | (QAtom id arity)      an opaque subquery (aggregates, LIMIT, windows, ...)
      pred  ::= True | False | (Cmp op e e) | (IsNull e) | (Not p) | (And p p)
              | (Or p p) | (Exists q) | (In e q) | (Atom id)
-     expr  ::= (Col id) | (Null) | (Int n) | (Add e e) | (Mul e e)
+             | (Like e hex)          hex: the LIKE pattern, hex-encoded; % and _ are wildcards
+             | (Regex e hex)         hex: a regular expression of the fragment
+                                     ^? (c | .)(?|*|+)? ... $?   (c a literal character)
+     expr  ::= (Col id) | (Null) | (Int n) | (Num p q) | (Str hex) | (Add e e) | (Mul e e)
+             | (EAtom id)            an opaque expression (function call, CASE, ...)
      op    ::= eq | ne | lt | le | gt | ge
    For every input line the program prints one line per mutant,
      <Up|Down> TAB <rule name> TAB <query>
@@ -63,10 +69,58 @@ let cmp_of = function
 let cmp_to = function
   | CEq -> "eq" | CNe -> "ne" | CLt -> "lt" | CLe -> "le" | CGt -> "gt" | CGe -> "ge"
 
+(* ---- hex strings, LIKE patterns, regular expressions ---- *)
+
+let unhex (h : string) : string =
+  if String.length h mod 2 <> 0 then failwith "bad hex string";
+  String.init (String.length h / 2) (fun i -> Char.chr (int_of_string ("0x" ^ String.sub h (2 * i) 2)))
+
+let hex (s : string) : string =
+  String.concat "" (List.init (String.length s) (fun i -> Printf.sprintf "%02x" (Char.code s.[i])))
+
+let chars (s : string) : char list = List.init (String.length s) (String.get s)
+
+let string_of_chars (l : char list) : string = String.concat "" (List.map (String.make 1) l)
+
+let lpat_of (s : string) : lpat =
+  List.map (function '%' -> LAny | '_' -> LOne | c -> LChar c) (chars s)
+
+let lpat_to (p : lpat) : string =
+  string_of_chars (List.map (function LAny -> '%' | LOne -> '_' | LChar c -> c) p)
+
+let special c = String.contains "^$.?*+()[]{}|\\" c
+
+let rx_of (s : string) : rx =
+  let l = chars s in
+  let start, l = (match l with '^' :: t -> true, t | _ -> false, l) in
+  let fin, l = (match List.rev l with '$' :: t -> true, List.rev t | _ -> false, l) in
+  let rec items = function
+    | [] -> []
+    | a :: rest ->
+        let atom = if a = '.' then RDot else if special a then failwith "regex outside the fragment"
+                   else RChar a in
+        (match rest with
+         | '?' :: r -> (atom, QOpt) :: items r
+         | '*' :: r -> (atom, QStar) :: items r
+         | '+' :: r -> (atom, QPlus) :: items r
+         | r -> (atom, QOne) :: items r) in
+  { rx_start = start; rx_end = fin; rx_items = items l }
+
+let rx_to (r : rx) : string =
+  let item (a, q) =
+    (match a with RDot -> "." | RChar c -> String.make 1 c) ^
+    (match q with QOne -> "" | QOpt -> "?" | QStar -> "*" | QPlus -> "+") in
+  (if r.rx_start then "^" else "") ^ String.concat "" (List.map item r.rx_items) ^
+  (if r.rx_end then "$" else "")
+
 let rec expr_of = function
   | L [A "Col"; A i] -> ECol (int_of_string i)
   | L [A "Null"] -> EConst VNull
   | L [A "Int"; A n] -> EConst (VInt (int_of_string n))
+  | L [A "Num"; A p; A q] -> EConst (VNum { qnum = int_of_string p; qden = int_of_string q })
+  | L [A "Str"; A h] -> EConst (VStr (unhex h))
+  | L [A "Str"] -> EConst (VStr "")
+  | L [A "EAtom"; A i] -> EAtom (int_of_string i)
   | L [A "Add"; a; b] -> EAdd (expr_of a, expr_of b)
   | L [A "Mul"; a; b] -> EMul (expr_of a, expr_of b)
   | _ -> failwith "bad expression"
@@ -82,6 +136,10 @@ let rec pred_of = function
   | L [A "Exists"; q] -> PExists (query_of q)
   | L [A "In"; e; q] -> PIn (expr_of e, query_of q)
   | L [A "Atom"; A i] -> PAtom (int_of_string i)
+  | L [A "Like"; e; A h] -> PLike (expr_of e, lpat_of (unhex h))
+  | L [A "Like"; e] -> PLike (expr_of e, [])
+  | L [A "Regex"; e; A h] -> PRegex (expr_of e, rx_of (unhex h))
+  | L [A "Regex"; e] -> PRegex (expr_of e, rx_of "")
   | _ -> failwith "bad predicate"
 
 and query_of = function
@@ -95,12 +153,17 @@ and query_of = function
   | L [A "Except"; a; b] -> QExcept (query_of a, query_of b)
   | L [A "Inner"; p; a; b] -> QInnerJoin (pred_of p, query_of a, query_of b)
   | L [A "Left"; A n; p; a; b] -> QLeftJoin (int_of_string n, pred_of p, query_of a, query_of b)
+  | L [A "Named"; A i; q] -> QNamed (int_of_string i, query_of q)
+  | L [A "QAtom"; A i; A n] -> QAtom (int_of_string i, int_of_string n)
   | _ -> failwith "bad query"
 
 let rec expr_to = function
   | ECol i -> Printf.sprintf "(Col %d)" i
   | EConst VNull -> "(Null)"
   | EConst (VInt n) -> Printf.sprintf "(Int %d)" n
+  | EConst (VNum q) -> Printf.sprintf "(Num %d %d)" q.qnum q.qden
+  | EConst (VStr s) -> if s = "" then "(Str)" else Printf.sprintf "(Str %s)" (hex s)
+  | EAtom i -> Printf.sprintf "(EAtom %d)" i
   | EAdd (a, b) -> Printf.sprintf "(Add %s %s)" (expr_to a) (expr_to b)
   | EMul (a, b) -> Printf.sprintf "(Mul %s %s)" (expr_to a) (expr_to b)
 
@@ -115,6 +178,12 @@ let rec pred_to = function
   | PExists q -> Printf.sprintf "(Exists %s)" (query_to q)
   | PIn (e, q) -> Printf.sprintf "(In %s %s)" (expr_to e) (query_to q)
   | PAtom i -> Printf.sprintf "(Atom %d)" i
+  | PLike (e, p) ->
+      let h = hex (lpat_to p) in
+      if h = "" then Printf.sprintf "(Like %s)" (expr_to e) else Printf.sprintf "(Like %s %s)" (expr_to e) h
+  | PRegex (e, r) ->
+      let h = hex (rx_to r) in
+      if h = "" then Printf.sprintf "(Regex %s)" (expr_to e) else Printf.sprintf "(Regex %s %s)" (expr_to e) h
 
 and query_to = function
   | QTable (i, n) -> Printf.sprintf "(T %d %d)" i n
@@ -130,6 +199,8 @@ and query_to = function
       Printf.sprintf "(Inner %s %s %s)" (pred_to p) (query_to a) (query_to b)
   | QLeftJoin (n, p, a, b) ->
       Printf.sprintf "(Left %d %s %s %s)" n (pred_to p) (query_to a) (query_to b)
+  | QNamed (i, q) -> Printf.sprintf "(Named %d %s)" i (query_to q)
+  | QAtom (i, n) -> Printf.sprintf "(QAtom %d %d)" i n
 
 let dir_name = function Up -> "Up" | Down -> "Down"
 

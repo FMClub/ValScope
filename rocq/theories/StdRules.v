@@ -10,9 +10,9 @@
     cond -> TRUE) and 6, 13, 16 (FALSE -> cond) are not separate plug-ins: they are
     [r_true] and [r_false] applied by the engine at the WHERE / ON position. *)
 
-From Coq Require Import List String.
+From Coq Require Import List String Bool.
 Import ListNotations.
-From ValScope Require Import Bag Logic3 Syntax Semantics Approx Rule.
+From ValScope Require Import Bag Logic3 Pattern Syntax Semantics Approx Rule.
 Local Open Scope string_scope.
 
 (** ---------------- predicate rules ---------------- *)
@@ -114,6 +114,103 @@ Qed.
 
 Definition r_cmp_strengthen : prule :=
   mk_prule "cmp-strengthen" Down f_cmp_strengthen f_cmp_strengthen_sound.
+
+(** LIKE (rule 7): generalise the pattern.  Every [_] becomes [%]; or one literal
+    character becomes [_] (each of the first three literal characters). *)
+Definition is_one (t : ltok) : bool := match t with LOne => true | _ => false end.
+Definition is_any (t : ltok) : bool := match t with LAny => true | _ => false end.
+
+Fixpoint char_positions (i : nat) (p : lpat) : list nat :=
+  match p with
+  | [] => []
+  | LChar _ :: t => i :: char_positions (S i) t
+  | _ :: t => char_positions (S i) t
+  end.
+
+Definition like_gens (pt : lpat) : list lpat :=
+  (if existsb is_one pt then [all_one_to_any pt] else []) ++
+  map (fun i => char_to_one_at i pt) (firstn 3 (char_positions 0 pt)).
+
+Lemma like_gens_ok : forall pt pt', In pt' (like_gens pt) -> Forall2 tle pt pt'.
+Proof.
+  intros pt pt' H. unfold like_gens in H. apply in_app_or in H as [H|H].
+  - destruct (existsb is_one pt); simpl in H; [|contradiction].
+    destruct H as [<-|[]]. apply all_one_to_any_gen.
+  - apply in_map_iff in H as [i [<- _]]. apply char_to_one_at_gen.
+Qed.
+
+Definition f_like_up (p : pred) : list pred :=
+  match p with PLike e pt => map (PLike e) (like_gens pt) | _ => [] end.
+
+Theorem f_like_up_sound : forall p p', In p' (f_like_up p) -> dle p_le Up p p'.
+Proof.
+  intros p p' H. destruct p; simpl in H; try contradiction.
+  apply in_map_iff in H as [pt' [<- Hin]]. simpl. apply p_le_like. apply like_gens_ok. exact Hin.
+Qed.
+
+Definition r_like_up : prule := mk_prule "LIKE-generalise" Up f_like_up f_like_up_sound.
+
+(** LIKE, the Down direction: every [%] becomes [_]. *)
+Definition f_like_down (p : pred) : list pred :=
+  match p with
+  | PLike e pt => if existsb is_any pt then [PLike e (all_any_to_one pt)] else []
+  | _ => []
+  end.
+
+Theorem f_like_down_sound : forall p p', In p' (f_like_down p) -> dle p_le Down p p'.
+Proof.
+  intros p p' H. destruct p; simpl in H; try contradiction.
+  destruct (existsb is_any l); simpl in H; [|contradiction].
+  destruct H as [<-|[]]. simpl. apply p_le_like. apply all_any_to_one_spec.
+Qed.
+
+Definition r_like_down : prule := mk_prule "LIKE-specialise" Down f_like_down f_like_down_sound.
+
+(** REGEXP (rule 14): drop the anchors; or turn every [+] and [?] into [*]. *)
+Definition has_q (f : quant -> bool) (r : rx) : bool := existsb (fun x => f (snd x)) (rx_items r).
+
+Definition f_rx_up (p : pred) : list pred :=
+  match p with
+  | PRegex e r =>
+      (if orb (rx_start r) (rx_end r) then [PRegex e (rx_drop_anchors r)] else []) ++
+      (if has_q (fun q => match q with QPlus | QOpt => true | _ => false end) r
+       then [PRegex e (rx_star_all r)] else [])
+  | _ => []
+  end.
+
+Theorem f_rx_up_sound : forall p p', In p' (f_rx_up p) -> dle p_le Up p p'.
+Proof.
+  intros p p' H. destruct p; simpl in H; try contradiction.
+  apply in_app_or in H as [H|H].
+  - destruct (orb (rx_start r) (rx_end r)); simpl in H; [|contradiction].
+    destruct H as [<-|[]]. simpl. apply p_le_regex. apply rx_drop_anchors_gen.
+  - destruct (has_q _ r); simpl in H; [|contradiction].
+    destruct H as [<-|[]]. simpl. apply p_le_regex. apply rx_star_all_gen.
+Qed.
+
+Definition r_rx_up : prule := mk_prule "REGEXP-generalise" Up f_rx_up f_rx_up_sound.
+
+(** REGEXP, the Down direction: add both anchors; or turn every [*] into [+]. *)
+Definition f_rx_down (p : pred) : list pred :=
+  match p with
+  | PRegex e r =>
+      (if negb (andb (rx_start r) (rx_end r)) then [PRegex e (rx_add_anchors r)] else []) ++
+      (if has_q (fun q => match q with QStar => true | _ => false end) r
+       then [PRegex e (rx_plus_all r)] else [])
+  | _ => []
+  end.
+
+Theorem f_rx_down_sound : forall p p', In p' (f_rx_down p) -> dle p_le Down p p'.
+Proof.
+  intros p p' H. destruct p; simpl in H; try contradiction.
+  apply in_app_or in H as [H|H].
+  - destruct (negb _); simpl in H; [|contradiction].
+    destruct H as [<-|[]]. simpl. apply p_le_regex. apply rx_add_anchors_spec.
+  - destruct (has_q _ r); simpl in H; [|contradiction].
+    destruct H as [<-|[]]. simpl. apply p_le_regex. apply rx_plus_all_spec.
+Qed.
+
+Definition r_rx_down : prule := mk_prule "REGEXP-specialise" Down f_rx_down f_rx_down_sound.
 
 (** ---------------- query rules ---------------- *)
 

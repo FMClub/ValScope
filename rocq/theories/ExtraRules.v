@@ -6,16 +6,10 @@
 
 From Coq Require Import List String.
 Import ListNotations.
-From ValScope Require Import Bag Logic3 Syntax Semantics Approx Rule.
+From ValScope Require Import Bag Logic3 Pattern Syntax Semantics Approx Rule.
 Local Open Scope string_scope.
 
-(** A INTERSECT B -> A,  A INTERSECT B -> B *)
-Lemma q_le_intersect_left : forall a b, q_le (QIntersect a b) a.
-Proof. intros a b db ctx. simpl. apply inter_le_left. Qed.
-
-Lemma q_le_intersect_right : forall a b, q_le (QIntersect a b) b.
-Proof. intros a b db ctx. simpl. apply inter_le_right. Qed.
-
+(** A INTERSECT B -> A,  A INTERSECT B -> B  (lemmas in Approx.v) *)
 Definition f_intersect_operand (q : query) : list query :=
   match q with QIntersect a b => [a; b] | _ => [] end.
 

@@ -8,7 +8,7 @@
 
 From Coq Require Import List String.
 Import ListNotations.
-From ValScope Require Import Bag Logic3 Syntax Semantics Approx.
+From ValScope Require Import Bag Logic3 Pattern Syntax Semantics Approx.
 
 Inductive dir : Type := Up | Down.
 

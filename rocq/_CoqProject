@@ -2,6 +2,7 @@
 
 theories/Bag.v
 theories/Logic3.v
+theories/Pattern.v
 theories/Syntax.v
 theories/Semantics.v
 theories/Approx.v

@@ -163,8 +163,12 @@ class MariaDBColumns:
     reports, for every result column, its real collation (also for expressions, derived
     tables and set operations).  `folds(collation_ids)` turns those ids into folds."""
 
-    def __init__(self, conn):
-        self.conn, self.cache = conn, {}
+    # a column whose values a de-duplication under some other collation of the query may
+    # have picked: compared with the coarsest collation of the database (`fallback`)
+    COARSEST = '*'
+
+    def __init__(self, conn, fallback=None):
+        self.conn, self.cache, self.fallback = conn, {}, fallback
         with conn.cursor() as cur:
             # (MariaDB 10.10+ also lists collation aliases without an ID)
             cur.execute('SELECT ID, COLLATION_NAME, CHARACTER_SET_NAME FROM information_schema.COLLATIONS '
@@ -179,6 +183,8 @@ class MariaDBColumns:
         return self.names.get(cid, 'binary')
 
     def fold(self, name):
+        if name == self.COARSEST:
+            return self.fallback or ExactFold()
         if name == 'binary' or name is None:
             return ExactFold()
         if name not in self.cache:
@@ -192,7 +198,10 @@ class MariaDBColumns:
         names_b = names_b or names_a
         out = []
         for a, b in zip(names_a, names_b):
-            pick = a if a == b else next((n for n in (a, b) if n and ('_ci' in n or '_ai' in n)), a)
+            if self.COARSEST in (a, b):
+                pick = self.COARSEST
+            else:
+                pick = a if a == b else next((n for n in (a, b) if n and ('_ci' in n or '_ai' in n)), a)
             out.append(self.fold(pick))
         return out
 

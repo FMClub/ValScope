@@ -84,6 +84,8 @@ jobs:
           python3 -m pip install --break-system-packages -r requirements.txt
       - name: Load the sample database
         run: YES=1 scripts/setup_mariadb.sh
+      - name: Server tests (collations of compounds, decoding, ONLY_FULL_GROUP_BY)
+        run: python3 bridge/test_mysql.py
       - name: End to end on MariaDB
         run: N=60 scripts/demo.sh mariadb
 
@@ -110,6 +112,8 @@ jobs:
           python3 -m pip install --break-system-packages -r requirements.txt cryptography
       - name: Load the sample database
         run: YES=1 scripts/setup_mariadb.sh
+      - name: Server tests (collations of compounds, decoding, ONLY_FULL_GROUP_BY)
+        run: python3 bridge/test_mysql.py
       - name: End to end on MySQL (MySQL-protocol runner)
         run: N=60 scripts/demo.sh mariadb
       - name: Rows of every violation (hex)

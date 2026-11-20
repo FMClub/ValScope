@@ -80,7 +80,9 @@ for sql, direction, rule, fragment in SET_CASES:
 for sql in ["SELECT t.g AS g, GROUP_CONCAT(t.c ORDER BY t.c) AS l FROM t GROUP BY t.g",
             "SELECT t.a FROM t WHERE t.a IN (SELECT u.d FROM u GROUP BY u.d)",
             "SELECT t.a FROM t WHERE t.a IN (SELECT MAX(u.c) + 1 FROM u)",
-            "SELECT d.x FROM (SELECT (SELECT COUNT(u.c) FROM u) AS n, t.a AS x FROM t) AS d"]:
+            "SELECT d.x FROM (SELECT (SELECT COUNT(u.c) FROM u) AS n, t.a AS x FROM t) AS d",
+            "SELECT t.a FROM t WHERE t.a IN (SELECT u.g FROM u GROUP BY u.g HAVING MAX(u.c) > 1 AND u.g > 0)",
+            "SELECT t.a FROM t WHERE t.b IN (SELECT GROUP_CONCAT(DISTINCT u.c ORDER BY u.c SEPARATOR ';') FROM u)"]:
     try:
         Translation(sql, kind='value' if sql.startswith('SELECT t.g') else 'set')
         report(True, 'determined aggregate / grouping accepted: %s' % sql)
@@ -303,6 +305,7 @@ REJECTED = [
     ("SELECT d.x FROM (SELECT t.a AS x FROM t GROUP BY t.b) AS d", 'set', 'bare column in a grouped derived table'),
     ("SELECT t.a FROM t WHERE t.a IN (SELECT u.c FROM u GROUP BY u.d)", 'set', 'bare column in a grouped subquery'),
     ("SELECT t.a FROM t WHERE t.a IN (SELECT u.c, COUNT(*) FROM u)", 'set', 'bare column next to an aggregate'),
+    ("SELECT t.a FROM t WHERE t.a IN (SELECT u.g FROM u GROUP BY u.g HAVING u.c > 1)", 'set', 'bare column in HAVING'),
 ]
 for sql, kind, what in REJECTED:
     try:
@@ -406,6 +409,21 @@ if libs:
     report(db.last_collations == [None], 'SQLite nested compound: metadata not used %r' % db.last_collations)
 else:
     print('skip  SQLite column metadata (no library in $SQLITE_LIBS)')
+
+# SQLite: 1 and 1.0 are equal, but their text is not; text of a value above DISTINCT
+for sql in ["SELECT UPPER(d.x) AS s FROM (SELECT DISTINCT t.a AS x FROM t) AS d",
+            "SELECT CAST(d.x AS TEXT) AS s FROM (SELECT DISTINCT t.a AS x FROM t) AS d"]:
+    try:
+        Translation(sql, 'sqlite', kind='set')
+        report(False, 'SQLite text of a number above DISTINCT accepted: %s' % sql)
+    except Unsupported:
+        report(True, 'SQLite text of a number above DISTINCT rejected: %s' % sql)
+try:
+    Translation("SELECT UPPER(t.a) AS s FROM t", 'sqlite', kind='set')
+    Translation("SELECT UPPER(d.x) AS s FROM (SELECT DISTINCT t.a AS x FROM t) AS d", 'mysql', kind='set')
+    report(True, 'UPPER without DISTINCT below (SQLite) and above DISTINCT (MySQL) accepted')
+except Unsupported as e:
+    report(False, 'UPPER wrongly rejected: %s' % e)
 
 # the adaptive campaign: UCB1 tries every arm once, then prefers the arm with more reward
 import random  # noqa: E402

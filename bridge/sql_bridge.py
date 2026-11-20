@@ -172,6 +172,20 @@ SENSITIVE_NODES = (exp.DPipe, exp.Like, exp.ILike, exp.Glob, exp.RegexpLike, exp
 BINARY_TYPES = ('BINARY', 'VARBINARY', 'BLOB', 'TINYBLOB', 'MEDIUMBLOB', 'LONGBLOB', 'BIT')
 
 
+# SQLite: functions whose result is the text of a number argument ('1' or '1.0')
+SQLITE_TEXT_OF_NUMBER = {'UPPER', 'LOWER', 'UCASE', 'LCASE', 'TRIM', 'LTRIM', 'RTRIM', 'TIME_TO_STR'}
+TEXT_TYPES = ('TEXT', 'CHAR', 'VARCHAR', 'NCHAR', 'NVARCHAR', 'CLOB', 'STRING')
+
+
+def _sqlite_to_text(n):
+    if isinstance(n, (exp.Cast, exp.TryCast)) and n.args.get('to') is not None:
+        return n.args['to'].sql().upper().split('(')[0] in TEXT_TYPES
+    if isinstance(n, (exp.Anonymous, exp.Func)):
+        name = (n.name if isinstance(n, exp.Anonymous) else n.sql_name()).upper()
+        return name in SQLITE_TEXT_OF_NUMBER
+    return False
+
+
 _SENSITIVE = {}
 
 
@@ -195,6 +209,8 @@ def _sensitive_tree_uncached(tree, dialect):
                 return True
         if dialect == 'sqlite' and isinstance(n, exp.Div):
             return True     # 1 and 1.0 are equal in SQLite, but 1/2 = 0 and 1.0/2 = 0.5
+        if dialect == 'sqlite' and _sqlite_to_text(n):
+            return True     # 1 and 1.0 are equal in SQLite, but their text is '1' and '1.0'
     return False
 
 
@@ -328,6 +344,8 @@ def _order_dependent_undetermined(node):
     if isinstance(arg, exp.Order):
         keys = {_strip_parens(o.this).sql() for o in arg.expressions}
         values = [arg.this] if arg.this is not None else []
+        if len(values) == 1 and isinstance(values[0], exp.Distinct):
+            values = list(values[0].expressions)      # GROUP_CONCAT(DISTINCT x ORDER BY x)
         if values and all(_strip_parens(v).sql() in keys for v in values):
             return None
         return '%s with an ORDER BY that does not order its values' % name
@@ -335,21 +353,33 @@ def _order_dependent_undetermined(node):
 
 
 def _bare_columns(select):
-    """Columns of a grouped (or aggregated) SELECT that are neither grouping keys nor
-    inside an aggregate: their value is taken from any row of the group."""
+    """Columns of a grouped (or aggregated) SELECT, in the select list or in HAVING,
+    that are neither grouping keys nor inside an aggregate: their value is taken from any
+    row of the group.  A grouping key can name a select alias or a position (GROUP BY 1)."""
     group = select.args.get('group')
     items = list(select.expressions)
+    having = select.args.get('having')
     def has_agg(n):
         # an aggregate of this SELECT, not one inside a subquery or a window
         if isinstance(n, (exp.Select, exp.Subquery, exp.Window)):
             return False
         return isinstance(n, exp.AggFunc) or any(has_agg(c) for c in n.iter_expressions())
-    has_agg = any(has_agg(n) for n in items)
+    has_agg = any(has_agg(n) for n in items) or (having is not None and has_agg(having.this))
     if group is None and not has_agg:
         return []
-    keys = {_strip_parens(k).sql().lower() for k in (group.expressions if group else [])}
+    aliases = {i.alias.lower(): i.this for i in items if isinstance(i, exp.Alias)}
+    keys = set()
+    for k in (group.expressions if group else []):
+        k = _strip_parens(k)
+        if isinstance(k, exp.Literal) and not k.is_string and k.this.isdigit() and 0 < int(k.this) <= len(items):
+            target = items[int(k.this) - 1]
+            k = target.this if isinstance(target, exp.Alias) else target
+        elif isinstance(k, exp.Column) and not k.table and k.name.lower() in aliases:
+            keys.add(k.sql().lower())
+            k = aliases[k.name.lower()]
+        keys.add(_strip_parens(k).sql().lower())
     bare = []
-    for item in items:
+    for item in items + ([having.this] if having is not None else []):
         body = item.this if isinstance(item, exp.Alias) else item
         if _strip_parens(body).sql().lower() in keys:
             continue

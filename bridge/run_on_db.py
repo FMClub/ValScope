@@ -27,7 +27,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import sql_bridge  # noqa: E402
 from sql_bridge import mutate_sql, mutate_value, Unsupported  # noqa: E402
-from checker import check_inclusion, check_value, comparable_types, MariaDBColumns, sqlite_fold  # noqa: E402
+from checker import check_inclusion, check_value, comparable_types, MariaDBColumns, mariadb_fold, sqlite_fold  # noqa: E402
 
 
 ERRORS = collections.Counter()
@@ -51,7 +51,7 @@ class MySQLTarget:
         with self.conn.cursor() as cur:
             cur.execute("SET SESSION sql_mode = CONCAT(@@sql_mode, ',ONLY_FULL_GROUP_BY')")
         # the collation of every result column, reported by the server (checker.py)
-        self.columns = MariaDBColumns(self.conn)
+        self.columns = MariaDBColumns(self.conn, mariadb_fold(self.conn, args.database))
         self.name = 'per result column (server metadata)'
         self.last_collations = []
         # table -> columns, for printing DISTINCT around a join (sql_bridge._join_columns)
@@ -74,13 +74,75 @@ class MySQLTarget:
                 cur.execute(sql)
                 rows = list(cur.fetchall())
                 self.last_collations = [self.columns.name(f.charsetnr) for f in cur._result.fields]
-                return rows, [d[1] for d in cur.description]
+                types = [d[1] for d in cur.description]
+            if any(w in sql.upper() for w in ('UNION', 'INTERSECT', 'EXCEPT')):
+                self.last_collations = self._compound_collations(sql, self.last_collations)
+            return rows, types
         except self.pymysql.err.MySQLError as e:
             code = e.args[0] if e.args else None
             if code in self.CONNECTION_LOST or isinstance(e, self.pymysql.err.InterfaceError):
                 sys.exit('connection to the server lost (%s); the run is stopped' % (e,))
             ERRORS['%s %s' % (code, str(e.args[1] if len(e.args) > 1 else e)[:70])] += 1
             return None, None
+
+
+    def _compound_collations(self, sql, names):
+        """The server reports for a compound column the collation it derives from all
+        arms (MariaDB: that of the first arm in practice), but an arm can de-duplicate
+        under a coarser collation (DISTINCT over a _ci column) and keep either of two
+        equivalent strings.  Per column the coarsest of the arms' collations is used;
+        for a compound nested in a derived table or a CTE, the coarsest collation of the
+        database (MariaDBColumns.COARSEST)."""
+        coarsest = [MariaDBColumns.COARSEST] * len(names)
+        try:
+            import sqlglot
+            from sqlglot import exp
+            tree = sqlglot.parse_one(sql, read='mysql')
+        except Exception:
+            return coarsest
+        setops = (exp.Union, exp.Intersect, exp.Except)
+        chain, arms = [], []
+
+        def flatten(n):
+            if isinstance(n, setops):
+                chain.append(id(n))
+                flatten(n.left)
+                flatten(n.right)
+            else:
+                arms.append(n)
+        flatten(tree)
+        if any(isinstance(n, setops) and id(n) not in chain for n in tree.walk()):
+            return coarsest
+        if not chain:
+            return names
+        with_ = tree.args.get('with')
+        prefix = with_.sql(dialect='mysql') + ' ' if with_ is not None else ''
+        combined = [{n} for n in names]
+        for arm in arms:
+            while isinstance(arm, (exp.Paren, exp.Subquery)) and arm.args.get('alias') is None:
+                arm = arm.this
+            try:
+                with self.conn.cursor() as cur:
+                    cur.execute('%sSELECT * FROM (%s) AS vs_arm LIMIT 0' % (prefix, arm.sql(dialect='mysql')))
+                    cur.fetchall()
+                    got = [self.columns.name(f.charsetnr) for f in cur._result.fields]
+            except self.pymysql.err.MySQLError:
+                return coarsest
+            if len(got) != len(names):
+                return coarsest
+            for c, g in zip(combined, got):
+                c.add(g)
+        out = []
+        for c in combined:
+            insensitive = [n for n in c if n and ('_ci' in n or '_ai' in n)]
+            if len(c) == 1:
+                out.append(next(iter(c)))
+            elif len(insensitive) == 1 and all(n and n.endswith('_bin') or n == 'binary' or n in insensitive
+                                               for n in c):
+                out.append(insensitive[0])      # one coarse collation over exact ones
+            else:
+                out.append(MariaDBColumns.COARSEST)
+        return out
 
 
 class SQLiteTarget:

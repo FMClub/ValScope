@@ -87,8 +87,10 @@ results): [`docs/USAGE.md`](docs/USAGE.md).
 Requires Coq/Rocq 8.18 or newer, OCaml with ocamlfind, and for the bridge Python 3 with
 `sqlglot` (and `pymysql` to run against a database). Tested with Coq 8.18.0, OCaml 4.14.1,
 and sqlglot 26.33 to 30.33 (`requirements.txt` pins 30.33.0). The GitHub Actions workflow
-(`.github/workflows/ci.yml`) checks the proofs with Coq 8.18 and with Rocq 9, runs the tests
-and the end-to-end runs on SQLite and MariaDB 10.11 on every push.
+(`.github/workflows/ci.yml`) checks the proofs with Coq 8.18 and with Rocq 9 (9.2 from opam,
+where `coq_makefile` / `coqc` became `rocq makefile` / `rocq c`; the Makefile and
+`demo.sh` use whichever exists), runs the tests and the end-to-end runs on SQLite and
+MariaDB 10.11 on every push.
 
 ```bash
 make        # check all proofs and extract the OCaml core

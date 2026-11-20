@@ -121,8 +121,9 @@ fixes of PR #1 are merged; the design problems below are still open.
 
 ### B4. Tooling
 
-1. Since the fifth round, GitHub Actions checks the proofs with Coq 8.18 and with Rocq 9
-   (opam) and runs the tests and end-to-end runs on SQLite and MariaDB 10.11. The bridge
+1. Since the fifth round, GitHub Actions checks the proofs with Coq 8.18 and with Rocq 9.2
+   (opam; it no longer ships `coq_makefile`, which the build now handles) and runs the tests
+   and end-to-end runs on SQLite and MariaDB 10.11. The bridge
    tests pass with sqlglot 26.33 to 30.33.
 2. The command-line mutator now runs as one long-lived process, and the round trip
    caches atom syntax trees (2.7 times faster). There is still no test-case reduction.

@@ -93,8 +93,10 @@ Alternatively with opam, if your distribution has an older Coq:
 opam init -y && eval $(opam env) && opam install -y coq.8.18.0 ocamlfind
 ```
 
-The development has not been built with Rocq 9.x; the theories use the `Coq` library names
-(`From Coq Require Import ...`), which Rocq 9 still accepts with a deprecation warning.
+Rocq 9 works as well (checked in CI with Rocq 9.2 from opam: `opam install rocq-prover
+ocamlfind`). The theories use the `Coq` library names (`From Coq Require Import ...`), which
+Rocq 9 accepts with a deprecation warning; the Makefile and `demo.sh` use `rocq makefile` and
+`rocq c` when `coq_makefile` and `coqc` are not installed.
 
 ### 2.3 Python packages
 

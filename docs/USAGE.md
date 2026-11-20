@@ -505,6 +505,21 @@ and the relation holds on the newest SQLite.
 
 ### 8.4 Coverage-guided generation (`--adaptive`)
 
+The four generator settings differ only in fixed probabilities and in the random database:
+
+| Setting | Database (`gen_sqlite_db.py`) | Queries (`gen_fragment.py`) |
+| --- | --- | --- |
+| plain | column types INTEGER 3/6, REAL 1/6, TEXT 1/6, none 1/6; a TEXT value is a word 30% of the time (`'a'`, `'A'`, `'b'`, `'x'`, `' 1'`, `'01'`, `''`) | a SELECT is a set operation 45% of the time per level; `SELECT DISTINCT` 30% |
+| `--focus` | TEXT 2/6 and untyped 1/6 of the columns; a TEXT value is a word 50% of the time, `'B'` added; half of the TEXT columns are `COLLATE NOCASE` in every setting | set operation 80% per level; `SELECT DISTINCT` 50% |
+| `--rich` | as plain | in addition: 30% of the predicates are opaque (`LIKE`, `GLOB`, `BETWEEN`, `CAST`, `COLLATE NOCASE =`, `IS`, `coalesce`, `likely`, ...); 30% of the FROM items are derived tables (some with `DISTINCT`, `WHERE`, `UNION ALL`); `CROSS JOIN`; 20% of the select items are wrapped (`+ 0`, `CAST`, `\|\| ''`, `abs`, `coalesce`) |
+| `--focus --rich` | as `--focus` | both |
+
+The original Python generator (branch `vanilla-python`) works the same way: its behaviour is
+set by fixed arguments (`query_type`, `subquery_depth`, `num_queries`,
+`total_insert_statements`) and 41 fixed probabilities in the code; it keeps the generated
+queries that execute without an error and has no feedback. `--adaptive` adds a feedback
+loop on top of the fixed settings; the probabilities themselves are not learned.
+
 Every campaign counts **coverage features**: a pair (rule, the set of constructs of the
 original query's term, such as `Union`, `Distinct`, `Left`, `Like`). A feature counts when
 that rule was checked on a query of that shape. With `--adaptive`, the generator settings

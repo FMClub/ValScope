@@ -139,3 +139,5 @@ jobs:
           mysql_ -e "CREATE DATABASE IF NOT EXISTS vs_bit; USE vs_bit; CREATE TABLE b (x BIT(8)); INSERT INTO b VALUES (2), (242); SELECT HEX(MIN(x)), MIN(x) FROM b;" || true
           sed -n '/^DROP DATABASE IF EXISTS/,/^```/p' issues/006-mariadb-bit-subquery-loose-scan.md | grep -v '^```' | mysql_ --skip-column-names || true
           mysql_ --skip-column-names < data/mysql/bit-variants.sql || true
+      - name: The INTERSECT ALL candidate of issue 008 on MySQL
+        run: mysql -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mysql/intersect-all-variants.sql || true

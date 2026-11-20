@@ -1,4 +1,4 @@
-# 008: MySQL returns rows of the left operand for DISTINCT over INTERSECT ALL
+# 008: MySQL returns rows of the left operand for INTERSECT in a derived table
 
 Status: open, candidate (MySQL 8.4.13, CI job `mysql`, found by `scripts/demo.sh mariadb`
 with N=300 on the sample database; rule `DISTINCT-add`).
@@ -32,7 +32,21 @@ SELECT DISTINCT * FROM ((SELECT t2a.c2 AS k0, t1b.c4 AS k1, t2a.c1 AS k2 FROM t2
 
 ## Variants
 
-`data/mysql/intersect-all-variants.sql` runs the parts and four variants (derived table
-without DISTINCT, `INTERSECT` without ALL, a derived right arm); CI runs it on MySQL in the
-job `mysql`. The database is the sample database of `scripts/setup_mariadb.sh` (on
+`data/mysql/intersect-all-variants.sql` runs the parts and the variants; CI runs it on
+MySQL in the job `mysql`. Results on MySQL 8.4.13 (MariaDB 10.11.14: 0 everywhere):
+
+| Query | Rows |
+| --- | --- |
+| `A`, rows with `k0 = 8811` | 4 |
+| `B UNION ALL C`, rows with `k0 = 8811` | 0 |
+| 1. `A INTERSECT ALL (B UNION ALL C)` | 0 |
+| 2. `SELECT DISTINCT * FROM (1)` | 4 |
+| 3. `SELECT COUNT(*) FROM (1)` (no DISTINCT) | 4 |
+| 4. `SELECT DISTINCT * FROM (A INTERSECT (B UNION ALL C))` | 4 |
+| 5. `A INTERSECT ALL (SELECT * FROM (B UNION ALL C))`, in a derived table | 4 |
+
+So the DISTINCT does not matter: as soon as the `INTERSECT` (with or without ALL) is
+evaluated as a derived table, the 4 rows of `A` with `k0 = 8811` are returned although no
+row of the right operand has `k0 = 8811`. At the top level the result is empty, as it
+should be. The database is the sample database of `scripts/setup_mariadb.sh` (on
 MySQL 8.4, 165 index statements of `data/mariadb/indexes.sql` are skipped).

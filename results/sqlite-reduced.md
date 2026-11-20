@@ -1,0 +1,224 @@
+# Reduced SQLite violations
+
+`bridge/reduce_sqlite.py results/sqlite-confirmed.jsonl --lib VERSION=LIB ...`: each confirmed pair, reduced
+greedily while the verified mutator still produces a violating mutant of the same rule
+(the theorem of the rule applies to every reduced pair). 43 of 45 pairs reduced; mean length
+468 -> 124 characters. Pairs 37 and 40 are outside the model of the current bridge (an
+operation that distinguishes collation-equivalent values above a de-duplication), so the
+mutator no longer produces them; see results/sqlite-bisect.md.
+
+-- pair 1 (UNION->UNION-ALL, expected Up): 365 -> 156 characters
+    original: SELECT t2b.c2 AS k0 FROM t2 AS t2a LEFT JOIN t2 AS t2b ON (0) UNION ALL SELECT DISTINCT t1a.c1 AS k0 FROM t1 AS t1a UNION SELECT t1a.c4 AS k0 FROM t1 AS t1a
+    mutant  : SELECT t2b.c2 AS k0 FROM t2 AS t2a LEFT JOIN t2 AS t2b ON (0) UNION ALL SELECT DISTINCT t1a.c1 AS k0 FROM t1 AS t1a UNION ALL SELECT t1a.c4 AS k0 FROM t1 AS t1a
+    rows    : 14 / 31
+
+-- pair 2 (UNION-ALL->UNION, expected Down): 454 -> 115 characters
+    original: SELECT t3b.c1 AS k2 FROM t2 AS t2a LEFT JOIN t3 AS t3b ON (0) UNION ALL SELECT DISTINCT t1a.c1 AS k2 FROM t1 AS t1a
+    mutant  : SELECT t3b.c1 AS k2 FROM t2 AS t2a LEFT JOIN t3 AS t3b ON (0) UNION SELECT DISTINCT t1a.c1 AS k2 FROM t1 AS t1a
+    rows    : 19 / 8
+
+-- pair 3 (UNION-ALL->UNION, expected Down): 579 -> 88 characters
+    original: SELECT t3a.c9 AS k0 FROM t3 AS t3a UNION ALL SELECT DISTINCT t2a.c2 AS k0 FROM t2 AS t2a
+    mutant  : SELECT t3a.c9 AS k0 FROM t3 AS t3a UNION SELECT DISTINCT t2a.c2 AS k0 FROM t2 AS t2a
+    rows    : 16 / 14
+
+-- pair 4 (UNION-ALL->UNION, expected Down): 579 -> 88 characters
+    original: SELECT t3a.c9 AS k0 FROM t3 AS t3a UNION ALL SELECT DISTINCT t2a.c2 AS k0 FROM t2 AS t2a
+    mutant  : SELECT t3a.c9 AS k0 FROM t3 AS t3a UNION SELECT DISTINCT t2a.c2 AS k0 FROM t2 AS t2a
+    rows    : 16 / 14
+
+-- pair 5 (UNION->UNION-ALL, expected Up): 727 -> 146 characters
+    original: SELECT t1a.c1 AS k0, t1a.c4 AS k1 FROM t1 AS t1a UNION SELECT DISTINCT t1c.c1 AS k0, t2a.c3 AS k1 FROM t2 AS t2a INNER JOIN t1 AS t1c ON NOT ((0))
+    mutant  : SELECT t1a.c1 AS k0, t1a.c4 AS k1 FROM t1 AS t1a UNION ALL SELECT DISTINCT t1c.c1 AS k0, t2a.c3 AS k1 FROM t2 AS t2a INNER JOIN t1 AS t1c ON NOT ((0))
+    rows    : 42 / 38
+
+-- pair 6 (UNION-ALL->UNION, expected Down): 712 -> 115 characters
+    original: SELECT t3b.c3 AS k0 FROM t1 AS t1a LEFT JOIN t3 AS t3b ON (0) UNION ALL SELECT DISTINCT t1a.c4 AS k0 FROM t1 AS t1a
+    mutant  : SELECT t3b.c3 AS k0 FROM t1 AS t1a LEFT JOIN t3 AS t3b ON (0) UNION SELECT DISTINCT t1a.c4 AS k0 FROM t1 AS t1a
+    rows    : 9 / 6
+
+-- pair 7 (UNION-ALL->UNION, expected Down): 712 -> 115 characters
+    original: SELECT t3b.c3 AS k0 FROM t1 AS t1a LEFT JOIN t3 AS t3b ON (0) UNION ALL SELECT DISTINCT t1a.c4 AS k0 FROM t1 AS t1a
+    mutant  : SELECT t3b.c3 AS k0 FROM t1 AS t1a LEFT JOIN t3 AS t3b ON (0) UNION SELECT DISTINCT t1a.c4 AS k0 FROM t1 AS t1a
+    rows    : 9 / 6
+
+-- pair 8 (UNION->UNION-ALL, expected Up): 612 -> 118 characters
+    original: SELECT t2a.c3 AS k0 FROM t2 AS t2a UNION SELECT DISTINCT t1c.c4 AS k0 FROM t3 AS t3a INNER JOIN t1 AS t1c ON NOT ((0))
+    mutant  : SELECT t2a.c3 AS k0 FROM t2 AS t2a UNION ALL SELECT DISTINCT t1c.c4 AS k0 FROM t3 AS t3a INNER JOIN t1 AS t1c ON NOT ((0))
+    rows    : 8 / 8
+
+-- pair 9 (UNION->UNION-ALL, expected Up): 572 -> 191 characters
+    original: SELECT t3a.c7 AS k0 FROM t3 AS t3a UNION ALL SELECT DISTINCT t1b.c1 AS k0 FROM t3 AS t3a INNER JOIN t1 AS t1b ON NOT ((0)) UNION SELECT t2b.c2 AS k0 FROM t3 AS t3a INNER JOIN t2 AS t2b ON (0)
+    mutant  : SELECT t3a.c7 AS k0 FROM t3 AS t3a UNION ALL SELECT DISTINCT t1b.c1 AS k0 FROM t3 AS t3a INNER JOIN t1 AS t1b ON NOT ((0)) UNION ALL SELECT t2b.c2 AS k0 FROM t3 AS t3a INNER JOIN t2 AS t2b ON (0)
+    rows    : 15 / 17
+
+-- pair 10 (UNION->UNION-ALL, expected Up): 455 -> 112 characters
+    original: SELECT t3c.c6 AS k0 FROM t3 AS t3a INNER JOIN t3 AS t3c ON (0) UNION SELECT DISTINCT t1a.c4 AS k0 FROM t1 AS t1a
+    mutant  : SELECT t3c.c6 AS k0 FROM t3 AS t3a INNER JOIN t3 AS t3c ON (0) UNION ALL SELECT DISTINCT t1a.c4 AS k0 FROM t1 AS t1a
+    rows    : 8 / 7
+
+-- pair 11 (UNION->UNION-ALL, expected Up): 259 -> 84 characters
+    original: SELECT t1a.c4 AS k0 FROM t1 AS t1a UNION SELECT DISTINCT t3a.c2 AS k0 FROM t3 AS t3a
+    mutant  : SELECT t1a.c4 AS k0 FROM t1 AS t1a UNION ALL SELECT DISTINCT t3a.c2 AS k0 FROM t3 AS t3a
+    rows    : 12 / 12
+
+-- pair 12 (UNION->UNION-ALL, expected Up): 361 -> 113 characters
+    original: SELECT t3a.c9 AS k2 FROM t3 AS t3a INNER JOIN t2 AS t2b ON (0) UNION SELECT DISTINCT t2a.c14 AS k2 FROM t2 AS t2a
+    mutant  : SELECT t3a.c9 AS k2 FROM t3 AS t3a INNER JOIN t2 AS t2b ON (0) UNION ALL SELECT DISTINCT t2a.c14 AS k2 FROM t2 AS t2a
+    rows    : 6 / 5
+
+-- pair 13 (UNION-ALL->UNION, expected Down): 358 -> 89 characters
+    original: SELECT t3a.c3 AS k0 FROM t3 AS t3a UNION ALL SELECT DISTINCT t2a.c14 AS k0 FROM t2 AS t2a
+    mutant  : SELECT t3a.c3 AS k0 FROM t3 AS t3a UNION SELECT DISTINCT t2a.c14 AS k0 FROM t2 AS t2a
+    rows    : 9 / 9
+
+-- pair 14 (UNION->UNION-ALL, expected Up): 514 -> 112 characters
+    original: SELECT t1a.c4 AS k0 FROM t1 AS t1a UNION SELECT DISTINCT t2c.c1 AS k0 FROM t1 AS t1a INNER JOIN t2 AS t2c ON (1)
+    mutant  : SELECT t1a.c4 AS k0 FROM t1 AS t1a UNION ALL SELECT DISTINCT t2c.c1 AS k0 FROM t1 AS t1a INNER JOIN t2 AS t2c ON (1)
+    rows    : 10 / 10
+
+-- pair 15 (UNION->UNION-ALL, expected Up): 400 -> 112 characters
+    original: SELECT t1a.c4 AS k0 FROM t1 AS t1a UNION SELECT DISTINCT t2c.c1 AS k0 FROM t2 AS t2a INNER JOIN t2 AS t2c ON (1)
+    mutant  : SELECT t1a.c4 AS k0 FROM t1 AS t1a UNION ALL SELECT DISTINCT t2c.c1 AS k0 FROM t2 AS t2a INNER JOIN t2 AS t2c ON (1)
+    rows    : 8 / 9
+
+-- pair 16 (UNION->UNION-ALL, expected Up): 662 -> 112 characters
+    original: SELECT t2a.c1 AS k0 FROM t2 AS t2a UNION SELECT DISTINCT t2b.c2 AS k0 FROM t1 AS t1a INNER JOIN t2 AS t2b ON (1)
+    mutant  : SELECT t2a.c1 AS k0 FROM t2 AS t2a UNION ALL SELECT DISTINCT t2b.c2 AS k0 FROM t1 AS t1a INNER JOIN t2 AS t2b ON (1)
+    rows    : 7 / 7
+
+-- pair 17 (UNION->UNION-ALL, expected Up): 527 -> 84 characters
+    original: SELECT t1a.c4 AS k1 FROM t1 AS t1a UNION SELECT DISTINCT t3a.c2 AS k1 FROM t3 AS t3a
+    mutant  : SELECT t1a.c4 AS k1 FROM t1 AS t1a UNION ALL SELECT DISTINCT t3a.c2 AS k1 FROM t3 AS t3a
+    rows    : 17 / 19
+
+-- pair 18 (UNION->UNION-ALL, expected Up): 384 -> 112 characters
+    original: SELECT t2b.c2 AS k0 FROM t1 AS t1a INNER JOIN t2 AS t2b ON (0) UNION SELECT DISTINCT t3a.c8 AS k0 FROM t3 AS t3a
+    mutant  : SELECT t2b.c2 AS k0 FROM t1 AS t1a INNER JOIN t2 AS t2b ON (0) UNION ALL SELECT DISTINCT t3a.c8 AS k0 FROM t3 AS t3a
+    rows    : 9 / 8
+
+-- pair 19 (UNION->UNION-ALL, expected Up): 613 -> 140 characters
+    original: SELECT t1b.c1 AS k1 FROM t3 AS t3a INNER JOIN t1 AS t1b ON (0) UNION SELECT DISTINCT t3b.c8 AS k1 FROM t1 AS t1a INNER JOIN t3 AS t3b ON (1)
+    mutant  : SELECT t1b.c1 AS k1 FROM t3 AS t3a INNER JOIN t1 AS t1b ON (0) UNION ALL SELECT DISTINCT t3b.c8 AS k1 FROM t1 AS t1a INNER JOIN t3 AS t3b ON (1)
+    rows    : 9 / 8
+
+-- pair 20 (UNION->UNION-ALL, expected Up): 173 -> 84 characters
+    original: SELECT t2a.c2 AS k0 FROM t2 AS t2a UNION SELECT DISTINCT t3a.c8 AS k0 FROM t3 AS t3a
+    mutant  : SELECT t2a.c2 AS k0 FROM t2 AS t2a UNION ALL SELECT DISTINCT t3a.c8 AS k0 FROM t3 AS t3a
+    rows    : 15 / 17
+
+-- pair 21 (UNION->UNION-ALL, expected Up): 402 -> 139 characters
+    original: SELECT t1a.c4 AS k0 FROM t1 AS t1a UNION ALL SELECT DISTINCT t3a.c2 AS k0 FROM t3 AS t3a UNION SELECT t1a.c1 AS k0 FROM t1 AS t1a WHERE (0)
+    mutant  : SELECT t1a.c4 AS k0 FROM t1 AS t1a UNION ALL SELECT DISTINCT t3a.c2 AS k0 FROM t3 AS t3a UNION ALL SELECT t1a.c1 AS k0 FROM t1 AS t1a WHERE (0)
+    rows    : 13 / 15
+
+-- pair 22 (UNION->UNION-ALL, expected Up): 568 -> 140 characters
+    original: SELECT t2b.c2 AS k1 FROM t1 AS t1a INNER JOIN t2 AS t2b ON (0) UNION SELECT DISTINCT t3b.c2 AS k1 FROM t3 AS t3a INNER JOIN t3 AS t3b ON (1)
+    mutant  : SELECT t2b.c2 AS k1 FROM t1 AS t1a INNER JOIN t2 AS t2b ON (0) UNION ALL SELECT DISTINCT t3b.c2 AS k1 FROM t3 AS t3a INNER JOIN t3 AS t3b ON (1)
+    rows    : 9 / 8
+
+-- pair 23 (EXCEPT->left, expected Up): 419 -> 157 characters
+    original: SELECT t2b.c2 AS k1 FROM t3 AS t3a LEFT JOIN t2 AS t2b ON (0) UNION ALL SELECT DISTINCT t1a.c1 AS k1 FROM t1 AS t1a EXCEPT SELECT t2a.c3 AS k1 FROM t2 AS t2a
+    mutant  : SELECT t2b.c2 AS k1 FROM t3 AS t3a LEFT JOIN t2 AS t2b ON (0) UNION ALL SELECT DISTINCT t1a.c1 AS k1 FROM t1 AS t1a
+    rows    : 6 / 17
+
+-- pair 24 (UNION->UNION-ALL, expected Up): 401 -> 112 characters
+    original: SELECT t1a.c4 AS k0 FROM t1 AS t1a UNION SELECT DISTINCT t1b.c1 AS k0 FROM t3 AS t3a INNER JOIN t1 AS t1b ON (1)
+    mutant  : SELECT t1a.c4 AS k0 FROM t1 AS t1a UNION ALL SELECT DISTINCT t1b.c1 AS k0 FROM t3 AS t3a INNER JOIN t1 AS t1b ON (1)
+    rows    : 12 / 11
+
+-- pair 25 (UNION->UNION-ALL, expected Up): 101 -> 84 characters
+    original: SELECT t3a.c3 AS k0 FROM t3 AS t3a UNION SELECT DISTINCT t1a.c1 AS k0 FROM t1 AS t1a
+    mutant  : SELECT t3a.c3 AS k0 FROM t3 AS t3a UNION ALL SELECT DISTINCT t1a.c1 AS k0 FROM t1 AS t1a
+    rows    : 15 / 17
+
+-- pair 26 (cond->TRUE, expected Up): 573 -> 148 characters
+    original: SELECT t3b.c6 AS k1 FROM t1 AS t1a LEFT JOIN t3 AS t3b ON (t1a.c4 = 1) AND (t1a.c4 = t1a.c4) LEFT JOIN t2 AS t2c ON NOT ((0)) WHERE t2c.c14 = t3b.c1
+    mutant  : SELECT t3b.c6 AS k1 FROM t1 AS t1a LEFT JOIN t3 AS t3b ON (t1a.c4 = 1) AND (t1a.c4 = t1a.c4) LEFT JOIN t2 AS t2c ON NOT ((0)) WHERE 1 = 1
+    rows    : 36 / 100
+
+-- pair 27 (cond->TRUE, expected Up): 211 -> 136 characters
+    original: SELECT t3a.c1 AS k0 FROM t3 AS t3a INNER JOIN t2 AS t2b ON (1) WHERE t2b.c3 IN (SELECT t3i27.c2 FROM t3 AS t3i27 WHERE t3i27.c9 IS NULL)
+    mutant  : SELECT t3a.c1 AS k0 FROM t3 AS t3a CROSS JOIN t2 AS t2b WHERE t2b.c3 IN (SELECT t3i27.c2 FROM t3 AS t3i27 WHERE t3i27.c9 IS NULL)
+    rows    : 12 / 1
+
+-- pair 28 (DISTINCT-add, expected Down): 158 -> 104 characters
+    original: SELECT t1b.c1 AS k0 FROM t3 AS t3a INNER JOIN t1 AS t1b ON t3a.c6 IN (SELECT t2i75.c14 FROM t2 AS t2i75)
+    mutant  : SELECT DISTINCT t1b.c1 AS k0 FROM t3 AS t3a INNER JOIN t1 AS t1b ON t3a.c6 IN (SELECT t2i75.c14 FROM t2 AS t2i75)
+    rows    : 5 / 6
+
+-- pair 29 (LEFT->INNER-JOIN, expected Down): 329 -> 174 characters
+    original: SELECT ABS(t1a.c4) AS k1 FROM (SELECT x.c4 AS c4 FROM t1 AS x WHERE (x.c4 = 3) AND (x.c1 IS NULL)) AS t1a LEFT JOIN (SELECT x.c1 AS c1 FROM t1 AS x) AS t1b ON t1a.c4 = t1a.c4
+    mutant  : SELECT ABS(t1a.c4) AS k1 FROM (SELECT x.c4 AS c4 FROM t1 AS x WHERE (x.c4 = 3) AND (x.c1 IS NULL)) AS t1a INNER JOIN (SELECT x.c1 AS c1 FROM t1 AS x) AS t1b ON t1a.c4 = t1a.c4
+    rows    : 0 / 22
+
+-- pair 30 (EXCEPT->left, expected Up): 481 -> 131 characters
+    original: SELECT t2a.c1 AS k0 FROM t2 AS t2a UNION ALL SELECT DISTINCT t2a.c14 AS k0 FROM t2 AS t2a EXCEPT SELECT t2a.c3 AS k0 FROM t2 AS t2a
+    mutant  : SELECT t2a.c1 AS k0 FROM t2 AS t2a UNION ALL SELECT DISTINCT t2a.c14 AS k0 FROM t2 AS t2a
+    rows    : 8 / 11
+
+-- pair 31 (UNION-ALL->UNION, expected Down): 675 -> 145 characters
+    original: SELECT t2a.c3 AS k1 FROM t2 AS t2a UNION ALL SELECT DISTINCT t1b.c1 AS k1 FROM t1 AS t1a LEFT JOIN (SELECT x.c1 AS c1 FROM t1 AS x) AS t1b ON (1)
+    mutant  : SELECT t2a.c3 AS k1 FROM t2 AS t2a UNION SELECT DISTINCT t1b.c1 AS k1 FROM t1 AS t1a LEFT JOIN (SELECT x.c1 AS c1 FROM t1 AS x) AS t1b ON (1)
+    rows    : 12 / 10
+
+-- pair 32 (DISTINCT-add, expected Down): 103 -> 80 characters
+    original: SELECT t1b.c1 AS k1 FROM t2 AS t2a CROSS JOIN t1 AS t1b WHERE (t1b.c4 IS NOT 10)
+    mutant  : SELECT t1b.c1 AS k1 FROM t2 AS t2a CROSS JOIN (SELECT DISTINCT * FROM t1 AS t1b) AS t1b WHERE (t1b.c4 IS NOT 10)
+    rows    : 40 / 50
+
+-- pair 33 (DISTINCT-add, expected Down): 268 -> 127 characters
+    original: SELECT t1b.c4 AS k0 FROM (SELECT x.c1 AS c1 FROM t1 AS x) AS t1a INNER JOIN t1 AS t1b ON NOT ((0)) WHERE (t1b.c4 IS NOT t1a.c1)
+    mutant  : SELECT DISTINCT t1b.c4 AS k0 FROM (SELECT x.c1 AS c1 FROM t1 AS x) AS t1a INNER JOIN t1 AS t1b ON NOT ((0)) WHERE (t1b.c4 IS NOT t1a.c1)
+    rows    : 39 / 6
+
+-- pair 34 (DISTINCT-add, expected Down): 268 -> 127 characters
+    original: SELECT t1b.c4 AS k0 FROM (SELECT x.c1 AS c1 FROM t1 AS x) AS t1a INNER JOIN t1 AS t1b ON NOT ((0)) WHERE (t1b.c4 IS NOT t1a.c1)
+    mutant  : SELECT DISTINCT t1b.c4 AS k0 FROM (SELECT x.c1 AS c1 FROM t1 AS x) AS t1a INNER JOIN t1 AS t1b ON NOT ((0)) WHERE (t1b.c4 IS NOT t1a.c1)
+    rows    : 39 / 6
+
+-- pair 35 (UNION-ALL->UNION, expected Down): 532 -> 115 characters
+    original: SELECT t2c.c2 AS k0 FROM t1 AS t1a LEFT JOIN t2 AS t2c ON (0) UNION ALL SELECT DISTINCT t1a.c4 AS k0 FROM t1 AS t1a
+    mutant  : SELECT t2c.c2 AS k0 FROM t1 AS t1a LEFT JOIN t2 AS t2c ON (0) UNION SELECT DISTINCT t1a.c4 AS k0 FROM t1 AS t1a
+    rows    : 20 / 9
+
+-- pair 36 (UNION-ALL->UNION, expected Down): 351 -> 145 characters
+    original: SELECT t2b.c2 AS k0 FROM t2 AS t2a LEFT JOIN t2 AS t2b ON (0) UNION ALL SELECT DISTINCT t3a.c9 AS k0 FROM (SELECT x.c9 AS c9 FROM t3 AS x) AS t3a
+    mutant  : SELECT t2b.c2 AS k0 FROM t2 AS t2a LEFT JOIN t2 AS t2b ON (0) UNION SELECT DISTINCT t3a.c9 AS k0 FROM (SELECT x.c9 AS c9 FROM t3 AS x) AS t3a
+    rows    : 15 / 7
+
+-- pair 38 (DISTINCT-add, expected Down): 513 -> 144 characters
+    original: SELECT COALESCE(t1a.c1, 0) AS k0 FROM t1 AS t1a UNION ALL SELECT DISTINCT t1a.c1 AS k0 FROM t1 AS t1a EXCEPT SELECT t2a.c15 AS k0 FROM t2 AS t2a
+    mutant  : SELECT DISTINCT * FROM (SELECT COALESCE(t1a.c1, 0) AS k0 FROM t1 AS t1a UNION ALL SELECT DISTINCT t1a.c1 AS k0 FROM t1 AS t1a) AS vs_d2 EXCEPT SELECT t2a.c15 AS k0 FROM t2 AS t2a
+    rows    : 6 / 7
+
+-- pair 39 (UNION->UNION-ALL, expected Up): 750 -> 84 characters
+    original: SELECT t1a.c4 AS k2 FROM t1 AS t1a UNION SELECT DISTINCT t3a.c7 AS k2 FROM t3 AS t3a
+    mutant  : SELECT t1a.c4 AS k2 FROM t1 AS t1a UNION ALL SELECT DISTINCT t3a.c7 AS k2 FROM t3 AS t3a
+    rows    : 14 / 15
+
+-- pair 41 (EXCEPT->left, expected Up): 530 -> 202 characters
+    original: SELECT t2a.c3 AS k1, t2a.c3 AS k2 FROM t2 AS t2a UNION ALL SELECT DISTINCT t1a.c4 AS k1, t1a.c4 AS k2 FROM (SELECT x.c4 AS c4 FROM t1 AS x) AS t1a EXCEPT SELECT t1a.c1 AS k1, t1a.c4 AS k2 FROM t1 AS t1a
+    mutant  : SELECT t2a.c3 AS k1, t2a.c3 AS k2 FROM t2 AS t2a UNION ALL SELECT DISTINCT t1a.c4 AS k1, t1a.c4 AS k2 FROM (SELECT x.c4 AS c4 FROM t1 AS x) AS t1a
+    rows    : 12 / 17
+
+-- pair 42 (INNER->LEFT-JOIN, expected Up): 763 -> 172 characters
+    original: SELECT t1a.c4 AS k0 FROM t1 AS t1a UNION ALL SELECT DISTINCT t3a.c1 AS k0 FROM (SELECT x.c1 AS c1, x.c3 AS c3 FROM t3 AS x) AS t3a INNER JOIN t1 AS t1b ON NOT (t3a.c3 <= 3)
+    mutant  : SELECT t1a.c4 AS k0 FROM t1 AS t1a UNION ALL SELECT DISTINCT t3a.c1 AS k0 FROM (SELECT x.c1 AS c1, x.c3 AS c3 FROM t3 AS x) AS t3a LEFT JOIN t1 AS t1b ON NOT (t3a.c3 <= 3)
+    rows    : 8 / 10
+
+-- pair 43 (cond->TRUE, expected Up): 763 -> 172 characters
+    original: SELECT t1a.c4 AS k0 FROM t1 AS t1a UNION ALL SELECT DISTINCT t3a.c1 AS k0 FROM (SELECT x.c1 AS c1, x.c3 AS c3 FROM t3 AS x) AS t3a INNER JOIN t1 AS t1b ON NOT (t3a.c3 <= 3)
+    mutant  : SELECT t1a.c4 AS k0 FROM t1 AS t1a UNION ALL SELECT DISTINCT t3a.c1 AS k0 FROM (SELECT x.c1 AS c1, x.c3 AS c3 FROM t3 AS x) AS t3a CROSS JOIN t1 AS t1b
+    rows    : 8 / 10
+
+-- pair 44 (UNION->UNION-ALL, expected Up): 388 -> 112 characters
+    original: SELECT t1a.c4 AS k2 FROM t1 AS t1a UNION SELECT DISTINCT t3b.c1 AS k2 FROM t1 AS t1a INNER JOIN t3 AS t3b ON (1)
+    mutant  : SELECT t1a.c4 AS k2 FROM t1 AS t1a UNION ALL SELECT DISTINCT t3b.c1 AS k2 FROM t1 AS t1a INNER JOIN t3 AS t3b ON (1)
+    rows    : 12 / 18
+
+-- pair 45 (UNION-ALL->UNION, expected Down): 543 -> 89 characters
+    original: SELECT t2a.c2 AS k1 FROM t2 AS t2a UNION ALL SELECT DISTINCT t2a.c14 AS k1 FROM t2 AS t2a
+    mutant  : SELECT t2a.c2 AS k1 FROM t2 AS t2a UNION SELECT DISTINCT t2a.c14 AS k1 FROM t2 AS t2a
+    rows    : 16 / 14
+

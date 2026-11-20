@@ -37,6 +37,10 @@ jobs:
         run: |
           L=/tmp/sqlite-libs
           python3 bridge/campaign_sqlite.py --libs $L/libsqlite3-3260000.so $L/libsqlite3-3340000.so --seeds 1001-1003 --queries 20 --out /tmp/violations.jsonl
+      - name: Reduce a recorded violation (smoke test)
+        run: |
+          python3 bridge/reduce_sqlite.py results/sqlite-confirmed.jsonl --pair 5 --lib 3.26.0=/tmp/sqlite-libs/libsqlite3-3260000.so | tee /tmp/reduced.txt
+          grep -q '^-- pair 5' /tmp/reduced.txt
 
   rocq-9:
     name: Rocq 9 (opam)

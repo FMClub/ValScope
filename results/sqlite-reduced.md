@@ -3,9 +3,10 @@
 `bridge/reduce_sqlite.py results/sqlite-confirmed.jsonl --lib VERSION=LIB ...`: each confirmed pair, reduced
 greedily while the verified mutator still produces a violating mutant of the same rule
 (the theorem of the rule applies to every reduced pair). 43 of 45 pairs reduced; mean length
-468 -> 124 characters. Pairs 37 and 40 are outside the model of the current bridge (an
-operation that distinguishes collation-equivalent values above a de-duplication), so the
-mutator no longer produces them; see results/sqlite-bisect.md.
+468 -> 124 characters. Pairs 37 and 40 are not reduced: the static collation-law check of the
+bridge rejects their original queries (an operation that distinguishes collation-equivalent
+values above a de-duplication), although the affected columns hold integers only (checked
+by hand, issues/004 B2.1), so the mutator does not produce them again.
 
 -- pair 1 (UNION->UNION-ALL, expected Up): 365 -> 156 characters
     original: SELECT t2b.c2 AS k0 FROM t2 AS t2a LEFT JOIN t2 AS t2b ON (0) UNION ALL SELECT DISTINCT t1a.c1 AS k0 FROM t1 AS t1a UNION SELECT t1a.c4 AS k0 FROM t1 AS t1a

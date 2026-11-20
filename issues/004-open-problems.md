@@ -1,4 +1,4 @@
-# Open problems (status after the second round of the Rocq version)
+# Open problems (status after the sixth round of the Rocq version)
 
 > This repository has no issue tracker, so this document (submitted through a PR) collects
 > the problems that are known and not solved, so that they can be reviewed together.
@@ -79,8 +79,10 @@ fixes of PR #1 are merged; the design problems below are still open.
 
 1. **Laws of the world (partly solved).** The theorems assume that every operation respects
    the collation equivalence. Since the third round the bridge rejects (or drops mutants
-   with) operations that break it above a de-duplication (`outside_collation_law`). Open:
-   the list of such operations is maintained by hand and may be incomplete; the check is
+   with) operations that break it above a de-duplication (`outside_collation_law`). Since
+   the sixth round a function counts as respecting the equivalence only if it is on an
+   explicit list (`RESPECTING_FUNCS`); every other function, known to sqlglot or not, is
+   treated as breaking it. Open: the check is
    static, so it also rejects queries whose data cannot actually hit the problem (2 of the
    44 SQLite pairs fall under it, and their data was checked by hand: the affected
    columns hold integers only).
@@ -126,15 +128,24 @@ fixes of PR #1 are merged; the design problems below are still open.
    and end-to-end runs on SQLite and MariaDB 10.11. The bridge
    tests pass with sqlglot 26.33 to 30.33.
 2. The command-line mutator now runs as one long-lived process, and the round trip
-   caches atom syntax trees (2.7 times faster). There is still no test-case reduction.
+   caches atom syntax trees (2.7 times faster).
+3. Sixth round: `bridge/reduce_sqlite.py` reduces a recorded SQLite pair, re-running the
+   verified mutator after every step (so the reduced pair is still covered by the theorem
+   of its rule), and `bridge/bisect_sqlite.py` finds the fixing and introducing commits in
+   the SQLite history. CI also runs MySQL 8.4.
 
 ## C. Testing real DBMSs
 
 1. **Candidate MariaDB bugs not reported upstream:** PR #2 (`HAVING MAX(enum) <> n` depends
    on the select list), PR #5 (`HAVING COUNT(x) IN (subquery)` finds no match; reproduced
    again in this round), PR #8 (new: `MIN` / `MAX` of a `BIT` column return decimal text
-   without `GROUP BY`). All were reproduced on MariaDB 10.11.14 only; other versions,
-   MySQL, Percona, TiDB, OceanBase and PolarDB were not tested; causes not analysed.
+   without `GROUP BY`), `issues/006` (new in the sixth round: a `BIT(8)` scalar subquery
+   under a loose index scan returns 255). Reproduced on MariaDB 10.11.14; on MySQL 8.4.13
+   (CI) the minimal cases of 005 and 006 give the correct results, so both are specific to
+   MariaDB. Percona, TiDB, OceanBase and PolarDB were not tested; causes not analysed.
+1b. **MySQL 8.4.13 (CI, sixth round)**: the Python-generator run reports one `DISTINCT-add`
+   violation on the `MIN(BIT)` query that also shows issue 005 on MariaDB; CI now prints the
+   rows of every violation so that it can be analysed. Not analysed yet.
 2. **MariaDB `GROUP BY` on DOUBLE**: plan-dependent number of groups; not analysed.
 3. **SQLite: 45 confirmed violations (1 withdrawn), causes mostly not analysed.** 37 from the first
    campaign (all re-confirmed with the exact collation check), 5 from a second campaign
@@ -154,7 +165,7 @@ fixes of PR #1 are merged; the design problems below are still open.
    database seed by coverage features and violations (UCB1). The arms are only the four
    existing settings; the generator's probabilities themselves are not learned, and a
    20-seed comparison does not show a clear winner.
-6. No DBMS outside MariaDB and SQLite was run. The runner can now reach any MySQL-protocol
+6. No DBMS outside MariaDB, MySQL 8.4 (CI only) and SQLite was run. The runner can reach any MySQL-protocol
    server and any SQLite file, and documents how to add another DBMS
    (`docs/USAGE.md`, section 9), but no PostgreSQL target exists.
 

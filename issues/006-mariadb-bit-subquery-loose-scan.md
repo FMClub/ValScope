@@ -62,3 +62,8 @@ UNION ALL (SELECT xro13.c2 AS col_1, 62 AS col_2 FROM t1 AS xro13)
 
 `t1` has the key `idx_t1_pk_c4 (c1, c4)`, which the plan uses for the loose scan;
 `t2.c12` is `BIT(8)` (`data/mariadb/`).
+
+## MySQL
+
+On MySQL 8.4.13 (CI job `mysql`), the reproduction above returns `14` on every row, as
+expected: the problem is specific to MariaDB.

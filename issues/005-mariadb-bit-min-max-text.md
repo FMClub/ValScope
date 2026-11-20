@@ -88,3 +88,9 @@ wrong value from `MIN` / `MAX` of a `BIT` column in a non-grouped query: `'2'` i
   from the `BIT` column.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+## MySQL
+
+On MySQL 8.4.13 (CI job `mysql`), the minimal case returns the bit value (`HEX(MIN(x))` is
+`2`, `MIN(x)` is `0x02`), consistently with the result metadata: the problem is specific
+to MariaDB.

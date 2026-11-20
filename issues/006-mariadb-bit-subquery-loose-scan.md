@@ -31,6 +31,7 @@ UNION ALL SELECT 'a';
 -- the same without DISTINCT
 SELECT x FROM (SELECT * FROM (SELECT (SELECT x FROM b ORDER BY x LIMIT 1) AS x FROM g GROUP BY g.k) d) u
 UNION ALL SELECT 'a';
+DROP DATABASE vs_bit2;
 ```
 
 Output on MariaDB 10.11.14:

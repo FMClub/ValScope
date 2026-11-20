@@ -277,6 +277,10 @@ def value_query(rng):
     having = ''
     if shape >= 0.25 and rng.random() < 0.5:
         having = ' HAVING ' + having_pred(rng, alias, t, 2)
+        if SQLITE and not group:
+            # SQLite before 3.39 rejects HAVING without GROUP BY; the predicate is still
+            # drawn, so the queries after this one stay those of earlier runs
+            having = ''
     cols = ', '.join('%s AS k%d' % (item, i) for i, item in enumerate(items))
     return 'SELECT %s FROM %s AS %s%s%s%s' % (cols, t, alias, where, group, having)
 

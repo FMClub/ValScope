@@ -151,6 +151,23 @@ SENSITIVE_FUNCS = {
     'CRC32', 'TO_BASE64', 'FROM_BASE64', 'QUOTE', 'TYPEOF', 'SOUNDEX', 'FIELD', 'ELT', 'FIND_IN_SET',
     'MAKE_SET', 'EXPORT_SET', 'FORMAT', 'PRINTF', 'GROUP_CONCAT', 'GROUPCONCAT', 'WEIGHT_STRING_BINARY',
 }
+# Functions known to map equivalent arguments to equivalent results (numeric functions,
+# case mapping, trimming of trailing spaces, conditionals, aggregates that the theorems or
+# _dedup_tree cover, dates).  Any other function, including one sqlglot does not know, is
+# treated as able to tell equivalent strings apart: the list of SENSITIVE_FUNCS documents
+# the usual ones, but it is not what makes the check safe.
+RESPECTING_FUNCS = {
+    'AND', 'OR', 'NOT', 'XOR', 'EXISTS', 'COUNT', 'COUNT_IF', 'SUM', 'AVG', 'MIN', 'MAX', 'TOTAL',
+    'VARIANCE', 'VARIANCE_POP', 'VAR_SAMP', 'VAR_POP', 'STDDEV', 'STDDEV_POP', 'STDDEV_SAMP',
+    'BITWISE_AND_AGG', 'BITWISE_OR_AGG', 'BITWISE_XOR_AGG', 'BIT_AND', 'BIT_OR', 'BIT_XOR',
+    'ABS', 'SIGN', 'ROUND', 'FLOOR', 'CEIL', 'CEILING', 'TRUNCATE', 'TRUNC', 'SQRT', 'POW', 'POWER',
+    'EXP', 'LN', 'LOG', 'LOG2', 'LOG10', 'MOD', 'SIN', 'COS', 'TAN', 'COT', 'ASIN', 'ACOS', 'ATAN',
+    'ATAN2', 'DEGREES', 'RADIANS', 'PI', 'GREATEST', 'LEAST', 'COALESCE', 'IFNULL', 'NVL', 'NULLIF',
+    'IF', 'IIF', 'CASE', 'LIKELY', 'UNLIKELY', 'LIKELIHOOD', 'CAST', 'TRY_CAST', 'UPPER', 'LOWER',
+    'UCASE', 'LCASE', 'RTRIM', 'ROW_NUMBER', 'RANK', 'DENSE_RANK', 'TIME_TO_STR',
+    'TS_OR_DS_TO_TIMESTAMP', 'YEAR', 'MONTH', 'DAY', 'DAYOFMONTH', 'DAYOFWEEK', 'DAYOFYEAR',
+    'QUARTER', 'WEEK', 'HOUR', 'MINUTE', 'SECOND', 'DATE', 'CURRENT_DATE',
+}
 SENSITIVE_NODES = (exp.DPipe, exp.Like, exp.ILike, exp.Glob, exp.RegexpLike, exp.Collate)
 BINARY_TYPES = ('BINARY', 'VARBINARY', 'BLOB', 'TINYBLOB', 'MEDIUMBLOB', 'LONGBLOB', 'BIT')
 
@@ -174,7 +191,7 @@ def _sensitive_tree_uncached(tree, dialect):
             return True
         if isinstance(n, (exp.Anonymous, exp.Func)) and not isinstance(n, (exp.Cast, exp.TryCast)):
             name = (n.name if isinstance(n, exp.Anonymous) else n.sql_name()).upper()
-            if name in SENSITIVE_FUNCS:
+            if name in SENSITIVE_FUNCS or name not in RESPECTING_FUNCS:
                 return True
         if dialect == 'sqlite' and isinstance(n, exp.Div):
             return True     # 1 and 1.0 are equal in SQLite, but 1/2 = 0 and 1.0/2 = 0.5
@@ -322,7 +339,12 @@ def _bare_columns(select):
     inside an aggregate: their value is taken from any row of the group."""
     group = select.args.get('group')
     items = list(select.expressions)
-    has_agg = any(n.find(exp.AggFunc) for n in items)
+    def has_agg(n):
+        # an aggregate of this SELECT, not one inside a subquery or a window
+        if isinstance(n, (exp.Select, exp.Subquery, exp.Window)):
+            return False
+        return isinstance(n, exp.AggFunc) or any(has_agg(c) for c in n.iter_expressions())
+    has_agg = any(has_agg(n) for n in items)
     if group is None and not has_agg:
         return []
     keys = {_strip_parens(k).sql().lower() for k in (group.expressions if group else [])}

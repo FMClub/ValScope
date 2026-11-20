@@ -227,8 +227,9 @@ def main():
                     bad_tag = t
                 k -= step
                 step *= 2
+            res['oldest_bad_release'] = bad_tag
             if good_tag is None:
-                res['introduced'] = 'bad (or not judgeable) on every older release tried'
+                res['introduced'] = 'before %s: bad on every older release that could be judged' % bad_tag
             else:
                 # narrow to adjacent releases, then bisect the commits between them
                 lo_i, hi_i = tags.index(good_tag), tags.index(bad_tag)

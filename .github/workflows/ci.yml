@@ -16,12 +16,13 @@ jobs:
   coq-8-18:
     name: Coq 8.18 (Ubuntu package), tests, SQLite
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install Coq, OCaml and Python packages
         run: |
-          sudo apt-get update
-          sudo apt-get install -y coq ocaml ocaml-findlib make gcc
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends coq ocaml ocaml-findlib make gcc
           python3 -m pip install --break-system-packages -r requirements.txt
       - name: Check the proofs and build the mutator
         run: make && make cli
@@ -30,6 +31,7 @@ jobs:
       - name: Tests (proof assumptions, abstract rules, bridge, checker)
         run: SQLITE_LIBS=/tmp/sqlite-libs make test
       - name: End to end on SQLite
+        # the SQLite of ubuntu-24.04 (3.45.1); the old releases above are tested by the campaign
         run: N=60 scripts/demo.sh sqlite
       - name: SQLite campaign on two old releases (small)
         run: |
@@ -39,8 +41,9 @@ jobs:
   rocq-9:
     name: Rocq 9 (opam)
     runs-on: ubuntu-24.04
+    timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ocaml/setup-ocaml@v3
         with:
           ocaml-compiler: "4.14"
@@ -58,6 +61,7 @@ jobs:
   mariadb:
     name: MariaDB 10.11, end to end
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     services:
       mariadb:
         image: mariadb:10.11
@@ -68,13 +72,46 @@ jobs:
           --health-cmd="healthcheck.sh --connect --innodb_initialized"
           --health-interval=5s --health-timeout=5s --health-retries=30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install Coq, OCaml, the MariaDB client and Python packages
         run: |
-          sudo apt-get update
-          sudo apt-get install -y coq ocaml ocaml-findlib make gcc mariadb-client
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends coq ocaml ocaml-findlib make gcc mariadb-client
           python3 -m pip install --break-system-packages -r requirements.txt
       - name: Load the sample database
         run: YES=1 scripts/setup_mariadb.sh
       - name: End to end on MariaDB
         run: N=60 scripts/demo.sh mariadb
+
+  mysql:
+    name: MySQL 8.4, end to end
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    # new: the sample database and the generator were written for MariaDB
+    continue-on-error: true
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: "123456"
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -p123456"
+          --health-interval=5s --health-timeout=5s --health-retries=30
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Coq, OCaml, the MySQL client and Python packages
+        run: |
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends coq ocaml ocaml-findlib make gcc mysql-client
+          # cryptography: PyMySQL needs it for MySQL 8's caching_sha2_password
+          python3 -m pip install --break-system-packages -r requirements.txt cryptography
+      - name: Load the sample database
+        run: YES=1 scripts/setup_mariadb.sh
+      - name: End to end on MySQL (MySQL-protocol runner)
+        run: N=60 scripts/demo.sh mariadb
+      - name: The BIT candidates of issues 005 and 006 on MySQL
+        run: |
+          mysql_() { mysql -h127.0.0.1 -uroot -p123456 "$@"; }
+          mysql_ -e "CREATE DATABASE IF NOT EXISTS vs_bit; USE vs_bit; CREATE TABLE b (x BIT(8)); INSERT INTO b VALUES (2), (242); SELECT HEX(MIN(x)), MIN(x) FROM b;" || true
+          sed -n '/^DROP DATABASE IF EXISTS/,/^```/p' issues/006-mariadb-bit-subquery-loose-scan.md | grep -v '^```' | mysql_ --skip-column-names || true

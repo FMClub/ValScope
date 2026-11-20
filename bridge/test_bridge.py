@@ -79,7 +79,8 @@ for sql, direction, rule, fragment in SET_CASES:
 # order-dependent aggregates with an ORDER BY over their own values are determined
 for sql in ["SELECT t.g AS g, GROUP_CONCAT(t.c ORDER BY t.c) AS l FROM t GROUP BY t.g",
             "SELECT t.a FROM t WHERE t.a IN (SELECT u.d FROM u GROUP BY u.d)",
-            "SELECT t.a FROM t WHERE t.a IN (SELECT MAX(u.c) + 1 FROM u)"]:
+            "SELECT t.a FROM t WHERE t.a IN (SELECT MAX(u.c) + 1 FROM u)",
+            "SELECT d.x FROM (SELECT (SELECT COUNT(u.c) FROM u) AS n, t.a AS x FROM t) AS d"]:
     try:
         Translation(sql, kind='value' if sql.startswith('SELECT t.g') else 'set')
         report(True, 'determined aggregate / grouping accepted: %s' % sql)
@@ -398,6 +399,21 @@ if libs:
     report(db.last_collations == ['NOCASE', 'BINARY', None], 'SQLite column collations %r' % db.last_collations)
 else:
     print('skip  SQLite column metadata (no library in $SQLITE_LIBS)')
+
+# the adaptive campaign: UCB1 tries every arm once, then prefers the arm with more reward
+import random  # noqa: E402
+import campaign_sqlite  # noqa: E402
+bandit = campaign_sqlite.Bandit(campaign_sqlite.ARMS)
+for _ in range(4):
+    bandit.update(bandit.pick(), 0.0)
+report(sorted(bandit.n) == [1, 1, 1, 1], 'adaptive: every setting is tried once first')
+rng = random.Random(7)
+for _ in range(400):
+    i = bandit.pick()
+    bandit.update(i, 1.0 if (i == 2 and rng.random() < 0.8) or rng.random() < 0.2 else 0.0)
+report(max(range(4), key=lambda i: bandit.n[i]) == 2, 'adaptive: the best setting is chosen most often (%s)' % bandit.n)
+shape = campaign_sqlite.term_shape("SELECT t.a FROM t WHERE t.a IN (SELECT u.c FROM u) UNION SELECT t.b FROM t", 'set')
+report({'Union', 'In', 'Where'} <= shape, 'adaptive: coverage features of a term (%s)' % sorted(shape))
 
 print('%d failures' % failures)
 sys.exit(1 if failures else 0)

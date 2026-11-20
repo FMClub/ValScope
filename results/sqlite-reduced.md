@@ -1,12 +1,19 @@
 # Reduced SQLite violations
 
-`bridge/reduce_sqlite.py results/sqlite-confirmed.jsonl --lib VERSION=LIB ...`: each confirmed pair, reduced
-greedily while the verified mutator still produces a violating mutant of the same rule
-(the theorem of the rule applies to every reduced pair). 43 of 45 pairs reduced; mean length
-468 -> 124 characters. Pairs 37 and 40 are not reduced: the static collation-law check of the
-bridge rejects their original queries (an operation that distinguishes collation-equivalent
-values above a de-duplication), although the affected columns hold integers only (checked
-by hand, issues/004 B2.1), so the mutator does not produce them again.
+`python3 bridge/reduce_sqlite.py results/sqlite-confirmed.jsonl --lib 3.26.0=LIB ... --out reduced.jsonl`
+
+Each confirmed pair is reduced greedily (replace a compound by an arm, an AND / OR by an
+operand, drop a clause, a join or a column, replace a comparison by 1 or 0) while the
+verified mutator, run again on the smaller query, still produces a mutant of the same
+rule that violates the relation on the reporting release. So the theorem of the rule
+applies to every reduced pair.
+
+41 of the 43 confirmed pairs are reduced; their mean length goes from 453 to 121
+characters (80 to 202). Pairs 37 and 40 are not reduced: the static collation-law check of
+the bridge rejects their original queries (an operation that distinguishes
+collation-equivalent values above a de-duplication), although the affected columns hold
+integers only (checked by hand, issues/004 B2.1), so the mutator does not produce them
+again. The bug of each pair is in `results/sqlite-bisect.md`.
 
 -- pair 1 (UNION->UNION-ALL, expected Up): 365 -> 156 characters
     original: SELECT t2b.c2 AS k0 FROM t2 AS t2a LEFT JOIN t2 AS t2b ON (0) UNION ALL SELECT DISTINCT t1a.c1 AS k0 FROM t1 AS t1a UNION SELECT t1a.c4 AS k0 FROM t1 AS t1a
@@ -118,10 +125,10 @@ by hand, issues/004 B2.1), so the mutator does not produce them again.
     mutant  : SELECT t2b.c2 AS k1 FROM t1 AS t1a INNER JOIN t2 AS t2b ON (0) UNION ALL SELECT DISTINCT t3b.c2 AS k1 FROM t3 AS t3a INNER JOIN t3 AS t3b ON (1)
     rows    : 9 / 8
 
--- pair 23 (EXCEPT->left, expected Up): 419 -> 157 characters
-    original: SELECT t2b.c2 AS k1 FROM t3 AS t3a LEFT JOIN t2 AS t2b ON (0) UNION ALL SELECT DISTINCT t1a.c1 AS k1 FROM t1 AS t1a EXCEPT SELECT t2a.c3 AS k1 FROM t2 AS t2a
-    mutant  : SELECT t2b.c2 AS k1 FROM t3 AS t3a LEFT JOIN t2 AS t2b ON (0) UNION ALL SELECT DISTINCT t1a.c1 AS k1 FROM t1 AS t1a
-    rows    : 6 / 17
+-- pair 23 (EXCEPT->left, expected Up): 419 -> 130 characters
+    original: SELECT t3a.c8 AS k0 FROM t3 AS t3a UNION ALL SELECT DISTINCT t1a.c1 AS k0 FROM t1 AS t1a EXCEPT SELECT t2a.c2 AS k0 FROM t2 AS t2a
+    mutant  : SELECT t3a.c8 AS k0 FROM t3 AS t3a UNION ALL SELECT DISTINCT t1a.c1 AS k0 FROM t1 AS t1a
+    rows    : 11 / 17
 
 -- pair 24 (UNION->UNION-ALL, expected Up): 401 -> 112 characters
     original: SELECT t1a.c4 AS k0 FROM t1 AS t1a UNION SELECT DISTINCT t1b.c1 AS k0 FROM t3 AS t3a INNER JOIN t1 AS t1b ON (1)
@@ -203,22 +210,12 @@ by hand, issues/004 B2.1), so the mutator does not produce them again.
     mutant  : SELECT t2a.c3 AS k1, t2a.c3 AS k2 FROM t2 AS t2a UNION ALL SELECT DISTINCT t1a.c4 AS k1, t1a.c4 AS k2 FROM (SELECT x.c4 AS c4 FROM t1 AS x) AS t1a
     rows    : 12 / 17
 
--- pair 42 (INNER->LEFT-JOIN, expected Up): 763 -> 172 characters
-    original: SELECT t1a.c4 AS k0 FROM t1 AS t1a UNION ALL SELECT DISTINCT t3a.c1 AS k0 FROM (SELECT x.c1 AS c1, x.c3 AS c3 FROM t3 AS x) AS t3a INNER JOIN t1 AS t1b ON NOT (t3a.c3 <= 3)
-    mutant  : SELECT t1a.c4 AS k0 FROM t1 AS t1a UNION ALL SELECT DISTINCT t3a.c1 AS k0 FROM (SELECT x.c1 AS c1, x.c3 AS c3 FROM t3 AS x) AS t3a LEFT JOIN t1 AS t1b ON NOT (t3a.c3 <= 3)
-    rows    : 8 / 10
-
--- pair 43 (cond->TRUE, expected Up): 763 -> 172 characters
-    original: SELECT t1a.c4 AS k0 FROM t1 AS t1a UNION ALL SELECT DISTINCT t3a.c1 AS k0 FROM (SELECT x.c1 AS c1, x.c3 AS c3 FROM t3 AS x) AS t3a INNER JOIN t1 AS t1b ON NOT (t3a.c3 <= 3)
-    mutant  : SELECT t1a.c4 AS k0 FROM t1 AS t1a UNION ALL SELECT DISTINCT t3a.c1 AS k0 FROM (SELECT x.c1 AS c1, x.c3 AS c3 FROM t3 AS x) AS t3a CROSS JOIN t1 AS t1b
-    rows    : 8 / 10
-
--- pair 44 (UNION->UNION-ALL, expected Up): 388 -> 112 characters
+-- pair 42 (UNION->UNION-ALL, expected Up): 388 -> 112 characters
     original: SELECT t1a.c4 AS k2 FROM t1 AS t1a UNION SELECT DISTINCT t3b.c1 AS k2 FROM t1 AS t1a INNER JOIN t3 AS t3b ON (1)
     mutant  : SELECT t1a.c4 AS k2 FROM t1 AS t1a UNION ALL SELECT DISTINCT t3b.c1 AS k2 FROM t1 AS t1a INNER JOIN t3 AS t3b ON (1)
     rows    : 12 / 18
 
--- pair 45 (UNION-ALL->UNION, expected Down): 543 -> 89 characters
+-- pair 43 (UNION-ALL->UNION, expected Down): 543 -> 89 characters
     original: SELECT t2a.c2 AS k1 FROM t2 AS t2a UNION ALL SELECT DISTINCT t2a.c14 AS k1 FROM t2 AS t2a
     mutant  : SELECT t2a.c2 AS k1 FROM t2 AS t2a UNION SELECT DISTINCT t2a.c14 AS k1 FROM t2 AS t2a
     rows    : 16 / 14

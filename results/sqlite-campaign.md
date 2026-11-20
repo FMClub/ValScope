@@ -13,11 +13,14 @@ Every violation was then re-checked from scratch by `bridge/confirm_sqlite.py`.
 
 ## Result
 
-**45 distinct (original, mutant) query pairs violate the relation that the rule's theorem
-guarantees.** 37 were found by the first campaign, 5 by a second campaign run after the
-model was extended (strings, decimals, collations, opaque atoms), 2 by a third run after the
-audit fixes and 2 by the comparison of generator settings in the fifth round; 1 pair was
-withdrawn in the fifth round (see "Withdrawn"). All 45 are confirmed:
+**43 distinct (original, mutant) query pairs violate the relation that the rule's theorem
+guarantees; they come from 5 distinct SQLite bugs** (`results/sqlite-bisect.md`: each pair
+is mapped to the commit that introduced and the commit that fixed it, and pairs with the
+same commits are one bug). 37 pairs were found by the first campaign, 5 by a second
+campaign run after the model was extended (strings, decimals, collations, opaque atoms), 2
+by a third run after the audit fixes and 2 by the comparison of generator settings in the
+fifth round; 1 pair was withdrawn in the fifth round and 2 in the sixth (see "Withdrawn").
+All 43 are confirmed:
 
 - the database of the seed was rebuilt by each SQLite library and both queries were run
   again;
@@ -200,14 +203,32 @@ L=/tmp/sqlite-libs; python3 bridge/confirm_sqlite.py results/sqlite-confirmed.js
 
 `results/sqlite-confirmed.md` is the output of the last command. For every pair it has the
 queries, the first rows of both results and the verdict on each version.
-`results/sqlite-confirmed.jsonl` holds the 45 pairs as data; `results/sqlite-withdrawn.jsonl`
-the withdrawn one with the reason.
+`results/sqlite-confirmed.jsonl` holds the 43 pairs as data; `results/sqlite-withdrawn.jsonl`
+the withdrawn ones with the reasons. `results/sqlite-reduced.md` has the pairs reduced by
+`bridge/reduce_sqlite.py`, and `results/sqlite-bisect.md` the commits of each bug.
 
 ## Limitations
 
-- Only four old releases were tested. `sqlite.org` was not reachable, so the sources come
-  from npm packages.
+- The campaign ran on four old releases (from npm packages: `sqlite.org` is not reachable).
+  The bisection (sixth round) builds SQLite from its git history on GitHub instead.
 - "Confirmed" means inconsistent on the old version and consistent on 3.53.1. It does not
   prove which of the two results on the old version is the wrong one.
-- The 45 pairs most likely share a few root causes; only one cause is analysed, and the
-  test cases are not reduced.
+- The 43 pairs come from 5 bugs, identified by their introducing and fixing commits; three
+  fixes name an SQLite ticket. A fixing commit can be a plan change that hides the
+  symptom (bug 5).
+
+## Sixth round: commits, reduction, two withdrawals
+
+- `bridge/bisect_sqlite.py` built SQLite at about 150 commits of its history and mapped
+  every pair to the commit that fixed it and, where an older release is good, the commit
+  that introduced it: 5 distinct bugs (`results/sqlite-bisect.md`).
+- `bridge/reduce_sqlite.py` reduced 41 of the 43 pairs (mean length 453 -> 121 characters)
+  while the verified mutator still produces a violating mutant of the same rule
+  (`results/sqlite-reduced.md`).
+- Two pairs (former numbers 42 and 43, seed 2009) were withdrawn. The bisection found them
+  still "violated" on every release up to 3.54.1. The difference is only which of `'A'` /
+  `'a'` a `DISTINCT` over a `NOCASE` column keeps, in the third arm of a `UNION ALL`;
+  SQLite's column metadata describes the leftmost arm only (`BINARY`), so the checker
+  compared that column exactly. The checker now combines the collations of all arms of a
+  compound and does not use the metadata when a compound is nested in a derived table; with
+  it, both pairs hold on every release and the other 43 stay confirmed.

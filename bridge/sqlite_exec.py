@@ -99,18 +99,75 @@ class SQLiteLib:
         return coll.value.decode().upper() if rc == 0 and coll.value else None
 
     def folds(self, collations_a, collations_b, fallback):
-        """Folds (checker.py) for comparing results whose columns have these collations;
+        """Folds (checker.py) for comparing results whose columns have these collations
+        ('BINARY', 'NOCASE', 'RTRIM' or a combination such as 'NOCASE+RTRIM');
         `fallback` (the coarsest collation of the database) where one is unknown."""
         from checker import SQLiteFold
+        known = {'BINARY', 'NOCASE', 'RTRIM'}
         out = []
         for a, b in zip(collations_a or [], collations_b or []):
-            if a is None or b is None or a not in ('BINARY', 'NOCASE', 'RTRIM') or \
-                    b not in ('BINARY', 'NOCASE', 'RTRIM'):
+            pa = set(a.split('+')) if a else None
+            pb = set(b.split('+')) if b else None
+            if not pa or not pb or not pa <= known or not pb <= known:
                 out.append(fallback)
             else:
-                parts = sorted({a, b} - {'BINARY'})
+                parts = sorted((pa | pb) - {'BINARY'})
                 out.append(SQLiteFold('+'.join(parts) or 'BINARY'))
         return out or fallback
+
+    def _statement_collations(self, sql):
+        """Collations of the result columns of one statement (prepared, not run)."""
+        lib, stmt, tail = self.lib, ctypes.c_void_p(), ctypes.c_char_p()
+        if lib.sqlite3_prepare_v2(self.db, sql.encode(), -1, ctypes.byref(stmt), ctypes.byref(tail)) != 0:
+            return None
+        try:
+            return [self._collation(stmt, i) for i in range(lib.sqlite3_column_count(stmt))]
+        finally:
+            lib.sqlite3_finalize(stmt)
+
+    def _query_collations(self, sql, reported):
+        """The metadata of a compound query names the source column of its LEFTMOST arm
+        only, but another arm can de-duplicate under a coarser collation (a DISTINCT over a
+        NOCASE column), so the values of the result are determined only up to the
+        coarsest collation of all arms.  For a compound at the top, every arm is prepared
+        on its own and the collations are combined; when a compound is nested inside a
+        derived table, a CTE or a subquery, the metadata is not used (None: the checker
+        falls back to the coarsest collation of the database)."""
+        try:
+            import sqlglot
+            from sqlglot import exp
+            tree = sqlglot.parse_one(sql, read='sqlite')
+        except Exception:
+            return [None] * len(reported)
+        setops = (exp.Union, exp.Intersect, exp.Except)
+        top = tree
+        arms = []
+
+        def flatten(n):
+            if isinstance(n, setops):
+                flatten(n.left)
+                flatten(n.right)
+            else:
+                arms.append(n)
+        if isinstance(top, setops):
+            flatten(top)
+        chain = {id(n) for n in _chain(top, setops)}
+        if any(isinstance(n, setops) and id(n) not in chain for n in tree.walk()):
+            return [None] * len(reported)
+        if not arms:
+            return reported
+        with_ = top.args.get('with')
+        prefix = with_.sql(dialect='sqlite') + ' ' if with_ is not None else ''
+        combined = None
+        for arm in arms:
+            cols = self._statement_collations(prefix + _strip_parens(arm).sql(dialect='sqlite'))
+            if cols is None or len(cols) != len(reported):
+                return [None] * len(reported)
+            if combined is None:
+                combined = [None if c is None else {c} for c in cols]
+            else:
+                combined = [None if a is None or c is None else a | {c} for a, c in zip(combined, cols)]
+        return [None if c is None else ('+'.join(sorted(c - {'BINARY'})) or 'BINARY') for c in combined]
 
     def query(self, sql):
         """Rows of a SELECT as a list of tuples; raises on error or step limit."""
@@ -126,6 +183,8 @@ class SQLiteLib:
         try:
             n = lib.sqlite3_column_count(stmt)
             self.last_collations = [self._collation(stmt, i) for i in range(n)]
+            if self.metadata and any(w in sql.upper() for w in ('UNION', 'INTERSECT', 'EXCEPT')):
+                self.last_collations = self._query_collations(sql, self.last_collations)
             rows = []
             while True:
                 rc = lib.sqlite3_step(stmt)
@@ -151,3 +210,23 @@ class SQLiteLib:
                 rows.append(tuple(row))
         finally:
             lib.sqlite3_finalize(stmt)
+
+
+def _chain(top, setops):
+    """The set operations of the compound at the top (not those nested in its arms)."""
+    out = []
+
+    def walk(n):
+        if isinstance(n, setops):
+            out.append(n)
+            walk(n.left)
+            walk(n.right)
+    walk(top)
+    return out
+
+
+def _strip_parens(n):
+    from sqlglot import exp
+    while isinstance(n, (exp.Paren, exp.Subquery)) and n.args.get('alias') is None:
+        n = n.this
+    return n

@@ -452,7 +452,7 @@ there are any (`non_numeric_input`): SQLite's `AVG` converts text to numbers whi
 The campaign builds random databases, runs random queries and their mutants on several
 SQLite releases, and re-checks each violation on the newest SQLite. A violation on an old
 release that disappears on the newest one is a bug the newer release fixed; this is how the
-45 confirmed pairs in `results/sqlite-campaign.md` were found.
+43 confirmed pairs in `results/sqlite-campaign.md` were found.
 
 ### 8.1 Build old SQLite releases
 
@@ -541,6 +541,52 @@ often each arm was chosen and its mean reward. On seeds 3001-3020 (1600 queries 
 
 Twenty seeds are too few to call a winner. The adaptive run found the most violating
 pairs and passed the most checks; the fixed best setting covered more features.
+
+### 8.5 Reduce a violation
+
+```bash
+L=/tmp/sqlite-libs; python3 bridge/reduce_sqlite.py violations.jsonl --lib 3.26.0=$L/libsqlite3-3260000.so --lib 3.34.0=$L/libsqlite3-3340000.so --out reduced.jsonl
+```
+
+For every set-semantic pair, the original query is simplified one step at a time: a
+compound is replaced by one of its arms, an `AND` / `OR` by an operand, `NOT p` by `p`, a
+clause (`WHERE`, `GROUP BY`, `HAVING`, `ORDER BY`, `LIMIT`, `DISTINCT`), a join or a select
+item is removed (in a compound, the same column from every arm), a subquery predicate or a
+comparison is replaced by `1` or `0`. After each step the verified mutator runs again on
+the smaller query, and the step is kept only if a mutant of the same rule and direction
+still violates the relation on the library of the reporting version (`--lib VERSION=PATH`,
+or a bare `PATH` for all pairs). So the reduced pair is again one the engine produced, and
+the theorem of its rule still applies. `--pair N` reduces only pair N (1-based). The
+reduced pairs are printed and, with `--out`, written in the input format with the
+original pair under `reduced_from`.
+
+### 8.6 Map violations to SQLite commits (distinct bugs)
+
+```bash
+git clone --filter=blob:none --no-checkout https://github.com/sqlite/sqlite sqlite-src
+```
+
+```bash
+python3 bridge/bisect_sqlite.py violations.jsonl --introduced --src sqlite-src --cache bisect-cache --out bisect.jsonl > bisect.md
+```
+
+SQLite is built from its source history (gcc, make and tclsh are needed; about 20 s per
+commit, cached in `--cache`). For each pair:
+
+1. the pair must be bad on the reporting release (`--old`, default the release in the
+   record) and good on `--new` (default: the newest release tag); the first-parent history
+   between them is bisected for the first good commit, the **fixing commit**. If the pair
+   is bad on `--new` too, it is reported as a live bug.
+2. with `--introduced`, older release tags are tried (doubling steps back, then one
+   release at a time) until one is good; the commits between that release and the next
+   bad one are bisected for the first bad commit, the **introducing commit**.
+
+Commits that do not build or on which a query fails are skipped (their neighbours are
+tested); the result says whether the boundary is exact (two adjacent commits). `bisect.md`
+groups the pairs: **pairs with the same introducing and fixing commits are one bug,
+different commits are different bugs.** The fixing commit is the first commit on which the
+pair is good; when it is an optimisation that changes the plan, it ends the symptom of the
+pair rather than fixing the defect.
 
 ## 9. Test any other database
 

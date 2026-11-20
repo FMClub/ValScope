@@ -15,7 +15,8 @@ relation; see campaign_sqlite.py) is checked on SQLite built from the source his
    commit that fixed the bug.  (If the pair is bad on --new as well, the bug is live and
    there is no fixing commit.)
 2. Introducing commit (--introduced).  Older release tags are tried, going back from
-   --old, until one is good; the history between that release and the next bad one is
+   --old (with doubling steps, then one release at a time), until one is good; the
+   history between that release and the next bad one is
    bisected for the first bad commit: the commit that introduced the bug.
 
 Pairs with the same (introducing, fixing) commits are reported as one bug: different
@@ -227,6 +228,22 @@ def main():
                     bad_tag = t
                 k -= step
                 step *= 2
+            if good_tag is None:
+                # the doubling steps may have jumped over releases: walk back one release
+                # at a time from the oldest bad one, until a good one or 5 unjudgeable in a row
+                k, unjudged = tags.index(bad_tag) - 1, 0
+                while k >= 0 and unjudged < 5:
+                    t = tags[k]
+                    key = (sha_of(t), rec['original'], rec['mutant'])
+                    cache.setdefault(key, verdict(builder, sha_of(t), rec, tmp))
+                    if cache[key] == 'good':
+                        good_tag = t
+                        break
+                    if cache[key] == 'bad':
+                        bad_tag, unjudged = t, 0
+                    else:
+                        unjudged += 1
+                    k -= 1
             res['oldest_bad_release'] = bad_tag
             if good_tag is None:
                 res['introduced'] = 'before %s: bad on every older release that could be judged' % bad_tag
@@ -260,6 +277,15 @@ def main():
     report(results)
 
 
+def _oldest(rs):
+    """For a bug whose introduction lies before every release that could be judged: the
+    oldest release on which one of its pairs is bad."""
+    tags = [r['oldest_bad_release'] for r in rs if r.get('oldest_bad_release')]
+    if not tags:
+        return rs[0].get('introduced') or '-'
+    return 'before %s (bad on every older release that could be judged)' % version_tags_sorted(tags)[0]
+
+
 def report(results):
     groups = collections.OrderedDict()
     for r in results:
@@ -277,7 +303,7 @@ def report(results):
         i = rs[0].get('introduced_by') if intro else None
         print('| %d | %s | %s | %s | %s | %s |' % (
             n, ', '.join('#%d' % r['pair'] for r in rs),
-            '`%s` %s %s' % (i['commit'][:12], i['date'], i['subject'][:60]) if i else (rs[0].get('introduced') or '-'),
+            '`%s` %s %s' % (i['commit'][:12], i['date'], i['subject'][:60]) if i else _oldest(rs),
             ('`%s` %s %s%s' % (f['commit'][:12], f['date'], f['subject'][:60],
                                '' if rs[0].get('fix_exact') else ' (range: commits in between not judgeable)'))
             if f else (note or '-'),

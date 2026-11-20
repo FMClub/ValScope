@@ -93,4 +93,11 @@ wrong value from `MIN` / `MAX` of a `BIT` column in a non-grouped query: `'2'` i
 
 On MySQL 8.4.13 (CI job `mysql`), the minimal case returns the bit value (`HEX(MIN(x))` is
 `2`, `MIN(x)` is `0x02`), consistently with the result metadata: the problem is specific
-to MariaDB.
+to MariaDB in that form.
+
+The pair that found the problem (a `MIN` of the `BIT(8)` column `t2.c12` in the left arm of
+an `EXCEPT`, rule `DISTINCT-add`) is inconsistent on MySQL 8.4.13 as well: the original
+returns `col_1` = `'14'` (bytes `31 34`, decimal text), the mutant, which reads the same
+`MIN` through `SELECT DISTINCT * FROM (...)`, returns `0x0E` (the bit value). So MySQL also
+converts the same `BIT` value to two different strings when the set operation unifies the
+column type, depending on whether it comes from a derived table.

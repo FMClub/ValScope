@@ -397,6 +397,13 @@ if libs:
     db.executescript("CREATE TABLE t (a TEXT COLLATE NOCASE, b TEXT); INSERT INTO t VALUES ('A', 'a')")
     db.query("SELECT a, b, a || '' FROM t")
     report(db.last_collations == ['NOCASE', 'BINARY', None], 'SQLite column collations %r' % db.last_collations)
+    # a compound: the metadata names the leftmost arm only; every arm counts
+    db.query("SELECT b FROM t UNION ALL SELECT DISTINCT a FROM t")
+    report(db.last_collations == ['NOCASE'], 'SQLite compound: coarsest collation of all arms %r' % db.last_collations)
+    db.query("SELECT b, a FROM t UNION SELECT b, b FROM t")
+    report(db.last_collations == ['BINARY', 'NOCASE'], 'SQLite compound: per column %r' % db.last_collations)
+    db.query("SELECT d.b FROM (SELECT b FROM t UNION SELECT a FROM t) AS d")
+    report(db.last_collations == [None], 'SQLite nested compound: metadata not used %r' % db.last_collations)
 else:
     print('skip  SQLite column metadata (no library in $SQLITE_LIBS)')
 

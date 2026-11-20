@@ -94,7 +94,10 @@ fixes of PR #1 are merged; the design problems below are still open.
    with the collations of its leftmost arm, and MySQL derives them from the arms; the model
    has one equivalence. A rule that changes the leftmost arm (`INTERSECT->operand`) can
    change the equality an enclosing UNION uses. Such mutants are now dropped
-   (`changes_compound_collation`), and one confirmed pair was withdrawn. The criterion
+   (`changes_compound_collation`), and one confirmed pair was withdrawn. In the sixth round
+   the checker also stopped trusting SQLite's column metadata for compounds (it describes
+   the leftmost arm only): the collations of all arms are combined, which withdrew two
+   more pairs. The criterion
    compares select lists syntactically; a world with per-operation collations would
    cover this case in the model itself.
 3. **Character-by-character LIKE / REGEXP.** Collations with contractions or expansions
@@ -144,21 +147,27 @@ fixes of PR #1 are merged; the design problems below are still open.
    (CI) the minimal cases of 005 and 006 give the correct results, so both are specific to
    MariaDB. Percona, TiDB, OceanBase and PolarDB were not tested; causes not analysed.
 1b. **MySQL 8.4.13 (CI, sixth round)**: the Python-generator run reports one `DISTINCT-add`
-   violation on the `MIN(BIT)` query that also shows issue 005 on MariaDB; CI now prints the
-   rows of every violation so that it can be analysed. Not analysed yet.
+   violation on the `MIN(BIT)` query that also shows issue 005 on MariaDB: the original
+   returns the decimal text `'14'`, the mutant the bit value `0x0E` (`issues/005`, section
+   MySQL). CI prints the rows of every violation.
 2. **MariaDB `GROUP BY` on DOUBLE**: plan-dependent number of groups; not analysed.
-3. **SQLite: 45 confirmed violations (1 withdrawn), causes mostly not analysed.** 37 from the first
-   campaign (all re-confirmed with the exact collation check), 5 from a second campaign
-   with the extended model and 2 from a third run after the audit fixes
-   (`results/sqlite-campaign.md`). Open:
-   - root causes: one is analysed (the `DISTINCT` of a compound arm is ignored under `UNION`
-     when the column is `COLLATE NOCASE`); the others are not;
-   - the pairs are not reduced, not grouped by root cause, and not mapped to SQLite tickets;
-   - "confirmed" means inconsistent on the old version and consistent on 3.53.1; it does
-     not establish which of the two old results is wrong;
+3. **SQLite: 43 confirmed violations from 5 distinct bugs (3 withdrawn).** 37 pairs from
+   the first campaign, 5 from a second campaign with the extended model, 2 from a third run
+   after the audit fixes and 2 from the fifth round, minus 1 pair withdrawn in the fifth
+   round and 2 in the sixth (`results/sqlite-campaign.md`). Solved in the sixth round:
+   - every pair is mapped to the SQLite commits that introduced and fixed it
+     (`bridge/bisect_sqlite.py`, `results/sqlite-bisect.md`); pairs with the same commits
+     are one bug. Three of the five fixing commits name an SQLite ticket
+     (`1dcb4d44964846ad`, `ee51301f316c09e9`, `8025674847`);
+   - 41 pairs are reduced (`bridge/reduce_sqlite.py`, `results/sqlite-reduced.md`).
+   Open:
+   - bugs 1 and 5 are bad on the oldest releases that could be judged, so their
+     introducing commits are not known; the "fix" of bug 5 is an optimisation that may only
+     hide the symptom;
+   - pairs 37 and 40 are rejected by the static collation-law check (their columns hold
+     integers only), so they cannot be reduced;
    - the second campaign also saw 4 translation mismatches on the old releases only
-     (`CROSS JOIN` versus `INNER JOIN ... ON 1 = 1`), not counted and not analysed;
-   - only the four releases bundled in npm packages could be built.
+     (`CROSS JOIN` versus `INNER JOIN ... ON 1 = 1`), not counted and not analysed.
 4. **Value-semantic and HAVING mutators found nothing on SQLite**; whether the value side
    can find SQLite bugs at all is open.
 5. **Generator tuning (partly solved).** `--adaptive` chooses the generator settings per

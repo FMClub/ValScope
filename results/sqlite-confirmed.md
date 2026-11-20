@@ -1,6 +1,6 @@
 # SQLite violations found by the verified mutators
 
-45 recorded, 45 confirmed (reproduced on the reporting version, relation holds on SQLite 3.53.1).
+43 recorded, 43 confirmed (reproduced on the reporting version, relation holds on SQLite 3.53.1).
 
 | # | Reported on | Seed | Rule | Expected | Rows (original / mutant) | Violated on | Confirmed |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -45,10 +45,8 @@
 | 39 | 3.26.0 | 2011 | `UNION->UNION-ALL` | Up | 81 / 72 | 3.26.0, 3.30.1, 3.31.1, 3.34.0 | yes |
 | 40 | 3.26.0 | 2022 | `DISTINCT-add` | Down | 0 / 1 | 3.26.0 | yes |
 | 41 | 3.26.0 | 2022 | `EXCEPT->left` | Up | 11 / 43 | 3.26.0, 3.30.1, 3.31.1, 3.34.0 | yes |
-| 42 | 3.26.0 | 2009 | `INNER->LEFT-JOIN` | Up | 2 / 2 | 3.26.0, 3.30.1, 3.31.1, 3.34.0 | yes |
-| 43 | 3.26.0 | 2009 | `cond->TRUE` | Up | 2 / 2 | 3.26.0, 3.30.1, 3.31.1, 3.34.0 | yes |
-| 44 | 3.26.0 | 3006 | `UNION->UNION-ALL` | Up | 26 / 22 | 3.26.0, 3.30.1, 3.31.1, 3.34.0 | yes |
-| 45 | 3.26.0 | 3009 | `UNION-ALL->UNION` | Down | 23 / 23 | 3.26.0, 3.30.1, 3.31.1, 3.34.0 | yes |
+| 42 | 3.26.0 | 3006 | `UNION->UNION-ALL` | Up | 26 / 22 | 3.26.0, 3.30.1, 3.31.1, 3.34.0 | yes |
+| 43 | 3.26.0 | 3009 | `UNION-ALL->UNION` | Down | 23 / 23 | 3.26.0, 3.30.1, 3.31.1, 3.34.0 | yes |
 
 ## 1. `UNION->UNION-ALL` on SQLite 3.26.0 (seed 1004)
 
@@ -747,41 +745,7 @@ Mutant rows: `["('0', '0', '0')", "('0', 1.0, 1.0)", "('0', 1.0, 1.0)", "('1', '
 
 Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
 
-## 42. `INNER->LEFT-JOIN` on SQLite 3.26.0 (seed 2009)
-
-Expected relation: Up. Verdict: violation.
-
-```sql
--- original
-SELECT DISTINCT t2b.c14 + 0 AS k0, t2b.c15 AS k1 FROM (SELECT DISTINCT x.c1 AS c1, x.c2 AS c2, x.c3 AS c3, x.c6 AS c6, x.c7 AS c7, x.c8 AS c8, x.c9 AS c9 FROM t3 AS x) AS t3a INNER JOIN t2 AS t2b ON (LIKELY(t3a.c8 > 1)) WHERE EXISTS (SELECT t2s99.c1 FROM t2 AS t2s99 WHERE (CAST(t3a.c9 AS TEXT)) = ('0')) UNION ALL SELECT t1a.c4 AS k0, t1a.c4 AS k1 FROM t1 AS t1a WHERE t1a.c1 = ('1') UNION ALL SELECT DISTINCT t3a.c1 AS k0, t3a.c8 AS k1 FROM (SELECT x.c1 AS c1, x.c2 AS c2, x.c3 AS c3, x.c6 AS c6, x.c7 AS c7, x.c8 AS c8, x.c9 AS c9 FROM t3 AS x WHERE x.c8 >= 1 UNION ALL SELECT x.c1 AS c1, x.c2 AS c2, x.c3 AS c3, x.c6 AS c6, x.c7 AS c7, x.c8 AS c8, x.c9 AS c9 FROM t3 AS x) AS t3a INNER JOIN t1 AS t1b ON NOT (t3a.c3 <= 3) WHERE (t3a.c2 COLLATE NOCASE) = ('a');
--- mutant
-SELECT DISTINCT t2b.c14 + 0 AS k0, t2b.c15 AS k1 FROM (SELECT DISTINCT x.c1 AS c1, x.c2 AS c2, x.c3 AS c3, x.c6 AS c6, x.c7 AS c7, x.c8 AS c8, x.c9 AS c9 FROM t3 AS x) AS t3a INNER JOIN t2 AS t2b ON (LIKELY(t3a.c8 > 1)) WHERE EXISTS (SELECT t2s99.c1 FROM t2 AS t2s99 WHERE (CAST(t3a.c9 AS TEXT)) = ('0')) UNION ALL SELECT t1a.c4 AS k0, t1a.c4 AS k1 FROM t1 AS t1a WHERE t1a.c1 = ('1') UNION ALL SELECT DISTINCT t3a.c1 AS k0, t3a.c8 AS k1 FROM (SELECT x.c1 AS c1, x.c2 AS c2, x.c3 AS c3, x.c6 AS c6, x.c7 AS c7, x.c8 AS c8, x.c9 AS c9 FROM t3 AS x WHERE x.c8 >= 1 UNION ALL SELECT x.c1 AS c1, x.c2 AS c2, x.c3 AS c3, x.c6 AS c6, x.c7 AS c7, x.c8 AS c8, x.c9 AS c9 FROM t3 AS x) AS t3a LEFT JOIN t1 AS t1b ON NOT (t3a.c3 <= 3) WHERE (t3a.c2 COLLATE NOCASE) = ('a');
-```
-
-Original rows: `["('2', '2')", "('B', 'A')"]`
-
-Mutant rows: `["('2', '2')", "('b', 'a')"]`
-
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: collation
-
-## 43. `cond->TRUE` on SQLite 3.26.0 (seed 2009)
-
-Expected relation: Up. Verdict: violation.
-
-```sql
--- original
-SELECT DISTINCT t2b.c14 + 0 AS k0, t2b.c15 AS k1 FROM (SELECT DISTINCT x.c1 AS c1, x.c2 AS c2, x.c3 AS c3, x.c6 AS c6, x.c7 AS c7, x.c8 AS c8, x.c9 AS c9 FROM t3 AS x) AS t3a INNER JOIN t2 AS t2b ON (LIKELY(t3a.c8 > 1)) WHERE EXISTS (SELECT t2s99.c1 FROM t2 AS t2s99 WHERE (CAST(t3a.c9 AS TEXT)) = ('0')) UNION ALL SELECT t1a.c4 AS k0, t1a.c4 AS k1 FROM t1 AS t1a WHERE t1a.c1 = ('1') UNION ALL SELECT DISTINCT t3a.c1 AS k0, t3a.c8 AS k1 FROM (SELECT x.c1 AS c1, x.c2 AS c2, x.c3 AS c3, x.c6 AS c6, x.c7 AS c7, x.c8 AS c8, x.c9 AS c9 FROM t3 AS x WHERE x.c8 >= 1 UNION ALL SELECT x.c1 AS c1, x.c2 AS c2, x.c3 AS c3, x.c6 AS c6, x.c7 AS c7, x.c8 AS c8, x.c9 AS c9 FROM t3 AS x) AS t3a INNER JOIN t1 AS t1b ON NOT (t3a.c3 <= 3) WHERE (t3a.c2 COLLATE NOCASE) = ('a');
--- mutant
-SELECT DISTINCT t2b.c14 + 0 AS k0, t2b.c15 AS k1 FROM (SELECT DISTINCT x.c1 AS c1, x.c2 AS c2, x.c3 AS c3, x.c6 AS c6, x.c7 AS c7, x.c8 AS c8, x.c9 AS c9 FROM t3 AS x) AS t3a INNER JOIN t2 AS t2b ON (LIKELY(t3a.c8 > 1)) WHERE EXISTS (SELECT t2s99.c1 FROM t2 AS t2s99 WHERE (CAST(t3a.c9 AS TEXT)) = ('0')) UNION ALL SELECT t1a.c4 AS k0, t1a.c4 AS k1 FROM t1 AS t1a WHERE t1a.c1 = ('1') UNION ALL SELECT DISTINCT t3a.c1 AS k0, t3a.c8 AS k1 FROM (SELECT x.c1 AS c1, x.c2 AS c2, x.c3 AS c3, x.c6 AS c6, x.c7 AS c7, x.c8 AS c8, x.c9 AS c9 FROM t3 AS x WHERE x.c8 >= 1 UNION ALL SELECT x.c1 AS c1, x.c2 AS c2, x.c3 AS c3, x.c6 AS c6, x.c7 AS c7, x.c8 AS c8, x.c9 AS c9 FROM t3 AS x) AS t3a CROSS JOIN t1 AS t1b WHERE (t3a.c2 COLLATE NOCASE) = ('a');
-```
-
-Original rows: `["('2', '2')", "('B', 'A')"]`
-
-Mutant rows: `["('2', '2')", "('b', 'a')"]`
-
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: collation
-
-## 44. `UNION->UNION-ALL` on SQLite 3.26.0 (seed 3006)
+## 42. `UNION->UNION-ALL` on SQLite 3.26.0 (seed 3006)
 
 Expected relation: Up. Verdict: violation.
 
@@ -798,7 +762,7 @@ Mutant rows: `["(1, 10, '')", "(1, 10, '-3')", "(1, 10, '1')", "(1, 10, 'A')", "
 
 Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
 
-## 45. `UNION-ALL->UNION` on SQLite 3.26.0 (seed 3009)
+## 43. `UNION-ALL->UNION` on SQLite 3.26.0 (seed 3009)
 
 Expected relation: Down. Verdict: violation.
 

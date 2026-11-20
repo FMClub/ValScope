@@ -253,23 +253,67 @@ def outside_collation_law(tr, term):
     collation-equivalent values to a representative chosen by a de-duplication; None if
     it does not."""
     cache = tr._law_cache
+    exact = getattr(tr, '_exact_names', set())
+
+    def reads_exact_only(t):
+        """Does the atom read only columns that hold integers (or NULL)?  Equivalent values
+        of such columns are identical, so the operation gives the same result whichever
+        representative a de-duplication kept."""
+        cols = [n for n in t.walk() if isinstance(n, (exp.Column, exp.Star))]
+        return bool(exact) and all(isinstance(c, exp.Column) and not isinstance(c.this, exp.Star)
+                                   and c.name.lower() in exact for c in cols)
     tree = parse_sexp(term) if isinstance(term, str) else term
 
-    def sensitive(x):
+    query_tags = ('Proj', 'Where', 'Inner', 'Left', 'Distinct', 'Union', 'UnionAll', 'Intersect', 'Except',
+                  'IntersectAll', 'ExceptAll', 'T', 'Named', 'QAtom')
+
+    def bound_in(q):
+        """The table aliases a nested query binds itself."""
+        out = set()
+
+        def walk(y):
+            if isinstance(y, list) and y:
+                if y[0] == 'T':
+                    out.add(tr.aliases[int(y[1])].lower())
+                elif y[0] == 'Named':
+                    out.add(tr.named[int(y[1])].lower())
+                for z in y[1:]:
+                    walk(z)
+        walk(q)
+        return out
+
+    def local(t, bound):
+        """Inside a nested query: does the atom read only rows of that query (every column
+        qualified by an alias the nested query binds)?  Then it does not see the
+        representative the outer de-duplication kept."""
+        return bound is not None and all(
+            isinstance(c, exp.Column) and c.table and c.table.lower() in bound
+            for c in t.walk() if isinstance(c, (exp.Column, exp.Star)))
+
+    def sensitive(x, bound=None):
         """Does the item / predicate list x contain such an operation (also inside the
-        subqueries of x, whose atoms may refer to the current row)?"""
+        subqueries of x, when an atom there refers to the current row)?"""
         if not isinstance(x, list) or not x:
             return False
         if isinstance(x[0], list):                  # a list of items or keys
-            return any(sensitive(y) for y in x)
+            return any(sensitive(y, bound) for y in x)
         tag = x[0]
-        if tag in ('Like', 'Regex'):
-            return True
+        if tag in query_tags:
+            bound = (bound or set()) | bound_in(x)
         texts = {'EAtom': (tr.exprs, None), 'Atom': (tr.preds, None), 'AOpaque': (tr.opaque_items, None)}
+        if tag in ('Like', 'Regex'):
+            # the operand and the pattern: exempt only if every part is an atom over exact columns
+            parts = [y for y in x[1:] if isinstance(y, list)]
+            if all(p and p[0] in texts for p in parts):
+                trees = [_cached_parse(cache, texts[p[0]][0][int(p[1])], tr.dialect) for p in parts]
+                if all(t is not None and (reads_exact_only(t) or local(t, bound)) for t in trees):
+                    return False
+            return True
         if tag in texts:
             t = _cached_parse(cache, texts[tag][0][int(x[1])], tr.dialect)
-            return t is None or _sensitive_tree(t, tr.dialect)
-        return any(sensitive(y) for y in x[1:])
+            return t is None or (_sensitive_tree(t, tr.dialect) and not reads_exact_only(t)
+                                 and not local(t, bound))
+        return any(sensitive(y, bound) for y in x[1:])
 
     def dedup(q):
         """Does the input q pick representatives somewhere?"""
@@ -322,6 +366,58 @@ def outside_collation_law(tr, term):
                 return r
         return None
     return check(tree)
+
+
+def _exact_names(tree, exact_columns, schema):
+    """The column names of the query whose values have one representation each on this
+    database, so that two equivalent values are identical: `exact_columns` maps a base
+    column name to its storage class ('integer', or 'real' without -0.0) when the column
+    holds only that class (or NULL) in every table that has it (a set means 'integer').
+    A select alias is exact when every definition of it (in any SELECT of the query) is
+    a plain column of an exact name, all of the same class: 1 and 1.0 must not meet in a
+    compound.  A computed definition (AVG, arithmetic, ...) is never exact.  Returns the
+    exact names."""
+    if not exact_columns:
+        return set()
+    if not isinstance(exact_columns, dict):
+        exact_columns = {c: 'integer' for c in exact_columns}
+    base = {c.lower() for cols in schema.values() for c in cols} if schema else set()
+    defs = {}
+    for n in tree.walk():
+        if isinstance(n, exp.Alias) and n.alias:
+            defs.setdefault(n.alias.lower(), []).append(n.this)
+        elif isinstance(n, exp.Column) and isinstance(n.parent, exp.Select) and n in n.parent.expressions:
+            defs.setdefault(n.name.lower(), []).append(n)        # an unaliased item keeps its name
+    for n in tree.walk():                                         # column lists of derived tables
+        if isinstance(n, exp.TableAlias) and n.columns:
+            for c in n.columns:
+                defs.setdefault(c.name.lower(), []).append(None)  # positional: not followed
+    cls = {c: k for c, k in exact_columns.items() if c in base}
+    changed = True
+    names = set(defs) | base
+    while changed:
+        changed = False
+        for name in names:
+            if name in cls or (name in base and name not in exact_columns):
+                continue
+            ds = _proper_defs(name, defs)
+            if ds and all(_def_class(d, cls) for d in ds) and len({_def_class(d, cls) for d in ds}) == 1:
+                cls[name] = _def_class(ds[0], cls)
+                changed = True
+    # a base column that is redefined by an alias needs its definitions to be exact too
+    return {n for n, k in cls.items() if all(_def_class(d, cls) == k for d in _proper_defs(n, defs))}
+
+
+def _def_class(d, cls):
+    d = _strip_parens(d) if d is not None else None
+    return cls.get(d.name.lower()) if isinstance(d, exp.Column) else None
+
+
+def _proper_defs(name, defs):
+    """The definitions of a name, without those that only refer to the name itself
+    (`d.x` as an item, `x.c3 AS c3`): they say nothing about its values."""
+    return [d for d in defs.get(name, [])
+            if not (d is not None and isinstance(_strip_parens(d), exp.Column) and _strip_parens(d).name.lower() == name)]
 
 
 # Aggregates whose result depends on the order of the rows they read.
@@ -387,6 +483,8 @@ def _bare_columns(select):
         def walk(n):
             if isinstance(n, (exp.AggFunc, exp.Select, exp.Subquery, exp.Window)):
                 return
+            if _strip_parens(n).sql().lower() in keys:
+                return          # a grouping key (also inside an expression: LN(c) + 3)
             if isinstance(n, exp.Column) and not isinstance(n.this, exp.Star):
                 if _strip_parens(n).sql().lower() not in keys:
                     bare.append(n.sql())
@@ -483,7 +581,7 @@ class Translation:
     kind is 'set' (set-semantic term, mutate with direction Up / Down) or
     'value' (value query, one select item is mutated)."""
 
-    def __init__(self, sql, dialect='mysql', kind='set', schema=None):
+    def __init__(self, sql, dialect='mysql', kind='set', schema=None, exact_columns=None):
         self.dialect = dialect
         # table name (lower case) -> column names; optional, used to print DISTINCT around
         # a join (see _join_columns)
@@ -498,8 +596,13 @@ class Translation:
             sql = _mysql_population_names(sql)
         tree = sqlglot.parse_one(sql, read=dialect)
         _check_deterministic(tree)
+        self.exact_columns = exact_columns
+        self._exact_names = _exact_names(tree, exact_columns, self.schema)
         tree = self._take_ctes(tree)
-        self.term = self._query(tree) if kind == 'set' else self._value_top(tree)
+        # a value query under DISTINCT, or a UNION of value queries (VDistinct.v): the
+        # mutants are those of the query without it, and the check is a cover
+        self.value_distinct = False
+        self.term = self._query(tree) if kind == 'set' else self._value_top(tree, top=True)
         why = outside_collation_law(self, self.term)
         if why:
             raise Unsupported('outside the model: ' + why)
@@ -853,10 +956,37 @@ class Translation:
         return '(Atom %d)' % (len(self.preds) - 1)
 
     # ---------------------------------------------------- value queries
-    def _value_top(self, node):
+    def _value_top(self, node, top=False):
         """A value query, or a UNION ALL of value queries with the same number of columns
-        (VUnion.v: one arm is mutated, the other arms' rows stay as they are)."""
+        (VUnion.v: one arm is mutated, the other arms' rows stay as they are).  At the
+        top, SELECT DISTINCT or a UNION (without ALL) is DISTINCT over the same term
+        (VDistinct.v: Translation.value_distinct)."""
         node = self._unwrap(node)
+        if top and isinstance(node, exp.Union) and node.args.get('distinct'):
+            arms = []
+
+            def flatten(n):
+                n = self._unwrap(n)
+                if isinstance(n, exp.Union) and n.args.get('distinct'):
+                    for key in ('limit', 'offset', 'with_', 'with', 'order'):
+                        if n.args.get(key):
+                            raise Unsupported('%s on a UNION of value queries' % key)
+                    flatten(n.this)
+                    flatten(n.expression)
+                else:
+                    arms.append(n)
+            flatten(node)
+            self.value_distinct = True
+            terms = [self._value_top(a) for a in arms]
+            out = terms[0]
+            for t in terms[1:]:
+                out = '(VUnionAll %s %s)' % (out, t)
+            return out
+        if top and isinstance(node, exp.Select) and isinstance(node.args.get('distinct'), exp.Distinct) \
+                and not node.args['distinct'].args.get('on'):
+            node = node.copy()
+            node.set('distinct', None)
+            self.value_distinct = True
         if isinstance(node, exp.Union) and not node.args.get('distinct'):
             for key in ('limit', 'offset', 'with_', 'with'):
                 if node.args.get(key):
@@ -1068,15 +1198,22 @@ class Translation:
             return self._vt_sql(tree)
         return self._q_sql(tree)
 
-    def _vt_sql(self, t):
+    def _vt_sql(self, t, top=True):
+        distinct = getattr(self, 'value_distinct', False)
         if t[0] != 'VUnionAll':
-            return self._v_sql(t)
-        left, right = self._vt_sql(t[1]), self._vt_sql(t[2])
+            sql = self._v_sql(t)
+            if distinct and top:
+                assert sql.startswith('SELECT ')
+                sql = 'SELECT DISTINCT ' + sql[len('SELECT '):]
+            return sql
+        # under DISTINCT, DISTINCT over a UNION ALL of the arms is their UNION
+        op = 'UNION' if distinct else 'UNION ALL'
+        left, right = self._vt_sql(t[1], False), self._vt_sql(t[2], False)
         if self.dialect == 'sqlite':
             if t[2][0] == 'VUnionAll':
                 right = 'SELECT * FROM (%s)' % right
-            return '%s UNION ALL %s' % (left, right)
-        return '(%s) UNION ALL (%s)' % (left, right)
+            return '%s %s %s' % (left, op, right)
+        return '(%s) %s (%s)' % (left, op, right)
 
     def type_probe(self):
         """For a value query: (sql, number_of_keys) of its first arm (see type_probes)."""
@@ -1538,8 +1675,10 @@ def _roundtrip_ok(tr, term, sql, kind):  # noqa: C901
         # as its own text
         return _parse_key(sql, tr.dialect) == canonical(tr, tree)[1]
     try:
-        back = Translation(sql, tr.dialect, kind=kind, schema=tr.schema)
+        back = Translation(sql, tr.dialect, kind=kind, schema=tr.schema, exact_columns=tr.exact_columns)
     except Exception:
+        return False
+    if getattr(back, 'value_distinct', False) != getattr(tr, 'value_distinct', False):
         return False
     return canonical(tr, tree) == canonical(back, back.lift(parse_sexp(back.term)))
 
@@ -1653,13 +1792,13 @@ def _validated(tr, term, kind):
     return None
 
 
-def mutate_sql(sql, cli=DEFAULT_CLI, dialect='mysql', schema=None):
+def mutate_sql(sql, cli=DEFAULT_CLI, dialect='mysql', schema=None, exact_columns=None):
     """Set-semantic mutation.
 
     Returns (reprinted_original, [(direction, rule, mutant_sql), ...], skipped).
     direction is 'Up' (the mutant returns a super-bag) or 'Down' (a sub-bag).
     `skipped` counts mutants the bridge cannot print as SQL."""
-    tr = Translation(sql, dialect, kind='set', schema=schema)
+    tr = Translation(sql, dialect, kind='set', schema=schema, exact_columns=exact_columns)
     original = _validated(tr, tr.term, 'set')
     if original is None:
         raise Unsupported('the re-printed query does not parse back to its term')
@@ -1693,12 +1832,12 @@ def mutate_value_sql(sql, cli=DEFAULT_CLI, dialect='mysql'):
     return mutate_value(sql, cli, dialect)[:3]
 
 
-def mutate_value(sql, cli=DEFAULT_CLI, dialect='mysql', translation=None, schema=None):
+def mutate_value(sql, cli=DEFAULT_CLI, dialect='mysql', translation=None, schema=None, exact_columns=None):
     """Like mutate_value_sql, with two more components: the result of
     Translation.type_probe, and the mutants of the HAVING predicate as
     (direction, rule, mutant_sql).  For those, 'Up' means the mutant returns the
     same rows and possibly more, 'Down' a subset."""
-    tr = Translation(sql, dialect, kind='value', schema=schema)
+    tr = Translation(sql, dialect, kind='value', schema=schema, exact_columns=exact_columns)
     if translation is not None:
         translation.append(tr)
     original = _validated(tr, tr.term, 'value')

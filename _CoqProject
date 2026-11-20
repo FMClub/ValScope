@@ -15,6 +15,7 @@ theories/VEngine.v
 theories/VRules.v
 theories/VHaving.v
 theories/VUnion.v
+theories/VDistinct.v
 theories/Registry.v
 theories/Counter.v
 theories/Extract.v

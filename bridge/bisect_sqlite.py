@@ -7,7 +7,9 @@ relation; see campaign_sqlite.py) is checked on SQLite built from the source his
 
     verdict(commit) = bad   the relation of the rule is violated on that commit
                       good  the relation holds (modulo the collation)
-                      skip  the commit does not build, or one of the queries fails on it
+                      skip  the commit does not build, one of the queries fails on it, or
+                            the database of the seed differs (a statement that succeeds on
+                            the reporting release fails on that commit)
 
 1. Fixing commit.  The pair is bad on the release that reported it (--old, by default the
    release in the record) and good on --new (default: the newest release tag).  The
@@ -92,7 +94,12 @@ def verdict(builder, sha, rec, tmp):
         os.remove(path)
     try:
         db = SQLiteLib(lib, path)
-        fallback = sqlite_fold(build_db(db, rec['seed'], rec.get('focus', False)))
+        used = make_database(db, rec)
+        if rec.get('_used') is not None and used != rec['_used']:
+            # an older SQLite could not run some statement of the database (a WITHOUT ROWID
+            # table, a partial index, ...): the queries would run on another database
+            return 'skip'
+        fallback = sqlite_fold(used)
         base = db.query(rec['original'])
         base_coll = db.last_collations
         res = db.query(rec['mutant'])
@@ -101,7 +108,7 @@ def verdict(builder, sha, rec, tmp):
     fold = db.folds(base_coll, db.last_collations, fallback)
     if rec['kind'] == 'value':
         relation, _, column = rec['expect'].split()
-        v = check_value(relation, int(column), base, res, fold=fold)
+        v = check_value(relation, int(column), base, res, fold=fold, cover=rec.get('distinct', False))
     else:
         v = check_inclusion(rec['expect'], base, res, fold)
     if v in ('ok', 'collation'):
@@ -109,6 +116,99 @@ def verdict(builder, sha, rec, tmp):
     if v == 'incomparable':
         return 'skip'
     return 'bad'
+
+
+def reference_database(builder, sha, rec, tmp):
+    """The statements that built the database of the pair on the reporting release: a
+    commit is judged only if the same statements succeed on it."""
+    lib = builder.lib(sha)
+    if lib is None:
+        return None
+    path = os.path.join(tmp, 'ref.db')
+    if os.path.exists(path):
+        os.remove(path)
+    return make_database(SQLiteLib(lib, path), rec)
+
+
+def make_database(db, rec):
+    """The database of a pair: the statements of a reduced pair (reduce_sqlite.py --sql
+    writes them to 'database'), else those of its seed; with '_compat', tables are made
+    without WITHOUT ROWID.  Returns the statements that succeeded."""
+    if rec.get('database') is None:
+        return build_db(db, rec['seed'], rec.get('focus') in (True, 'True'), compat=rec.get('_compat', False))
+    used = []
+    for st in rec['database']:
+        if rec.get('_compat'):
+            st = st.replace(') WITHOUT ROWID;', ');')
+        try:
+            db.executescript(st)
+            used.append(st)
+        except Exception:
+            pass
+    return used
+
+
+def judge(builder, sha, rec, tmp, cache):
+    key = (sha, rec['original'], rec['mutant'])
+    if key not in cache:
+        cache[key] = verdict(builder, sha, rec, tmp)
+    return cache[key]
+
+
+def find_introduction(src, builder, tags, old, rec, tmp, cache, sha_of):
+    """Older release tags are tried, going back from `old` with doubling steps and then
+    one release at a time, until one is good; the commits between it and the next bad
+    release are bisected for the first bad commit."""
+    res = {}
+    older = [t for t in tags if tags.index(t) < tags.index(old)] if old in tags else []
+    good_tag, bad_tag = None, old
+    k, step = len(older) - 1, 1
+    while k >= 0:
+        v = judge(builder, sha_of(older[k]), rec, tmp, cache)
+        if v == 'good':
+            good_tag = older[k]
+            break
+        if v == 'bad':
+            bad_tag = older[k]
+        k -= step
+        step *= 2
+    if good_tag is None:
+        # the doubling steps may have jumped over releases: walk back one release at a
+        # time from the oldest bad one, until a good one or 5 unjudgeable in a row
+        k, unjudged = tags.index(bad_tag) - 1, 0
+        while k >= 0 and unjudged < 5:
+            v = judge(builder, sha_of(tags[k]), rec, tmp, cache)
+            if v == 'good':
+                good_tag = tags[k]
+                break
+            if v == 'bad':
+                bad_tag, unjudged = tags[k], 0
+            else:
+                unjudged += 1
+            k -= 1
+    res['oldest_bad_release'] = bad_tag
+    if good_tag is None:
+        res['introduced'] = 'before %s: bad on every older release that could be judged' % bad_tag
+        return res
+    # narrow to adjacent releases, then bisect the commits between them
+    lo_i, hi_i = tags.index(good_tag), tags.index(bad_tag)
+    while hi_i - lo_i > 1:
+        mid = (lo_i + hi_i) // 2
+        v = judge(builder, sha_of(tags[mid]), rec, tmp, cache)
+        if v == 'good':
+            lo_i = mid
+        elif v == 'bad':
+            hi_i = mid
+        else:
+            break
+    commits = [sha_of(tags[lo_i])] + git(src, 'rev-list', '--first-parent', '--reverse',
+                                         '%s..%s' % (tags[lo_i], tags[hi_i])).split()
+    idx, last, steps = first_change(builder, commits, rec, tmp, 'bad', cache)
+    res['introduced_by'] = describe(src, commits[idx])
+    res['last_good'] = commits[last]
+    res['introduce_exact'] = idx == last + 1
+    res['introduce_steps'] = steps
+    return res
 
 
 def first_change(builder, commits, rec, tmp, want, cache):
@@ -173,6 +273,9 @@ def main():
     ap.add_argument('--old', default=None, help='a release tag where the pair is bad (default: the reporting version)')
     ap.add_argument('--new', default=None, help='release tag to compare with (default: newest release tag)')
     ap.add_argument('--introduced', action='store_true', help='also find the commit that introduced each bug')
+    ap.add_argument('--compat', action='store_true',
+                    help='for a pair whose introduction is not found, try again on the database '
+                         'without WITHOUT ROWID (an approximation, reported separately)')
     ap.add_argument('--out', default=None, help='write the per-pair results as JSON lines')
     args = ap.parse_args()
     src = os.path.abspath(args.src)
@@ -197,8 +300,9 @@ def main():
               file=sys.stderr)
         res = {'pair': i, 'seed': rec['seed'], 'rule': rec['rule'], 'reported_on': rec['version'],
                'original': rec['original'], 'mutant': rec['mutant']}
-        v_old = cache.setdefault((sha_of(old), rec['original'], rec['mutant']), verdict(builder, sha_of(old), rec, tmp))
-        v_new = cache.setdefault((sha_of(new), rec['original'], rec['mutant']), verdict(builder, sha_of(new), rec, tmp))
+        rec['_used'] = reference_database(builder, sha_of(old), rec, tmp)
+        v_old = judge(builder, sha_of(old), rec, tmp, cache)
+        v_new = judge(builder, sha_of(new), rec, tmp, cache)
         res.update(old=old, new=new, verdict_old=v_old, verdict_new=v_new)
         if v_old != 'bad':
             res['note'] = 'not reproduced on %s (%s)' % (old, v_old)
@@ -213,62 +317,20 @@ def main():
             res['fix_exact'] = idx == last + 1
             res['fix_steps'] = steps
         if args.introduced and v_old == 'bad':
-            older = [t for t in tags if tags.index(t) < tags.index(old)] if old in tags else []
-            good_tag, bad_tag = None, old
-            # go back with growing steps until a release where the pair is good
-            k, step = len(older) - 1, 1
-            while k >= 0:
-                t = older[k]
-                key = (sha_of(t), rec['original'], rec['mutant'])
-                cache.setdefault(key, verdict(builder, sha_of(t), rec, tmp))
-                if cache[key] == 'good':
-                    good_tag = t
-                    break
-                if cache[key] == 'bad':
-                    bad_tag = t
-                k -= step
-                step *= 2
-            if good_tag is None:
-                # the doubling steps may have jumped over releases: walk back one release
-                # at a time from the oldest bad one, until a good one or 5 unjudgeable in a row
-                k, unjudged = tags.index(bad_tag) - 1, 0
-                while k >= 0 and unjudged < 5:
-                    t = tags[k]
-                    key = (sha_of(t), rec['original'], rec['mutant'])
-                    cache.setdefault(key, verdict(builder, sha_of(t), rec, tmp))
-                    if cache[key] == 'good':
-                        good_tag = t
-                        break
-                    if cache[key] == 'bad':
-                        bad_tag, unjudged = t, 0
-                    else:
-                        unjudged += 1
-                    k -= 1
-            res['oldest_bad_release'] = bad_tag
-            if good_tag is None:
-                res['introduced'] = 'before %s: bad on every older release that could be judged' % bad_tag
-            else:
-                # narrow to adjacent releases, then bisect the commits between them
-                lo_i, hi_i = tags.index(good_tag), tags.index(bad_tag)
-                while hi_i - lo_i > 1:
-                    mid = (lo_i + hi_i) // 2
-                    key = (sha_of(tags[mid]), rec['original'], rec['mutant'])
-                    cache.setdefault(key, verdict(builder, sha_of(tags[mid]), rec, tmp))
-                    if cache[key] == 'good':
-                        lo_i = mid
-                    elif cache[key] == 'bad':
-                        hi_i = mid
-                    else:
-                        break
-                commits = [sha_of(tags[lo_i])] + git(src, 'rev-list', '--first-parent', '--reverse',
-                                                     '%s..%s' % (tags[lo_i], tags[hi_i])).split()
-                idx, last, steps = first_change(builder, commits, rec, tmp, 'bad', cache)
-                res['introduced_by'] = describe(src, commits[idx])
-                res['last_good'] = commits[last]
-                res['introduce_exact'] = idx == last + 1
-                res['introduce_steps'] = steps
+            res.update(find_introduction(src, builder, tags, old, rec, tmp, cache, sha_of))
+            if args.compat and 'introduced_by' not in res:
+                # approximation: the same pair on the database without WITHOUT ROWID (which
+                # SQLite has only since 3.8.2), if it is still bad on the reporting release
+                crec = dict(rec, _compat=True)
+                crec['_used'] = reference_database(builder, sha_of(old), crec, tmp)
+                ccache = {}
+                if judge(builder, sha_of(old), crec, tmp, ccache) == 'bad':
+                    res['compat'] = find_introduction(src, builder, tags, old, crec, tmp, ccache, sha_of)
+                else:
+                    res['compat'] = {'note': 'not violated on %s without WITHOUT ROWID' % old}
         print('  -> %s' % {k: (v['commit'][:12] if isinstance(v, dict) else v) for k, v in res.items()
                            if k in ('fixed_by', 'introduced_by', 'note', 'introduced')}, file=sys.stderr)
+        rec.pop('_used', None)
         results.append(res)
     if args.out:
         with open(args.out, 'w') as f:
@@ -289,21 +351,29 @@ def _oldest(rs):
 def report(results):
     groups = collections.OrderedDict()
     for r in results:
-        key = (r.get('introduced_by', {}).get('commit') if isinstance(r.get('introduced_by'), dict) else None,
+        key = (r.get('introduced_by', {}).get('commit') if isinstance(r.get('introduced_by'), dict) else
+               ('~' + r['compat']['introduced_by']['commit']) if 'introduced_by' in r.get('compat', {}) else None,
                r.get('fixed_by', {}).get('commit') if isinstance(r.get('fixed_by'), dict) else None,
                r.get('note'))
         groups.setdefault(key, []).append(r)
     print('# SQLite violations grouped by commit\n')
     print('%d pairs, %d distinct bugs (pairs with the same introducing and fixing commits are one bug).\n'
           % (len(results), len(groups)))
+    if any(k[0] and k[0].startswith('~') for k in groups):
+        print('Where the introducing commit could not be found on the database of the pair, the one found '
+              'on the same database without WITHOUT ROWID (--compat) groups the pairs; it is an '
+              'approximation.\n')
     print('| Bug | Pairs | Introduced by | Fixed by | Fix first released in | Rules |')
     print('| --- | --- | --- | --- | --- | --- |')
     for n, ((intro, fix, note), rs) in enumerate(groups.items(), 1):
         f = rs[0].get('fixed_by') if fix else None
-        i = rs[0].get('introduced_by') if intro else None
+        i = rs[0].get('introduced_by') if intro and not intro.startswith('~') else None
+        ci = rs[0]['compat']['introduced_by'] if intro and intro.startswith('~') else None
         print('| %d | %s | %s | %s | %s | %s |' % (
             n, ', '.join('#%d' % r['pair'] for r in rs),
-            '`%s` %s %s' % (i['commit'][:12], i['date'], i['subject'][:60]) if i else _oldest(rs),
+            '`%s` %s %s' % (i['commit'][:12], i['date'], i['subject'][:60]) if i else
+            ('%s; without WITHOUT ROWID (approximation): `%s` %s %s' % (
+                _oldest(rs), ci['commit'][:12], ci['date'], ci['subject'][:50]) if ci else _oldest(rs)),
             ('`%s` %s %s%s' % (f['commit'][:12], f['date'], f['subject'][:60],
                                '' if rs[0].get('fix_exact') else ' (range: commits in between not judgeable)'))
             if f else (note or '-'),

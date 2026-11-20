@@ -94,6 +94,25 @@ Proof. intros d t name t'. apply thmut_sound. Qed.
 
 Print Assumptions thmutate_sound.
 
+(** ---------------- DISTINCT value queries (and UNION of value queries) ---------------- *)
+
+From ValScope Require Import VDistinct.
+
+(** The same mutants under DISTINCT: every row on each side is related to a row on the
+    other side ([covers]); the rows no longer correspond one to one. *)
+Theorem tmutate_distinct_sound : forall t name r j t',
+  In (name, (r, (j, t'))) (tmutate t) ->
+  forall env db, covers r j (distinct_rows (teval env db t)) (distinct_rows (teval env db t')).
+Proof. intros t name r j t'. apply tmut_distinct_sound. Qed.
+
+Print Assumptions tmutate_distinct_sound.
+
+(** HAVING mutants under DISTINCT: inclusion of the sets of rows. *)
+Theorem thmutate_distinct_sound : forall d t name t', In (name, t') (thmutate d t) -> dle d_sub d t t'.
+Proof. intros d t name t'. apply thmut_distinct_sound. Qed.
+
+Print Assumptions thmutate_distinct_sound.
+
 (** ---------------- what the command-line front end may see ----------------
 
     The extracted rule records carry no proof.  The front end only needs the names of

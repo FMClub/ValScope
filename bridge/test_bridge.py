@@ -82,7 +82,8 @@ for sql in ["SELECT t.g AS g, GROUP_CONCAT(t.c ORDER BY t.c) AS l FROM t GROUP B
             "SELECT t.a FROM t WHERE t.a IN (SELECT MAX(u.c) + 1 FROM u)",
             "SELECT d.x FROM (SELECT (SELECT COUNT(u.c) FROM u) AS n, t.a AS x FROM t) AS d",
             "SELECT t.a FROM t WHERE t.a IN (SELECT u.g FROM u GROUP BY u.g HAVING MAX(u.c) > 1 AND u.g > 0)",
-            "SELECT t.a FROM t WHERE t.b IN (SELECT GROUP_CONCAT(DISTINCT u.c ORDER BY u.c SEPARATOR ';') FROM u)"]:
+            "SELECT t.a FROM t WHERE t.b IN (SELECT GROUP_CONCAT(DISTINCT u.c ORDER BY u.c SEPARATOR ';') FROM u)",
+            "SELECT d.k FROM (SELECT LN(t.c) + 3 AS k, COUNT(*) AS n FROM t GROUP BY LN(t.c)) AS d"]:
     try:
         Translation(sql, kind='value' if sql.startswith('SELECT t.g') else 'set')
         report(True, 'determined aggregate / grouping accepted: %s' % sql)
@@ -190,10 +191,11 @@ report(any(r == 'SUM(c)->SUM(c*k)' and m.endswith('UNION ALL (SELECT u.g AS c0, 
            for _, r, _, m in mutants) and any(r == 'COUNT->COUNT-DISTINCT' and 'SUM(t.x) AS s' in m for _, r, _, m in mutants)
        and any(r == 'cond->TRUE' for _, r, _ in having), 'UNION ALL of value queries: each arm mutated alone')
 try:
-    mutate_value("SELECT t.g AS g, SUM(t.x) AS s FROM t GROUP BY t.g UNION SELECT u.g, COUNT(u.y) FROM u GROUP BY u.g")
-    report(False, 'UNION (DISTINCT) of value queries must be rejected')
+    # DISTINCT inside an arm of a UNION ALL is not modelled (only DISTINCT at the top)
+    mutate_value("SELECT DISTINCT t.g AS g FROM t UNION ALL SELECT u.g FROM u")
+    report(False, 'DISTINCT inside a UNION ALL of value queries must be rejected')
 except Unsupported:
-    report(True, 'UNION (DISTINCT) of value queries rejected')
+    report(True, 'DISTINCT inside a UNION ALL of value queries rejected')
 
 # a mutant that changes the leftmost arm of a set operation changes the collation that
 # operation compares with (SQLite: the leftmost arm's columns); such mutants are dropped
@@ -286,7 +288,7 @@ REJECTED = [
     ("SELECT * FROM t AS x RIGHT JOIN u AS y ON x.a = y.a", 'set', 'RIGHT JOIN with SELECT *'),
     ("SELECT x.a FROM t AS x JOIN v ON 1 = 1 RIGHT JOIN u AS y ON x.a = y.a", 'set', 'RIGHT JOIN after a join'),
     ("SELECT t.a, SUM(t.b) AS s FROM t GROUP BY t.c", 'value', 'non-key column in a grouped select'),
-    ("SELECT DISTINCT t.a AS a FROM t", 'value', 'DISTINCT in a value query'),
+    ("SELECT DISTINCT ON (t.a) t.a AS a FROM t", 'value', 'DISTINCT ON in a value query'),
     ("SELECT t.a AS a FROM t HAVING t.a > 1", 'value', 'HAVING without aggregation'),
     ("SELECT t.g AS g, SUM(t.x) AS s FROM t GROUP BY t.g HAVING s > 1", 'value', 'HAVING on a select alias'),
     ("SELECT a FROM t WHERE b > random()", 'set', 'SQLite random()'),
@@ -424,6 +426,84 @@ try:
     report(True, 'UPPER without DISTINCT below (SQLite) and above DISTINCT (MySQL) accepted')
 except Unsupported as e:
     report(False, 'UPPER wrongly rejected: %s' % e)
+
+# bisection (bisect_sqlite.first_change) with a stubbed verdict: commits 0..99, bad from 37
+import bisect_sqlite  # noqa: E402
+real_verdict = bisect_sqlite.verdict
+rec = {'original': 'o', 'mutant': 'm'}
+commits = ['c%d' % i for i in range(100)]
+for skips, label in [(set(), 'no skips'), ({36, 37, 38, 50, 25}, 'with unjudgeable commits')]:
+    bisect_sqlite.verdict = lambda b, sha, r, t, skips=skips: (
+        'skip' if int(sha[1:]) in skips else ('bad' if int(sha[1:]) >= 37 else 'good'))
+    hi, lo, steps = bisect_sqlite.first_change(None, commits, rec, None, 'bad', {})
+    expect = (37, 36) if not skips else (39, 35)
+    report((hi, lo) == expect and steps <= 12, 'bisection %s: first bad %d, last good %d, %d steps' % (label, hi, lo, steps))
+bisect_sqlite.verdict = real_verdict
+groups = []
+import io, contextlib  # noqa: E402
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    bisect_sqlite.report([
+        {'pair': 1, 'rule': 'A', 'fixed_by': {'commit': 'f1' * 20, 'date': 'd', 'subject': 's', 'first_release': 'v1'},
+         'introduced_by': {'commit': 'i1' * 20, 'date': 'd', 'subject': 's', 'first_release': 'v0'}, 'fix_exact': True},
+        {'pair': 2, 'rule': 'B', 'fixed_by': {'commit': 'f1' * 20, 'date': 'd', 'subject': 's', 'first_release': 'v1'},
+         'introduced_by': {'commit': 'i1' * 20, 'date': 'd', 'subject': 's', 'first_release': 'v0'}, 'fix_exact': True},
+        {'pair': 3, 'rule': 'A', 'fixed_by': {'commit': 'f1' * 20, 'date': 'd', 'subject': 's', 'first_release': 'v1'},
+         'introduced_by': {'commit': 'i2' * 20, 'date': 'd', 'subject': 's', 'first_release': 'v0'}, 'fix_exact': True}])
+report('3 pairs, 2 distinct bugs' in out.getvalue(), 'bisection report: same commits one bug, another introducing commit another bug')
+
+# collation law on columns that hold integers only (exact_columns): an operation that reads
+# only such columns gives the same result whichever representative a de-duplication kept
+sch = {'t': ['a', 'b', 'n'], 'u': ['c', 'm']}
+for sql, expect in [
+        ("SELECT d.x FROM (SELECT DISTINCT t.n AS x FROM t) AS d WHERE d.x LIKE '1%'", True),
+        ("SELECT d.x FROM (SELECT DISTINCT t.a AS x FROM t) AS d WHERE d.x LIKE '1%'", False),
+        ("SELECT UPPER(d.n) AS s FROM (SELECT DISTINCT t.n AS n, t.a AS a FROM t) AS d", True),
+        ("SELECT UPPER(d.a) AS s FROM (SELECT DISTINCT t.n AS n, t.a AS a FROM t) AS d", False),
+        ("SELECT d.x FROM (SELECT DISTINCT t.n AS x FROM t UNION SELECT u.c AS x FROM u) AS d WHERE d.x GLOB '1*'", False),
+        ("SELECT d.x FROM (SELECT DISTINCT t.n AS x FROM t UNION SELECT u.m AS x FROM u) AS d WHERE d.x GLOB '1*'", True),
+        ("SELECT d.x FROM (SELECT DISTINCT AVG(t.n) AS x FROM t GROUP BY t.a) AS d WHERE CAST(d.x AS TEXT) = '1'", False),
+        ("SELECT d.n FROM (SELECT DISTINCT t.a AS n FROM t) AS d WHERE d.n LIKE '1%'", False)]:
+    try:
+        Translation(sql, 'sqlite', schema=sch, exact_columns={'n', 'm'})
+        got = True
+    except Unsupported:
+        got = False
+    report(got == expect, 'exact columns: %s %s' % ('accepted' if got else 'rejected', sql))
+
+# a sensitive operation inside a subquery matters only if it reads the outer row
+for sql, expect in [
+        ("SELECT d.x FROM (SELECT DISTINCT t.a AS x FROM t) AS d WHERE d.x IN (SELECT u.c FROM u WHERE u.c LIKE '1%')", True),
+        ("SELECT d.x FROM (SELECT DISTINCT t.a AS x FROM t) AS d WHERE EXISTS (SELECT u.c FROM u WHERE u.c = d.x || '')", False),
+        ("SELECT d.x FROM (SELECT DISTINCT t.a AS x FROM t) AS d WHERE EXISTS (SELECT u.c FROM u WHERE d.x LIKE u.c)", False),
+        ("SELECT d.x FROM (SELECT DISTINCT t.a AS x FROM t) AS d WHERE EXISTS (SELECT u.c FROM u WHERE c LIKE '1%')", False)]:
+    try:
+        Translation(sql, 'sqlite')
+        got = True
+    except Unsupported:
+        got = False
+    report(got == expect, 'collation law, subquery: %s %s' % ('accepted' if got else 'rejected', sql))
+
+# DISTINCT value queries (VDistinct.v): the mutants are those without DISTINCT, printed with
+# it; the check is a cover in both directions
+trs = []
+_, mutants, _, _, having = mutate_value("SELECT DISTINCT t.g AS g, FLOOR(t.x) AS f FROM t", translation=trs)
+report(trs[0].value_distinct and mutants and all(m[3].startswith('SELECT DISTINCT ') for m in mutants),
+       'DISTINCT value query: mutants printed with DISTINCT')
+trs = []
+_, mutants, _, _, _ = mutate_value("SELECT t.a AS a, MAX(t.x) AS m FROM t GROUP BY t.a UNION "
+                                   "SELECT u.b AS a, MIN(u.y) AS m FROM u GROUP BY u.b", translation=trs)
+report(trs[0].value_distinct and mutants and all(') UNION (' in m[3] for m in mutants),
+       'UNION of value queries: DISTINCT over UNION ALL, printed as UNION')
+# rows merge: original (1, 2), (1, 2), (2, 3) -> DISTINCT (1, 2), (2, 3); mutant +1 in column 1
+orig = [(1, 2), (2, 3)]
+report(check_value('Le', 1, orig, [(1, 3), (2, 4)], cover=True) == 'ok', 'cover: related rows on both sides')
+report(check_value('Le', 1, orig, [(1, 3), (1, 5), (2, 4)], cover=True) == 'ok', 'cover: two mutant rows for one original row')
+report(check_value('Le', 1, [(1, 2), (1, 4), (2, 3)], [(1, 4), (2, 3)], cover=True) == 'ok',
+       'cover: two original rows merged into one mutant row')
+report(check_value('Le', 1, orig, [(1, 1), (2, 4)], cover=True).startswith('Le violated'), 'cover: a decreased value is a violation')
+report(check_value('Le', 1, orig, [(2, 4)], cover=True) == 'other columns changed', 'cover: a missing group is detected')
+report(check_value('Le', 1, orig, [(1, 3), (1, 5), (2, 4)]) != 'ok', 'without cover, three rows for two are a violation')
 
 # the adaptive campaign: UCB1 tries every arm once, then prefers the arm with more reward
 import random  # noqa: E402

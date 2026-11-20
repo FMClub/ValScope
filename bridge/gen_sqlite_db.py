@@ -73,12 +73,16 @@ def statements(seed, focus=False):
 SKIPPED = []     # (seed, statement, error) of the statements that failed in build()
 
 
-def build(db, seed, focus=False):
+def build(db, seed, focus=False, compat=False):
     """Create the tables in `db` (a sqlite_exec.SQLiteLib).  Statements that fail (a
     UNIQUE index over duplicate data, an expression an old release does not support) are
-    skipped and recorded in SKIPPED.  Returns the statements used."""
+    skipped and recorded in SKIPPED.  Returns the statements used.  compat: tables are
+    created without WITHOUT ROWID (for releases before 3.8.2; another database, used only
+    as an approximation by bisect_sqlite.py --compat)."""
     used = []
     for s in statements(seed, focus):
+        if compat:
+            s = s.replace(') WITHOUT ROWID;', ');')
         try:
             db.executescript(s)
             used.append(s)

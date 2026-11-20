@@ -46,10 +46,9 @@ class MySQLTarget:
         self.pymysql = pymysql
         self.conn = pymysql.connect(host=args.host, port=args.port, user=args.user, password=args.password,
                                     database=args.database, charset='utf8mb4', autocommit=True)
-        # a column that is neither grouped nor aggregated would take its value from any row
-        # of the group; the bridge rejects such queries, and the server is asked to as well
-        with self.conn.cursor() as cur:
-            cur.execute("SET SESSION sql_mode = CONCAT(@@sql_mode, ',ONLY_FULL_GROUP_BY')")
+        # (a column that is neither grouped nor aggregated would take its value from any row
+        # of the group; the bridge rejects such queries.  ONLY_FULL_GROUP_BY is not set:
+        # MariaDB's also rejects determined expressions such as LN(c) + 3 with GROUP BY LN(c).)
         # the collation of every result column, reported by the server (checker.py)
         self.columns = MariaDBColumns(self.conn, mariadb_fold(self.conn, args.database))
         self.name = 'per result column (server metadata)'
@@ -62,6 +61,15 @@ class MySQLTarget:
             for t, c in cur.fetchall():
                 t, c = (x.decode() if isinstance(x, bytes) else x for x in (t, c))
                 self.schema.setdefault(t, []).append('`%s`' % c if not c.isidentifier() else c)
+            # columns of an integer type in every table that has them (collation law)
+            cur.execute('SELECT COLUMN_NAME, DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = %s',
+                        (args.database,))
+            exact, other = set(), set()
+            for c, ty in cur.fetchall():
+                c, ty = (x.decode() if isinstance(x, bytes) else x for x in (c, ty))
+                (exact if ty.lower() in ('tinyint', 'smallint', 'mediumint', 'int', 'integer', 'bigint')
+                 else other).add(c.lower())
+            self.exact = {c: 'integer' for c in exact - other}
 
     def folds(self, collations_a, collations_b):
         return self.columns.folds(collations_a, collations_b)
@@ -160,6 +168,7 @@ class SQLiteTarget:
         self.name = 'per result column where SQLite reports it, else %s' % self.fallback.name
         self.last_collations = []
         self.schema = sqlite_schema(self.db)
+        self.exact = sqlite_exact_columns(self.db, self.schema)
 
     def folds(self, collations_a, collations_b):
         return self.db.folds(collations_a, collations_b, self.fallback)
@@ -184,6 +193,26 @@ def sqlite_schema(db):
     for (t,) in db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"):
         schema[t] = [r[1] for r in db.query("PRAGMA table_info('%s')" % t.replace("'", "''"))]
     return schema
+
+
+def sqlite_exact_columns(db, schema):
+    """Column name -> storage class ('integer', or 'real' without -0.0), for the columns
+    that hold only that class (or NULL) in every table that has them
+    (sql_bridge._exact_names)."""
+    classes = {}
+    for t, cols in schema.items():
+        for c in cols:
+            qt, qc = t.replace('"', '""'), c.replace('"', '""')
+            kinds = {r[0] for r in db.query('SELECT DISTINCT typeof("%s") FROM "%s" WHERE "%s" IS NOT NULL'
+                                             % (qc, qt, qc))}
+            k = None
+            if kinds <= {'integer'}:
+                k = 'integer'
+            elif kinds == {'real'} and not db.query(
+                    "SELECT 1 FROM \"%s\" WHERE \"%s\" = 0 AND CAST(\"%s\" AS TEXT) LIKE '-%%' LIMIT 1" % (qt, qc, qc)):
+                k = 'real'
+            classes.setdefault(c.lower(), set()).add(k)
+    return {c: next(iter(ks)) for c, ks in classes.items() if len(ks) == 1 and None not in ks}
 
 
 FLIP_VALUE = {'Le': 'Ge', 'Ge': 'Le', 'TowardOne': 'AwayOne', 'AwayOne': 'TowardOne'}
@@ -218,10 +247,11 @@ def main():
         try:
             if args.value:
                 original, mutants, skipped, probe, having_mutants = mutate_value(
-                    sql, dialect=target.dialect, translation=trs, schema=target.schema)
+                    sql, dialect=target.dialect, translation=trs, schema=target.schema, exact_columns=target.exact)
                 mutants = mutants + having_mutants
             else:
-                original, mutants, skipped = mutate_sql(sql, dialect=target.dialect, schema=target.schema)
+                original, mutants, skipped = mutate_sql(sql, dialect=target.dialect, schema=target.schema,
+                                                        exact_columns=target.exact)
         except Unsupported:
             st['unsupported'] += 1
             continue
@@ -288,7 +318,8 @@ def main():
                         continue
                     relation = FLIP_VALUE[relation]
                 loose = single or (types is not None and target.SINGLE in (base_types[column], types[column]))
-                verdict = check_value(relation, column, base, res, single_precision=loose, fold=fold)
+                verdict = check_value(relation, column, base, res, single_precision=loose, fold=fold,
+                                      cover=bool(trs) and trs[0].value_distinct)
                 label = '%s col %d' % (relation, column)
             else:
                 # set-semantic mutant, or a mutant of the HAVING predicate

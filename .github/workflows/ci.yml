@@ -84,7 +84,7 @@ jobs:
           python3 -m pip install --break-system-packages -r requirements.txt
       - name: Load the sample database
         run: YES=1 scripts/setup_mariadb.sh
-      - name: Server tests (collations of compounds, decoding, ONLY_FULL_GROUP_BY)
+      - name: Server tests (collations of compounds, decoding, grouping)
         run: python3 bridge/test_mysql.py
       - name: End to end on MariaDB
         run: N=60 scripts/demo.sh mariadb
@@ -112,10 +112,10 @@ jobs:
           python3 -m pip install --break-system-packages -r requirements.txt cryptography
       - name: Load the sample database
         run: YES=1 scripts/setup_mariadb.sh
-      - name: Server tests (collations of compounds, decoding, ONLY_FULL_GROUP_BY)
+      - name: Server tests (collations of compounds, decoding, grouping)
         run: python3 bridge/test_mysql.py
-      - name: End to end on MySQL (MySQL-protocol runner)
-        run: N=60 scripts/demo.sh mariadb
+      - name: End to end on MySQL (MySQL-protocol runner, 300 queries of each kind)
+        run: N=300 scripts/demo.sh mariadb
       - name: Rows of every violation (hex)
         if: always()
         run: |
@@ -138,3 +138,4 @@ jobs:
           mysql_() { mysql -h127.0.0.1 -uroot -p123456 "$@"; }
           mysql_ -e "CREATE DATABASE IF NOT EXISTS vs_bit; USE vs_bit; CREATE TABLE b (x BIT(8)); INSERT INTO b VALUES (2), (242); SELECT HEX(MIN(x)), MIN(x) FROM b;" || true
           sed -n '/^DROP DATABASE IF EXISTS/,/^```/p' issues/006-mariadb-bit-subquery-loose-scan.md | grep -v '^```' | mysql_ --skip-column-names || true
+          mysql_ --skip-column-names < data/mysql/bit-variants.sql || true

@@ -432,8 +432,7 @@ in which the term means what the SQL text means.
   `RIGHT JOIN` after another join or with `SELECT *` (a first `RIGHT JOIN` is translated as
   the swapped `LEFT JOIN`), recursive CTEs, table functions with column
   arguments, non-aggregated select items that are not grouping keys (at every level, also
-  in subqueries and derived tables; MariaDB / MySQL sessions also set
-  `ONLY_FULL_GROUP_BY`), order-dependent aggregates (`GROUP_CONCAT` / `STRING_AGG` without an
+  in subqueries, derived tables and `HAVING`), order-dependent aggregates (`GROUP_CONCAT` / `STRING_AGG` without an
   `ORDER BY` over their own values, `JSON_ARRAYAGG`, `JSON_OBJECTAGG`, `ANY_VALUE`, ...),
   value queries whose clauses refer to a select alias, non-deterministic functions
   (`RAND`, `NOW`, SQLite `random()`, `date('now')`, ...) and user variables.

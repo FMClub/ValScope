@@ -35,7 +35,7 @@ from sqlite_exec import SQLiteLib  # noqa: E402
 import sql_bridge  # noqa: E402
 from sql_bridge import mutate_sql, mutate_value, Unsupported  # noqa: E402
 from checker import check_inclusion, check_value, sqlite_fold  # noqa: E402
-from run_on_db import sqlite_schema  # noqa: E402
+from run_on_db import sqlite_exact_columns, sqlite_schema  # noqa: E402
 
 ERRORS = collections.Counter()
 
@@ -54,11 +54,12 @@ def same_rows(a, b):
     return check_inclusion('Up', a, b) == 'ok' and check_inclusion('Down', a, b) == 'ok'
 
 
-def verdict_for(kind, mutant, base, res, fold=None):
-    """Check one mutant. kind is 'set', 'value' or 'having'."""
+def verdict_for(kind, mutant, base, res, fold=None, cover=False):
+    """Check one mutant. kind is 'set', 'value' or 'having'.  cover: the value query is
+    under DISTINCT (or a UNION), the check is a cover (VDistinct.v)."""
     if kind == 'value':
         relation, rule, column, _ = mutant
-        return check_value(relation, column, base, res, fold=fold), '%s col %d' % (relation, column)
+        return check_value(relation, column, base, res, fold=fold, cover=cover), '%s col %d' % (relation, column)
     direction = mutant[0]
     return check_inclusion(direction, base, res, fold), direction
 
@@ -146,23 +147,27 @@ def main():
             dbs.append(db)
         latest = dbs.pop()
         schema = sqlite_schema(latest)
+        # columns that hold integers only in every library's database (collation law)
+        per_db = [sqlite_exact_columns(d, schema) for d in dbs + [latest]]
+        exact = {c: k for c, k in per_db[0].items() if all(e.get(c) == k for e in per_db)}
         rng = random.Random(seed)
         queries = [('set', gen_fragment.query(rng)) for _ in range(args.queries)]
         queries += [('value', gen_fragment.value_query(rng)) for _ in range(args.queries)]
         shapes = {}
         for kind, sql in queries:
             st['queries'] += 1
-            numeric_probe = None
+            numeric_probe, distinct = None, False
             try:
                 if kind == 'set':
-                    original, mutants, skipped = mutate_sql(sql, dialect='sqlite', schema=schema)
+                    original, mutants, skipped = mutate_sql(sql, dialect='sqlite', schema=schema, exact_columns=exact)
                     work = [('set', m) for m in mutants]
                 else:
                     trs = []
                     original, mutants, skipped, _, having = mutate_value(sql, dialect='sqlite', translation=trs,
-                                                                         schema=schema)
+                                                                         schema=schema, exact_columns=exact)
                     work = [('value', m) for m in mutants] + [('having', m) for m in having]
                     numeric_probe = trs[0].numeric_probe()
+                    distinct = trs[0].value_distinct
             except Unsupported:
                 st['unsupported'] += 1
                 continue
@@ -204,7 +209,7 @@ def main():
                         else:
                             m = ('Down' if m[0] == 'Up' else 'Up',) + tuple(m[1:])
                     fold = db.folds(base_collations, db.last_collations, db.fallback)
-                    verdict, label = verdict_for(mk, m, base, res, fold)
+                    verdict, label = verdict_for(mk, m, base, res, fold, distinct)
                     rule = ('HAVING ' if mk == 'having' else '') + m[1]
                     if verdict not in ('incomparable',):
                         if sql not in shapes:
@@ -226,13 +231,15 @@ def main():
                     lb_collations = latest.last_collations
                     lr = run(latest, mutant[-1])
                     on_latest = None if lb is None or lr is None else verdict_for(
-                        mk, m, lb, lr, latest.folds(lb_collations, latest.last_collations, latest.fallback))[0]
+                        mk, m, lb, lr, latest.folds(lb_collations, latest.last_collations, latest.fallback),
+                        distinct)[0]
                     fixed = on_latest in ('ok', 'collation')     # the relation holds on the latest
                     st['violations_fixed_in_latest' if fixed else 'violations_also_in_latest'] += 1
                     rec = {'version': db.version, 'seed': seed, 'focus': args.focus, 'kind': mk,
                            'rule': rule, 'expect': label,
                            'verdict': verdict, 'latest_verdict': on_latest, 'original': original,
-                           'mutant': mutant[-1], 'original_rows': len(base), 'mutant_rows': len(res)}
+                           'mutant': mutant[-1], 'original_rows': len(base), 'mutant_rows': len(res),
+                           'distinct': distinct}
                     print('VIOLATION [%s seed %d] %s %s (%s) latest: %s\n  original: %s\n  mutant  : %s'
                           % (db.version, seed, label, rule, verdict, on_latest, original, mutant[-1]))
                     if out:

@@ -59,9 +59,9 @@ def main():
         rows, _ = target.run('SELECT t.l FROM t ORDER BY t.n')
         report(rows is not None and rows[0][0] in ('é', 'é'.encode('latin-1'), b'\xc3\xa9'),
                'latin1 column decoded: %r' % (rows,))
-        # ONLY_FULL_GROUP_BY is set: a bare column is an error, not any row of the group
-        rows, _ = target.run('SELECT t.a, t.n FROM t GROUP BY t.a')
-        report(rows is None, 'ONLY_FULL_GROUP_BY rejects a bare column')
+        # an expression over a grouping key is determined, and the server accepts it
+        rows, _ = target.run('SELECT t.n + 3 AS k, COUNT(*) AS c FROM t GROUP BY t.n')
+        report(rows is not None and sorted(r[0] for r in rows) == [4, 5], 'expression over a grouping key runs')
     finally:
         cur.execute('DROP DATABASE vs_test_mysql')
     print('%d failures' % failures)

@@ -405,7 +405,7 @@ def _key(row, column, fold, digits):
     return tuple(_norm(v, f, digits) for i, (v, f) in enumerate(zip(row, folds)) if i != column)
 
 
-def check_value(relation, column, original_rows, mutant_rows, single_precision=False, fold=None):
+def check_value(relation, column, original_rows, mutant_rows, single_precision=False, fold=None, cover=False):
     """'ok', 'incomparable' (the mutated column is not numeric in one of the results)
     or a string describing the violation.
 
@@ -418,8 +418,9 @@ def check_value(relation, column, original_rows, mutant_rows, single_precision=F
     if nontrivial(fold):
         attempts += [(fold, None), (fold, 9)]
     verdict = None
+    check = _check_cover if cover else _check_value
     for f, digits in attempts:
-        verdict = _check_value(relation, column, original_rows, mutant_rows, f, digits, tol)
+        verdict = check(relation, column, original_rows, mutant_rows, f, digits, tol)
         if verdict != 'other columns changed':
             return verdict
     return verdict
@@ -460,6 +461,35 @@ def _check_value(relation, column, original_rows, mutant_rows, fold, digits, tol
         if unmatched is not None:
             return '%s violated: no mutant value corresponds to %r (mutant values %r)' % (
                 relation, unmatched, sorted(b, key=float)[:8])
+    return 'ok'
+
+
+def _check_cover(relation, column, original_rows, mutant_rows, fold, digits, tol):
+    """Under DISTINCT (VDistinct.v, tmutate_distinct_sound) the rows no longer correspond
+    one to one; the theorem says every row of each result is related to some row of the
+    other: it agrees outside the mutated column, and the values in it satisfy the
+    relation (NULL only with NULL)."""
+    groups = collections.defaultdict(lambda: ([], []))
+    for row in original_rows:
+        groups[_key(row, column, fold, digits)][0].append(row[column])
+    for row in mutant_rows:
+        groups[_key(row, column, fold, digits)][1].append(row[column])
+    for key, (orig, mut) in groups.items():
+        if not orig or not mut:
+            return 'other columns changed'
+        for values in (orig, mut):
+            if any(v is not None and (isinstance(v, bool) or not isinstance(v, NUMERIC)) for v in values):
+                return 'incomparable'
+        related = lambda x, y: (x is None and y is None) or (
+            x is not None and y is not None and relation_holds(relation, x, y, tol))
+        for y in mut:
+            if not any(related(x, y) for x in orig):
+                return '%s violated: no original value is related to the mutant value %r (original values %r)' % (
+                    relation, y, orig[:8])
+        for x in orig:
+            if not any(related(x, y) for y in mut):
+                return '%s violated: no mutant value is related to the original value %r (mutant values %r)' % (
+                    relation, x, mut[:8])
     return 'ok'
 
 

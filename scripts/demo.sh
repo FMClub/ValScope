@@ -31,7 +31,9 @@ if command -v python3 > /dev/null; then
     python3 -c 'import pymysql' 2> /dev/null || { echo "missing: python package pymysql    install: python3 -m pip install -r requirements.txt" >&2; missing=1; }
   fi
   v=$(python3 -c 'import sqlglot; print(sqlglot.__version__)' 2> /dev/null || true)
-  [ -z "$v" ] || [ "$v" = 30.33.0 ] || echo "warning: sqlglot $v; the bridge is tested with 30.33.0 (requirements.txt)" >&2
+  if [ -n "$v" ] && ! python3 -c "import sys; v = tuple(map(int, '$v'.split('.')[:2])); sys.exit(not ((26, 33) <= v <= (30, 33)))"; then
+    echo "warning: sqlglot $v; the bridge is tested with sqlglot 26.33 to 30.33 (requirements.txt pins 30.33.0)" >&2
+  fi
 fi
 [ "$missing" = 0 ] || exit 1
 

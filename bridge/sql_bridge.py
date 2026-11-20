@@ -73,8 +73,30 @@ SET_SQL = {'UnionAll': 'UNION ALL', 'Union': 'UNION', 'Intersect': 'INTERSECT', 
 # Scalar functions that are non-decreasing on all reals and never turn a non-NULL
 # number into NULL.  LOG, LN and SQRT are excluded on purpose: they return NULL
 # outside their domain, which would change NULL-ness.
-MONO_FUNCS = [(exp.Exp, 'EXP'), (exp.Floor, 'FLOOR'), (exp.Ceil, 'CEIL'),
-              (exp.Round, 'ROUND'), (exp.Atan, 'ATAN'), (exp.Sign, 'SIGN')]
+MONO_FUNCS = [(getattr(exp, cls), name) for cls, name in
+              (('Exp', 'EXP'), ('Floor', 'FLOOR'), ('Ceil', 'CEIL'), ('Round', 'ROUND'),
+               ('Atan', 'ATAN'), ('Sign', 'SIGN')) if hasattr(exp, cls)]   # (Atan: sqlglot >= 27)
+
+# In MySQL / MariaDB, VARIANCE, STD and STDDEV are the POPULATION aggregates.  Older sqlglot
+# releases parse VARIANCE as the sample variance (the node of VAR_SAMP), so the names are
+# rewritten before parsing to the unambiguous VAR_POP / STDDEV_POP (same meaning in MySQL).
+MYSQL_POPULATION_ALIASES = {'VARIANCE': 'VAR_POP', 'STD': 'STDDEV_POP', 'STDDEV': 'STDDEV_POP'}
+
+
+def _mysql_population_names(sql):
+    try:
+        tokens = sqlglot.tokenize(sql, read='mysql')
+    except Exception:
+        return sql
+    out, last = [], 0
+    for tok, nxt in zip(tokens, tokens[1:]):
+        name = tok.text.upper()
+        if name in MYSQL_POPULATION_ALIASES and nxt.text == '(' and sql[tok.start:tok.end + 1].upper() == name:
+            out.append(sql[last:tok.start])
+            out.append(MYSQL_POPULATION_ALIASES[name])
+            last = tok.end + 1
+    out.append(sql[last:])
+    return ''.join(out)
 
 # Functions whose value changes between two executions of the same query.
 NONDETERMINISTIC = {
@@ -356,6 +378,8 @@ class Translation:
         self.item_alias_arms = []           # the column aliases of each arm of a value query
         self.named, self.qatoms, self.ctes, self.opaque_items = [], [], {}, []
         self._law_cache = {}
+        if dialect == 'mysql':
+            sql = _mysql_population_names(sql)
         tree = sqlglot.parse_one(sql, read=dialect)
         _check_deterministic(tree)
         tree = self._take_ctes(tree)

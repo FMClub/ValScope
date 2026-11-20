@@ -1,0 +1,78 @@
+name: ci
+
+# Checks every proof, builds the extracted mutator, runs the bridge and checker tests and
+# a short end-to-end run on SQLite and on MariaDB.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  coq-8-18:
+    name: Coq 8.18 (Ubuntu package), tests, SQLite
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Coq, OCaml and Python packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y coq ocaml ocaml-findlib make gcc
+          python3 -m pip install --break-system-packages -r requirements.txt
+      - name: Check the proofs and build the mutator
+        run: make && make cli
+      - name: Old SQLite releases (with column metadata)
+        run: bridge/build_old_sqlite.sh /tmp/sqlite-libs
+      - name: Tests (proof assumptions, abstract rules, bridge, checker)
+        run: SQLITE_LIBS=/tmp/sqlite-libs make test
+      - name: End to end on SQLite
+        run: N=60 scripts/demo.sh sqlite
+      - name: SQLite campaign on two old releases (small)
+        run: |
+          L=/tmp/sqlite-libs
+          python3 bridge/campaign_sqlite.py --libs $L/libsqlite3-3260000.so $L/libsqlite3-3340000.so --seeds 1001-1003 --queries 20 --out /tmp/violations.jsonl
+
+  rocq-9:
+    name: Rocq 9 (opam)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: "4.14"
+      - name: Install Rocq 9
+        run: opam install -y rocq-prover ocamlfind
+      - name: Check the proofs and build the mutator
+        run: opam exec -- make && opam exec -- make cli
+      - name: Tests
+        run: |
+          python3 -m pip install --break-system-packages -r requirements.txt
+          opam exec -- make test
+
+  mariadb:
+    name: MariaDB 10.11, end to end
+    runs-on: ubuntu-24.04
+    services:
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: "123456"
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s --health-timeout=5s --health-retries=30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Coq, OCaml, the MariaDB client and Python packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y coq ocaml ocaml-findlib make gcc mariadb-client
+          python3 -m pip install --break-system-packages -r requirements.txt
+      - name: Load the sample database
+        run: YES=1 scripts/setup_mariadb.sh
+      - name: End to end on MariaDB
+        run: N=60 scripts/demo.sh mariadb

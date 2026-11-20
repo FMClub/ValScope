@@ -379,6 +379,11 @@ How the audit fixes changed the numbers on the same inputs:
   `UNION ALL` the bit value (`0x02`) is sent. Minimal case:
   `CREATE TABLE b (x BIT(8)); INSERT INTO b VALUES (2), (242); SELECT MIN(x), MAX(x) FROM b;`
   Written up in `issues/005-mariadb-bit-min-max-text.md` (PR #8).
+- **Candidate MariaDB bug** (`DISTINCT-add`, generated queries): a `BIT(8)` scalar subquery
+  evaluated per group of a `GROUP BY` that uses a loose index scan ("Using index for
+  group-by") returns `255` instead of its value when the result goes through a derived table
+  and a `UNION ALL` with a string. Minimal case and plan in
+  `issues/006-mariadb-bit-subquery-loose-scan.md`.
 - Earlier value runs found the `HAVING COUNT(x) IN (subquery)` candidate
   (`issues/003-mariadb-having-count-in-subquery.md`).
 
@@ -426,9 +431,12 @@ in which the term means what the SQL text means.
   aggregation, window functions in value queries, `FULL` / `USING` / `NATURAL` joins, a
   `RIGHT JOIN` after another join or with `SELECT *` (a first `RIGHT JOIN` is translated as
   the swapped `LEFT JOIN`), recursive CTEs, table functions with column
-  arguments, non-aggregated select items that are not grouping keys, value queries whose
-  clauses refer to a select alias, non-deterministic functions (`RAND`, `NOW`, SQLite
-  `random()`, `date('now')`, ...) and user variables.
+  arguments, non-aggregated select items that are not grouping keys (at every level, also
+  in subqueries and derived tables; MariaDB / MySQL sessions also set
+  `ONLY_FULL_GROUP_BY`), order-dependent aggregates (`GROUP_CONCAT` / `STRING_AGG` without an
+  `ORDER BY` over their own values, `JSON_ARRAYAGG`, `JSON_OBJECTAGG`, `ANY_VALUE`, ...),
+  value queries whose clauses refer to a select alias, non-deterministic functions
+  (`RAND`, `NOW`, SQLite `random()`, `date('now')`, ...) and user variables.
 - **Translation validation** (`run_on_db.py`, `campaign_sqlite.py`): the query as written
   and the query re-printed from its term must return the same rows, otherwise the query is
   not used and the mismatch is reported.

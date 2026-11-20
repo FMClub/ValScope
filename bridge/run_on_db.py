@@ -46,6 +46,10 @@ class MySQLTarget:
         self.pymysql = pymysql
         self.conn = pymysql.connect(host=args.host, port=args.port, user=args.user, password=args.password,
                                     database=args.database, charset='utf8mb4', autocommit=True)
+        # a column that is neither grouped nor aggregated would take its value from any row
+        # of the group; the bridge rejects such queries, and the server is asked to as well
+        with self.conn.cursor() as cur:
+            cur.execute("SET SESSION sql_mode = CONCAT(@@sql_mode, ',ONLY_FULL_GROUP_BY')")
         # the collation of every result column, reported by the server (checker.py)
         self.columns = MariaDBColumns(self.conn)
         self.name = 'per result column (server metadata)'

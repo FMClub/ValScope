@@ -76,6 +76,16 @@ for sql, direction, rule, fragment in SET_CASES:
     report(any(d == direction and r == rule and fragment in m for d, r, m in mutants),
            '%-4s %-20s %s' % (direction, rule, sql))
 
+# order-dependent aggregates with an ORDER BY over their own values are determined
+for sql in ["SELECT t.g AS g, GROUP_CONCAT(t.c ORDER BY t.c) AS l FROM t GROUP BY t.g",
+            "SELECT t.a FROM t WHERE t.a IN (SELECT u.d FROM u GROUP BY u.d)",
+            "SELECT t.a FROM t WHERE t.a IN (SELECT MAX(u.c) + 1 FROM u)"]:
+    try:
+        Translation(sql, kind='value' if sql.startswith('SELECT t.g') else 'set')
+        report(True, 'determined aggregate / grouping accepted: %s' % sql)
+    except Unsupported as e:
+        report(False, 'determined aggregate / grouping rejected (%s): %s' % (e, sql))
+
 # LIMIT whose result is determined: every output column is ordered, or one row
 for sql in ["SELECT (SELECT u.c FROM u ORDER BY u.c LIMIT 1) AS x FROM t",
             "SELECT (SELECT u.c AS k FROM u ORDER BY k DESC LIMIT 1) AS x FROM t",
@@ -192,6 +202,15 @@ _, mutants, _ = mutate_sql("SELECT a.x FROM a INTERSECT SELECT b.y FROM b")
 report(any(r == 'INTERSECT->operand' and m == 'SELECT b.y FROM b' for _, r, m in mutants),
        'INTERSECT->operand at the top: the right arm is allowed')
 
+# MySQL / MariaDB derive a compound's collation from all its arms: removing an arm inside
+# an enclosing set operation is outside the model (EXCEPT->left below a UNION)
+_, mutants, _ = mutate_sql("(SELECT a.x FROM a EXCEPT SELECT b.y FROM b) UNION SELECT c.z FROM c")
+report(not any(r == 'EXCEPT->left' for _, r, _ in mutants), 'MySQL: EXCEPT->left below a UNION is dropped')
+_, mutants, _ = mutate_sql("(SELECT a.x FROM a EXCEPT SELECT b.y FROM b) UNION SELECT c.z FROM c", dialect='sqlite')
+report(any(r == 'EXCEPT->left' for _, r, _ in mutants), 'SQLite: EXCEPT->left keeps the leftmost arm, kept')
+_, mutants, _ = mutate_sql("SELECT a.x FROM a EXCEPT SELECT b.y FROM b")
+report(any(r == 'EXCEPT->left' for _, r, _ in mutants), 'MySQL: EXCEPT->left at the top is kept')
+
 # the ON condition of a LEFT JOIN must never be mutated (Counter.v)
 _, mutants, _ = mutate_sql("SELECT t.a FROM t LEFT JOIN u ON t.a = u.a AND u.b > 1 WHERE t.c = 2")
 touched = [m for _, _, m in mutants if 'LEFT JOIN u ON' in m and 'ON (t.a = u.a) AND (u.b > 1)' not in m]
@@ -219,9 +238,9 @@ for sql, relation, rule, column, fragment in VALUE_CASES:
            '%-9s %-24s %s' % (relation, rule, sql))
 
 # an item that is not analysed is copied unchanged into every mutant
-_, mutants, _ = mutate_value_sql("SELECT VAR_SAMP(t.b) AS s, GROUP_CONCAT(t.c) AS g, SUM(DISTINCT t.d) AS d FROM t")
+_, mutants, _ = mutate_value_sql("SELECT VAR_SAMP(t.b) AS s, GROUP_CONCAT(t.c ORDER BY t.c) AS g, SUM(DISTINCT t.d) AS d FROM t")
 report(any(r == 'VAR_SAMP->STDDEV_SAMP' for _, r, _, _ in mutants) and
-       all("(GROUP_CONCAT(t.c SEPARATOR ',')) AS g" in m for _, _, c, m in mutants if c == 0) and
+       all("(GROUP_CONCAT(t.c ORDER BY t.c SEPARATOR ',')) AS g" in m for _, _, c, m in mutants if c == 0) and
        all("(SUM(DISTINCT t.d)) AS d" in m for _, _, c, m in mutants if c != 2), 'opaque items copied unchanged')
 # in MySQL / MariaDB, VARIANCE is the population variance: it is not rule 21's VAR_SAMP
 _, mutants, _ = mutate_value_sql("SELECT VARIANCE(t.b) AS s FROM t")
@@ -277,6 +296,12 @@ REJECTED = [
      'set', 'recursive CTE'),
     ("SELECT a, ROW_NUMBER() OVER () FROM t", 'set', 'window function'),
     ("SELECT j.value FROM t AS x, json_each(x.doc) AS j", 'set', 'table function with column arguments'),
+    ("SELECT t.a FROM t WHERE t.b IN (SELECT GROUP_CONCAT(u.c) FROM u)", 'set', 'GROUP_CONCAT without ORDER BY'),
+    ("SELECT t.g AS g, GROUP_CONCAT(t.c ORDER BY t.d) AS l FROM t GROUP BY t.g", 'value', 'GROUP_CONCAT ordered by another column'),
+    ("SELECT t.a FROM t WHERE t.b = (SELECT JSON_ARRAYAGG(u.c) FROM u)", 'set', 'JSON_ARRAYAGG'),
+    ("SELECT d.x FROM (SELECT t.a AS x FROM t GROUP BY t.b) AS d", 'set', 'bare column in a grouped derived table'),
+    ("SELECT t.a FROM t WHERE t.a IN (SELECT u.c FROM u GROUP BY u.d)", 'set', 'bare column in a grouped subquery'),
+    ("SELECT t.a FROM t WHERE t.a IN (SELECT u.c, COUNT(*) FROM u)", 'set', 'bare column next to an aggregate'),
 ]
 for sql, kind, what in REJECTED:
     try:

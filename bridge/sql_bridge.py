@@ -291,6 +291,60 @@ def outside_collation_law(tr, term):
     return check(tree)
 
 
+# Aggregates whose result depends on the order of the rows they read.
+ORDER_DEPENDENT_AGGS = {'GROUP_CONCAT', 'STRING_AGG', 'LISTAGG', 'ARRAY_AGG', 'JSON_ARRAYAGG',
+                        'JSON_OBJECTAGG', 'JSON_GROUP_ARRAY', 'JSON_GROUP_OBJECT', 'GROUPCONCAT',
+                        'ARRAYAGG', 'JSONARRAYAGG', 'JSONOBJECTAGG', 'ANY_VALUE', 'ANYVALUE',
+                        'FIRST_VALUE', 'LAST_VALUE'}
+
+
+def _order_dependent_undetermined(node):
+    """For an order-dependent aggregate: None if its ORDER BY determines the order
+    (every aggregated expression is an ORDER BY key, so tied rows give the same value);
+    otherwise the reason."""
+    name = (node.name if isinstance(node, exp.Anonymous) else node.sql_name()).upper().replace(' ', '')
+    if name not in ORDER_DEPENDENT_AGGS:
+        return None
+    if name in ('ANY_VALUE', 'ANYVALUE'):
+        return 'ANY_VALUE returns any row'
+    arg = node.args.get('this')
+    if isinstance(arg, exp.Order):
+        keys = {_strip_parens(o.this).sql() for o in arg.expressions}
+        values = [arg.this] if arg.this is not None else []
+        if values and all(_strip_parens(v).sql() in keys for v in values):
+            return None
+        return '%s with an ORDER BY that does not order its values' % name
+    return '%s without ORDER BY: the order of the values is not determined' % name
+
+
+def _bare_columns(select):
+    """Columns of a grouped (or aggregated) SELECT that are neither grouping keys nor
+    inside an aggregate: their value is taken from any row of the group."""
+    group = select.args.get('group')
+    items = list(select.expressions)
+    has_agg = any(n.find(exp.AggFunc) for n in items)
+    if group is None and not has_agg:
+        return []
+    keys = {_strip_parens(k).sql().lower() for k in (group.expressions if group else [])}
+    bare = []
+    for item in items:
+        body = item.this if isinstance(item, exp.Alias) else item
+        if _strip_parens(body).sql().lower() in keys:
+            continue
+
+        def walk(n):
+            if isinstance(n, (exp.AggFunc, exp.Select, exp.Subquery, exp.Window)):
+                return
+            if isinstance(n, exp.Column) and not isinstance(n.this, exp.Star):
+                if _strip_parens(n).sql().lower() not in keys:
+                    bare.append(n.sql())
+                return
+            for c in n.iter_expressions():
+                walk(c)
+        walk(body)
+    return bare
+
+
 def _check_deterministic(tree):
     for node in tree.walk():
         if isinstance(node, NONDETERMINISTIC_NODES):
@@ -303,6 +357,16 @@ def _check_deterministic(tree):
             if any(isinstance(a, exp.Literal) and a.is_string and a.this.strip().lower() == 'now'
                    for a in node.iter_expressions()):
                 raise Unsupported("non-deterministic: %s('now')" % name)
+        if isinstance(node, (exp.Anonymous, exp.AggFunc)):
+            why = _order_dependent_undetermined(node)
+            if why:
+                raise Unsupported('non-deterministic: ' + why)
+        if isinstance(node, exp.Select):
+            bare = _bare_columns(node)
+            if bare:
+                # the value of a column that is neither grouped nor aggregated comes from
+                # any row of its group (MySQL without ONLY_FULL_GROUP_BY, SQLite)
+                raise Unsupported('non-deterministic: %s is neither grouped nor aggregated' % bare[0])
         if isinstance(node, (exp.Select, exp.Union, exp.Intersect, exp.Except)) and node is not tree \
                 and (node.args.get('limit') or node.args.get('offset')):
             why = _limit_undetermined(node)
@@ -1466,14 +1530,61 @@ def _leftmost_arms(tr, t):
     return out
 
 
+def _arm_sets(tr, t):
+    """For every maximal tree of set operations in t, the set of the select lists of its
+    arms (canonical).  MySQL / MariaDB derive the collation of a compound column from all
+    arms, so removing or replacing an arm can change it."""
+    out = set()
+
+    def items(x):
+        while isinstance(x, list) and x:
+            if x[0] == 'Distinct':
+                x = x[1]
+            elif x[0] in ('Where', 'Named'):
+                x = x[2]
+            elif x[0] == 'Proj':
+                return canonical(tr, ['Items'] + list(x[1]))
+            else:
+                return canonical(tr, x)
+        return canonical(tr, x)
+
+    def leaves(x, acc):
+        if isinstance(x, list) and x and x[0] in SET_TAGS:
+            leaves(x[1], acc)
+            leaves(x[2], acc)
+        else:
+            acc.add(items(x))
+
+    def walk(x, inside):
+        if not isinstance(x, list) or not x:
+            return
+        if isinstance(x[0], list):
+            for y in x:
+                walk(y, False)
+            return
+        is_set = x[0] in SET_TAGS
+        if is_set and not inside:
+            acc = set()
+            leaves(x, acc)
+            out.add(frozenset(acc))
+        for y in x[1:]:
+            walk(y, is_set)
+    walk(t, False)
+    return out
+
+
 def changes_compound_collation(tr, original, mutant):
     """Does the mutant give a set operation a leftmost arm that no set operation of the
     original has?  Then the collation that set operation compares with can change (the
     left arm's column may be NOCASE where the old one was BINARY), which the model, with
     one collation equivalence for the whole database, does not describe."""
-    o = _leftmost_arms(tr, parse_sexp(original) if isinstance(original, str) else original)
-    m = _leftmost_arms(tr, parse_sexp(mutant) if isinstance(mutant, str) else mutant)
-    return bool(m - o)
+    o_t = parse_sexp(original) if isinstance(original, str) else original
+    m_t = parse_sexp(mutant) if isinstance(mutant, str) else mutant
+    if _leftmost_arms(tr, m_t) - _leftmost_arms(tr, o_t):
+        return True                     # SQLite: the leftmost arm decides
+    if tr.dialect != 'sqlite' and _arm_sets(tr, m_t) - _arm_sets(tr, o_t):
+        return True                     # MySQL / MariaDB: all arms decide
+    return False
 
 
 def _validated(tr, term, kind):

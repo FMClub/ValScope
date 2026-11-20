@@ -115,6 +115,47 @@ class MariaDBFold:
         return self.cache[value]
 
 
+# MySQL / MariaDB character sets -> Python codecs (MySQL's latin1 is Windows-1252).
+MYSQL_CODECS = {
+    'utf8mb4': 'utf-8', 'utf8mb3': 'utf-8', 'utf8': 'utf-8', 'latin1': 'cp1252', 'ascii': 'ascii',
+    'ucs2': 'utf-16-be', 'utf16': 'utf-16-be', 'utf16le': 'utf-16-le', 'utf32': 'utf-32-be',
+    'latin2': 'iso8859_2', 'latin5': 'iso8859_9', 'latin7': 'iso8859_13', 'greek': 'iso8859_7',
+    'hebrew': 'iso8859_8', 'cp1250': 'cp1250', 'cp1251': 'cp1251', 'cp1256': 'cp1256', 'cp1257': 'cp1257',
+    'cp850': 'cp850', 'cp852': 'cp852', 'cp866': 'cp866', 'koi8r': 'koi8_r', 'koi8u': 'koi8_u',
+    'gbk': 'gbk', 'gb2312': 'gb2312', 'gb18030': 'gb18030', 'big5': 'big5', 'sjis': 'shift_jis',
+    'cp932': 'cp932', 'ujis': 'euc_jp', 'eucjpms': 'euc_jp', 'euckr': 'euc_kr', 'tis620': 'tis_620',
+    'macroman': 'mac_roman', 'swe7': 'latin-1', 'dec8': 'latin-1', 'hp8': 'latin-1', 'armscii8': 'latin-1',
+    'keybcs2': 'latin-1', 'macce': 'mac_latin2', 'geostd8': 'latin-1', 'cp1251_bin': 'cp1251',
+}
+
+
+def decode_per_column(conn, charsets):
+    """With character_set_results = NULL the server sends every text column in its own
+    character set; make pymysql decode each column with that set (charsets: collation id
+    -> character set name).  A set without a Python codec is decoded as latin-1, which
+    keeps every byte."""
+    import pymysql.connections as pc
+    if getattr(pc.MySQLResult, '_valscope_patched', False):
+        pc.MySQLResult._valscope_charsets.update(charsets)
+        return
+    original = pc.MySQLResult._get_descriptions
+
+    def _get_descriptions(self):
+        original(self)
+        if not getattr(self.connection, '_valscope_per_column', False):
+            return
+        converters = []
+        for field, (encoding, converter) in zip(self.fields, self.converters):
+            if encoding is not None and encoding != 'ascii' and field.charsetnr != 63:
+                cs = pc.MySQLResult._valscope_charsets.get(field.charsetnr)
+                encoding = MYSQL_CODECS.get(cs, 'latin-1') if cs else 'latin-1'
+            converters.append((encoding, converter))
+        self.converters = converters
+    pc.MySQLResult._get_descriptions = _get_descriptions
+    pc.MySQLResult._valscope_charsets = dict(charsets)
+    pc.MySQLResult._valscope_patched = True
+
+
 class MariaDBColumns:
     """Per-column folds for MariaDB / MySQL results.
 
@@ -125,10 +166,14 @@ class MariaDBColumns:
     def __init__(self, conn):
         self.conn, self.cache = conn, {}
         with conn.cursor() as cur:
-            cur.execute('SET character_set_results = NULL')
             # (MariaDB 10.10+ also lists collation aliases without an ID)
-            cur.execute('SELECT ID, COLLATION_NAME FROM information_schema.COLLATIONS WHERE ID IS NOT NULL')
-            self.names = {int(i): n for i, n in cur.fetchall()}
+            cur.execute('SELECT ID, COLLATION_NAME, CHARACTER_SET_NAME FROM information_schema.COLLATIONS '
+                        'WHERE ID IS NOT NULL')
+            rows = cur.fetchall()
+            self.names = {int(i): n for i, n, _ in rows}
+            decode_per_column(conn, {int(i): c for i, _, c in rows})
+            conn._valscope_per_column = True
+            cur.execute('SET character_set_results = NULL')
 
     def name(self, cid):
         return self.names.get(cid, 'binary')

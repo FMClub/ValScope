@@ -545,7 +545,7 @@ pairs and passed the most checks; the fixed best setting covered more features.
 ### 8.5 Reduce a violation
 
 ```bash
-L=/tmp/sqlite-libs; python3 bridge/reduce_sqlite.py violations.jsonl --lib 3.26.0=$L/libsqlite3-3260000.so --lib 3.34.0=$L/libsqlite3-3340000.so --out reduced.jsonl
+L=/tmp/sqlite-libs; python3 bridge/reduce_sqlite.py violations.jsonl --lib 3.26.0=$L/libsqlite3-3260000.so --lib 3.34.0=$L/libsqlite3-3340000.so --latest NEWEST.so --out reduced.jsonl --sql repro
 ```
 
 For every set-semantic pair, the original query is simplified one step at a time: a
@@ -559,6 +559,15 @@ or a bare `PATH` for all pairs). So the reduced pair is again one the engine pro
 the theorem of its rule still applies. `--pair N` reduces only pair N (1-based). The
 reduced pairs are printed and, with `--out`, written in the input format with the
 original pair under `reduced_from`.
+
+- `--latest LIB` (a library of the newest release, for example one built by
+  `bisect_sqlite.py`): a step is kept only if the relation still HOLDS there. Without it,
+  a reduction can drift from the bug of the pair (fixed since) to some other behaviour that
+  the newest release shares; with it, the reduced pair shows the same fixed bug.
+- `--sql DIR`: the database is reduced as well (rows, indexes and `ANALYZE` are removed,
+  first in chunks, then one by one, while the reduced pair stays violated), and
+  `DIR/pair-N.sql` is a self-contained reproduction: the statements, then the original and
+  the mutant. The record gets a `database` field with the statements.
 
 ### 8.6 Map violations to SQLite commits (distinct bugs)
 
@@ -582,7 +591,14 @@ commit, cached in `--cache`). For each pair:
    bad one are bisected for the first bad commit, the **introducing commit**.
 
 Commits that do not build or on which a query fails are skipped (their neighbours are
-tested); the result says whether the boundary is exact (two adjacent commits). `bisect.md`
+tested), and so are commits on which the database of the pair is not the same: every
+statement that succeeds on the reporting release must succeed there too (an old release
+without `WITHOUT ROWID`, partial or expression indexes would otherwise run the queries on
+another database). A reduced pair (`reduce_sqlite.py --sql`) brings its own few
+statements, so older releases can judge it more often. With `--compat`, a pair whose
+introducing commit is not found is tried again on its database without `WITHOUT ROWID`;
+that result is an approximation and is reported as such. The result says whether a
+boundary is exact (two adjacent commits). `bisect.md`
 groups the pairs: **pairs with the same introducing and fixing commits are one bug,
 different commits are different bugs.** The fixing commit is the first commit on which the
 pair is good; when it is an optimisation that changes the plan, it ends the symptom of the

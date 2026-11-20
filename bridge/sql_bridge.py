@@ -1778,6 +1778,70 @@ def changes_compound_collation(tr, original, mutant):
     return False
 
 
+def sqlite_collation_sources(sql):
+    """For every compound of an SQLite query: per column, the item that decides its
+    collation.  SQLite takes it from the left-most arm whose item has a collating sequence
+    (select.c, multiSelectCollSeq): a column (also of a derived table, so * counts) or a
+    COLLATE; an expression such as COALESCE(c, 0) has none and passes it on to the next
+    arm.  Returns a set of tuples (one per compound) of item texts."""
+    try:
+        tree = sqlglot.parse_one(sql, read='sqlite')
+    except Exception:
+        return None
+    setops = (exp.Union, exp.Intersect, exp.Except)
+    out = set()
+
+    def arms(n, acc):
+        if isinstance(n, setops):
+            arms(n.this, acc)
+            arms(n.expression, acc)
+        else:
+            while isinstance(n, (exp.Paren, exp.Subquery)) and not n.args.get('alias'):
+                n = n.this
+            acc.append(n)
+
+    def resolve(arm, i):
+        """The item that gives column i of a select its collation, as text, or None when it
+        has none.  * over one derived table is the item of the derived table: its
+        column has the collation of that item, BINARY when the item has none (and a
+        derived compound takes it from its leftmost arm only)."""
+        item = arm.expressions[i] if len(arm.expressions) > i else None
+        if item is None:
+            return None
+        body = _strip_parens(item.this if isinstance(item, exp.Alias) else item)
+        if isinstance(body, exp.Star) or (isinstance(body, exp.Column) and isinstance(body.this, exp.Star)):
+            src = arm.args.get('from') or arm.args.get('from_')
+            sub = src.this if src is not None else None
+            if isinstance(sub, exp.Subquery) and not arm.args.get('joins') and len(arm.expressions) == 1:
+                inner = sub.this
+                while isinstance(inner, setops):
+                    inner = inner.this
+                while isinstance(inner, (exp.Paren, exp.Subquery)) and not inner.args.get('alias'):
+                    inner = inner.this
+                if isinstance(inner, exp.Select):
+                    got = resolve(inner, i)
+                    return got if got is not None else 'BINARY (derived column)'
+            return '*'
+        if isinstance(body, (exp.Column, exp.Collate)):
+            return body.sql(dialect='sqlite')
+        return None
+
+    for n in tree.walk():
+        if isinstance(n, setops) and not isinstance(n.parent, setops):
+            acc = []
+            arms(n, acc)
+            if not all(isinstance(a, exp.Select) for a in acc):
+                out.add(('?',))
+                continue
+            width = len(acc[0].expressions)
+            src = []
+            for i in range(width):
+                pick = next((r for r in (resolve(a, i) for a in acc) if r is not None), None)
+                src.append('-' if pick is None else pick)
+            out.add(tuple(src))
+    return out
+
+
 def _validated(tr, term, kind):
     """The SQL of `term`, or None if it does not survive the round trip or is outside
     the collation law."""
@@ -1809,6 +1873,12 @@ def mutate_sql(sql, cli=DEFAULT_CLI, dialect='mysql', schema=None, exact_columns
             continue
         try:
             text = _validated(tr, term, 'set')
+            if text is not None and dialect == 'sqlite':
+                # a compound column whose collation now comes from another arm or item
+                src_o, src_m = sqlite_collation_sources(original), sqlite_collation_sources(text)
+                if src_o is None or src_m is None or src_m - src_o:
+                    STATS['outside_model'] += 1
+                    continue
         except Unsupported:
             skipped += 1
             continue

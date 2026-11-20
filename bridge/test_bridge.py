@@ -505,6 +505,15 @@ report(check_value('Le', 1, orig, [(1, 1), (2, 4)], cover=True).startswith('Le v
 report(check_value('Le', 1, orig, [(2, 4)], cover=True) == 'other columns changed', 'cover: a missing group is detected')
 report(check_value('Le', 1, orig, [(1, 3), (1, 5), (2, 4)]) != 'ok', 'without cover, three rows for two are a violation')
 
+# SQLite: the collation of a compound column comes from the first arm whose item has one
+from sql_bridge import sqlite_collation_sources as sources  # noqa: E402
+report(sources("SELECT COALESCE(t.a, 0) AS k FROM t UNION SELECT u.b AS k FROM u") == {('u.b',)},
+       'SQLite compound collation: an expression passes it on to the next arm')
+report(sources("SELECT DISTINCT * FROM (SELECT COALESCE(t.a, 0) AS k FROM t) AS d UNION SELECT u.b AS k FROM u")
+       == {('BINARY (derived column)',)}, 'SQLite compound collation: a derived column of an expression is BINARY')
+report(sources("SELECT DISTINCT * FROM (SELECT t.a AS k FROM t) AS d UNION SELECT u.b AS k FROM u") == {('t.a',)},
+       'SQLite compound collation: * over a derived table is its item')
+
 # the adaptive campaign: UCB1 tries every arm once, then prefers the arm with more reward
 import random  # noqa: E402
 import campaign_sqlite  # noqa: E402

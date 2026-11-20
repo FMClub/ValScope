@@ -1,0 +1,13 @@
+-- pair 32, seed 237, rule DISTINCT-add: the mutant must return a sub-bag of the rows of the original
+-- (SQLite 3.26.0; checked modulo the collations of the columns)
+CREATE TABLE t1 (c1 TEXT COLLATE NOCASE, c4 INTEGER);
+INSERT INTO t1 VALUES (0, NULL);
+CREATE TABLE t2 (c1 INTEGER, c2 INTEGER, c3 INTEGER, c14 TEXT COLLATE NOCASE, c15 TEXT);
+INSERT INTO t2 VALUES (10, 0, NULL, '-3', 2);
+CREATE TABLE t3 (c1 REAL, c2 INTEGER, c3 TEXT, c6 , c7 INTEGER, c8 INTEGER, c9 TEXT COLLATE NOCASE, rid INTEGER PRIMARY KEY) WITHOUT ROWID;
+CREATE INDEX i1 ON t1 ((c1 + 1)) WHERE c4 IS NOT NULL;
+CREATE INDEX i3 ON t1 (c1);
+-- original
+SELECT t1b.c1 AS k1 FROM t2 AS t2a CROSS JOIN t1 AS t1b WHERE (t1b.c4 IS NOT 10);
+-- mutant
+SELECT t1b.c1 AS k1 FROM t2 AS t2a CROSS JOIN (SELECT DISTINCT * FROM t1 AS t1b) AS t1b WHERE (t1b.c4 IS NOT 10);

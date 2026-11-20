@@ -285,20 +285,25 @@ def main():
     tags = version_tags(src)
     new = args.new or tags[-1]
     sha_of = lambda ref: git(src, 'rev-parse', ref + '^{commit}').strip()
-    recs, seen = [], set()
+    recs, seen = [], {}
     for f in args.files:
-        for line in open(f):
+        for n, line in enumerate(open(f), 1):
             r = json.loads(line)
             key = (r['original'], r['mutant'])
-            if key not in seen:
-                seen.add(key)
+            number = r.get('confirmed_pair', n)
+            if key in seen:
+                seen[key]['_numbers'].append(number)     # two pairs reduced to the same one
+            else:
+                r['_numbers'] = [number]
+                seen[key] = r
                 recs.append(r)
     cache, results = {}, []
     for i, rec in enumerate(recs, 1):
         old = args.old or tag_of_version(rec['version'])
         print('pair %d/%d: seed %s, %s, reported on %s' % (i, len(recs), rec['seed'], rec['rule'], rec['version']),
               file=sys.stderr)
-        res = {'pair': i, 'seed': rec['seed'], 'rule': rec['rule'], 'reported_on': rec['version'],
+        res = {'pair': i, 'pairs': rec['_numbers'], 'seed': rec['seed'], 'rule': rec['rule'],
+               'reported_on': rec['version'],
                'original': rec['original'], 'mutant': rec['mutant']}
         rec['_used'] = reference_database(builder, sha_of(old), rec, tmp)
         v_old = judge(builder, sha_of(old), rec, tmp, cache)
@@ -370,7 +375,7 @@ def report(results):
         i = rs[0].get('introduced_by') if intro and not intro.startswith('~') else None
         ci = rs[0]['compat']['introduced_by'] if intro and intro.startswith('~') else None
         print('| %d | %s | %s | %s | %s | %s |' % (
-            n, ', '.join('#%d' % r['pair'] for r in rs),
+            n, ', '.join('#%d' % p for r in rs for p in r.get('pairs', [r['pair']])),
             '`%s` %s %s' % (i['commit'][:12], i['date'], i['subject'][:60]) if i else
             ('%s; without WITHOUT ROWID (approximation): `%s` %s %s' % (
                 _oldest(rs), ci['commit'][:12], ci['date'], ci['subject'][:50]) if ci else _oldest(rs)),

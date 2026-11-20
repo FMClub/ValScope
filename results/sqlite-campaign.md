@@ -213,18 +213,20 @@ the withdrawn ones with the reasons. `results/sqlite-reduced.md` has the pairs r
   The bisection (sixth round) builds SQLite from its git history on GitHub instead.
 - "Confirmed" means inconsistent on the old version and consistent on 3.53.1. It does not
   prove which of the two results on the old version is the wrong one.
-- The 43 pairs come from 7 bugs, identified by their introducing and fixing commits; three
-  fixes name an SQLite ticket. A fixing commit can be a plan change that hides the
-  symptom (bug 7).
+- The 43 pairs come from 7 bugs, identified by their introducing and fixing commits (6 if
+  the approximation for bug 1 is accepted); three fixes name an SQLite ticket. An
+  introducing commit can be a plan change that exposes older code (bug 5).
 
 ## Sixth round: commits, reduction, two withdrawals
 
-- `bridge/bisect_sqlite.py` built SQLite at 179 commits of its history and mapped
-  every pair to the commit that fixed it and, where an older release is good, the commit
-  that introduced it: 7 distinct bugs (`results/sqlite-bisect.md`).
-- `bridge/reduce_sqlite.py` reduced 41 of the 43 pairs (mean length 453 -> 121 characters)
-  while the verified mutator still produces a violating mutant of the same rule
-  (`results/sqlite-reduced.md`).
+- `bridge/reduce_sqlite.py` reduced 42 of the 43 pairs, query and database (452 -> 122
+  characters, 33 -> 6 statements), while the verified mutator still produces a violating
+  mutant of the same rule and the relation holds on 3.54.1 (`results/sqlite-reduced.md`,
+  scripts in `results/sqlite-repro/`).
+- `bridge/bisect_sqlite.py` built SQLite at about 200 commits of its history and mapped
+  every reduced pair to the commit that fixed it and, where an older release is good on
+  the same database, the commit that introduced it: 7 distinct bugs
+  (`results/sqlite-bisect.md`).
 - Two pairs (former numbers 42 and 43, seed 2009) were withdrawn. The bisection found them
   still "violated" on every release up to 3.54.1. The difference is only which of `'A'` /
   `'a'` a `DISTINCT` over a `NOCASE` column keeps, in the third arm of a `UNION ALL`;

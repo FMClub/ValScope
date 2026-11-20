@@ -1,19 +1,19 @@
 # Reduced SQLite violations
 
-`python3 bridge/reduce_sqlite.py results/sqlite-confirmed.jsonl --lib 3.26.0=LIB ... --out reduced.jsonl`
+`python3 bridge/reduce_sqlite.py results/sqlite-confirmed.jsonl --lib 3.26.0=LIB ... --latest LIB-3.54.1 --out reduced.jsonl --sql repro`
 
-Each confirmed pair is reduced greedily (replace a compound by an arm, an AND / OR by an
-operand, drop a clause, a join or a column, replace a comparison by 1 or 0) while the
-verified mutator, run again on the smaller query, still produces a mutant of the same
-rule that violates the relation on the reporting release. So the theorem of the rule
-applies to every reduced pair.
+Each confirmed pair is reduced greedily: the query (replace a compound by an arm, an AND /
+OR by an operand, drop a clause, a join or a column, replace a comparison by 1 or 0), then
+the database (rows, indexes and ANALYZE removed). After every query step the verified
+mutator runs again on the smaller query, and a step is kept only if a mutant of the same
+rule still violates the relation on the reporting release AND the relation holds on
+3.54.1 (`--latest`), so the reduced pair still shows the bug of the pair, fixed since.
+The theorem of the rule applies to every reduced pair.
 
-41 of the 43 confirmed pairs are reduced; their mean length goes from 453 to 121
-characters (80 to 202). Pairs 37 and 40 are not reduced: the static collation-law check of
-the bridge rejects their original queries (an operation that distinguishes
-collation-equivalent values above a de-duplication), although the affected columns hold
-integers only (checked by hand, issues/004 B2.1), so the mutator does not produce them
-again. The bug of each pair is in `results/sqlite-bisect.md`.
+42 of the 43 pairs are reduced: queries from 452 to 122 characters on average (80 to 202),
+databases from 33 to 6 statements (5 to 20). Pair 40 is not reduced: the collation-law
+check rejects its query (it applies `||` to text columns above a de-duplication). Each
+reduced pair is a self-contained script in `results/sqlite-repro/pair-N.sql`.
 
 -- pair 1 (UNION->UNION-ALL, expected Up): 365 -> 156 characters
     original: SELECT t2b.c2 AS k0 FROM t2 AS t2a LEFT JOIN t2 AS t2b ON (0) UNION ALL SELECT DISTINCT t1a.c1 AS k0 FROM t1 AS t1a UNION SELECT t1a.c4 AS k0 FROM t1 AS t1a
@@ -195,9 +195,14 @@ again. The bug of each pair is in `results/sqlite-bisect.md`.
     mutant  : SELECT t2b.c2 AS k0 FROM t2 AS t2a LEFT JOIN t2 AS t2b ON (0) UNION SELECT DISTINCT t3a.c9 AS k0 FROM (SELECT x.c9 AS c9 FROM t3 AS x) AS t3a
     rows    : 15 / 7
 
--- pair 38 (DISTINCT-add, expected Down): 513 -> 144 characters
-    original: SELECT COALESCE(t1a.c1, 0) AS k0 FROM t1 AS t1a UNION ALL SELECT DISTINCT t1a.c1 AS k0 FROM t1 AS t1a EXCEPT SELECT t2a.c15 AS k0 FROM t2 AS t2a
-    mutant  : SELECT DISTINCT * FROM (SELECT COALESCE(t1a.c1, 0) AS k0 FROM t1 AS t1a UNION ALL SELECT DISTINCT t1a.c1 AS k0 FROM t1 AS t1a) AS vs_d2 EXCEPT SELECT t2a.c15 AS k0 FROM t2 AS t2a
+-- pair 37 (UNION->UNION-ALL, expected Up): 406 -> 133 characters
+    original: SELECT t1a.c4 AS k0 FROM t1 AS t1a UNION SELECT DISTINCT t2b.c15 AS k0 FROM t3 AS t3a INNER JOIN t2 AS t2b ON (t2b.c15 IS NOT t3a.c9)
+    mutant  : SELECT t1a.c4 AS k0 FROM t1 AS t1a UNION ALL SELECT DISTINCT t2b.c15 AS k0 FROM t3 AS t3a INNER JOIN t2 AS t2b ON (t2b.c15 IS NOT t3a.c9)
+    rows    : 7 / 9
+
+-- pair 38 (DISTINCT-add, expected Down): 513 -> 163 characters
+    original: SELECT DISTINCT COALESCE(t1a.c1, 0) AS k0 FROM t1 AS t1a WHERE (0) UNION ALL SELECT DISTINCT t1a.c1 AS k0 FROM t1 AS t1a EXCEPT SELECT t2a.c15 AS k0 FROM t2 AS t2a
+    mutant  : SELECT DISTINCT * FROM (SELECT DISTINCT COALESCE(t1a.c1, 0) AS k0 FROM t1 AS t1a WHERE (0)) AS vs_d3 UNION ALL SELECT DISTINCT t1a.c1 AS k0 FROM t1 AS t1a EXCEPT SELECT t2a.c15 AS k0 FROM t2 AS t2a
     rows    : 6 / 7
 
 -- pair 39 (UNION->UNION-ALL, expected Up): 750 -> 84 characters

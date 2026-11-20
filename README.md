@@ -384,6 +384,11 @@ How the audit fixes changed the numbers on the same inputs:
   group-by") returns `255` instead of its value when the result goes through a derived table
   and a `UNION ALL` with a string. Minimal case and plan in
   `issues/006-mariadb-bit-subquery-loose-scan.md`.
+- **SQLite compound collation** (`issues/007-sqlite-compound-collation.md`, 3.53.1 and
+  3.54.1): the same `UNION ALL` de-duplicates `'a'` and `'A'` as equal in a compound
+  (collation from the first arm that has one) and as different through a derived table
+  (collation of the leftmost arm, `BINARY` for an expression). Perhaps intended; the
+  bridge now treats a mutant that changes this as outside the model.
 - Earlier value runs found the `HAVING COUNT(x) IN (subquery)` candidate
   (`issues/003-mariadb-having-count-in-subquery.md`).
 
@@ -450,7 +455,20 @@ in which the term means what the SQL text means.
   and `1.0` are equal) applied to the output of a de-duplication (`DISTINCT`, `UNION`,
   `INTERSECT`, `EXCEPT`; `GROUP BY`, `MIN`, `MAX` inside opaque parts) makes the result
   depend on which representative was kept. Such queries are rejected and such mutants
-  dropped (`mutants_outside_model`).
+  dropped (`mutants_outside_model`). A function counts as respecting the equivalence only
+  if it is on an explicit list; in SQLite, functions that turn a number into text
+  (`UPPER`, `CAST AS TEXT`, ...) do not (`1` and `1.0` are equal, their texts are not).
+  Not rejected: an operation inside a subquery that reads only that subquery's rows, and
+  an operation that reads only columns holding one storage class in the database under
+  test (integers, or reals without `-0.0`; the runners compute them), whose equivalent
+  values are identical.
+- **Collations of compounds** (`changes_compound_collation`, `sqlite_collation_sources`):
+  SQLite takes a compound column's collation from the first arm whose item has one (a
+  column or `COLLATE`; an expression passes it on), and MySQL / MariaDB derive it from all
+  arms. A mutant that changes where it comes from is dropped. The checker compares a
+  compound column with the coarsest collation of its arms (SQLite: each arm's metadata;
+  MySQL / MariaDB: each arm run with `LIMIT 0`), and a compound nested in a derived table
+  with the coarsest collation of the database.
 - **Determined `LIMIT` only:** a `LIMIT` in a subquery is accepted when every output column
   is an `ORDER BY` key (tied rows are then identical) or the input is a single row.
 - **Type guards:** a set-semantic check is skipped when the column types of the two results
@@ -471,8 +489,9 @@ Run on four old SQLite releases (3.26.0, 3.30.1, 3.31.1, 3.34.0), the verified m
 **43 distinct query pairs** whose results violate the relation guaranteed by the rule's
 theorem. Each one reproduces from scratch and is consistent on SQLite 3.53.1. Bisection on
 SQLite's source history maps them to **7 distinct bugs** (pairs with the same introducing
-and fixing commits are one bug; three of the fixing commits name an SQLite ticket), and 41
-of the pairs are reduced while the verified mutator still produces them. Details and how to reproduce:
+and fixing commits are one bug; three of the fixing commits name an SQLite ticket), and 42
+of the pairs are reduced, query and database, while the verified mutator still produces
+them (self-contained scripts in `results/sqlite-repro/`). Details and how to reproduce:
 [`results/sqlite-campaign.md`](results/sqlite-campaign.md),
 [`results/sqlite-bisect.md`](results/sqlite-bisect.md),
 [`results/sqlite-reduced.md`](results/sqlite-reduced.md).
@@ -481,8 +500,10 @@ of the pairs are reduced while the verified mutator still produces them. Details
 
 - Value mutation applies to the select items of a `SELECT` or of the arms of a `UNION ALL`.
   Following a mutated value through derived tables (what the Python lineage analysis does)
-  is not modelled; value queries with `SELECT DISTINCT` are rejected (a mutation can make
-  two rows equal, so rows would no longer correspond one to one).
+  is not modelled. Value queries with `SELECT DISTINCT` (and a `UNION` of value queries)
+  are supported since the sixth round with a weaker check: after DISTINCT the rows no
+  longer correspond one to one, and the theorem (`VDistinct.v`) states a cover in both
+  directions (every row of each result is related to a row of the other).
 - Window functions are rejected, and `IN` with a value list stays an opaque predicate.
 - Some set-semantic mutants cannot be printed as SQL and are dropped (91 of about 9000 on
   200 generated queries): `DISTINCT` around a join that is itself an operand of another

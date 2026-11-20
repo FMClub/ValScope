@@ -63,8 +63,10 @@ fixes of PR #1 are merged; the design problems below are still open.
    and expressions are opaque atoms (sound, never mutated inside).
 2. Value mutation applies to the select items of a `SELECT` or of the arms of a `UNION ALL`
    (`VUnion.v`, fourth round); a mutated value is not followed through derived tables.
-   Value queries with `SELECT DISTINCT` are rejected. 138 of the 870 Python-generator
-   queries are used by the value rules (69 before the fourth round).
+   Since the sixth round, value queries with `SELECT DISTINCT` and `UNION`s of value
+   queries are proved (`VDistinct.v`: a cover in both directions) and used: 280 of the 870
+   Python-generator queries are translated for the value rules (136 before, 69 before the
+   fourth round). Window functions in value queries are still rejected.
 3. Some set-semantic mutants cannot be printed: `DISTINCT` around a join that is an operand
    of another join, or around a join of derived tables (91 of about 9000 mutants on 200
    generated queries; 480 before the fourth round, when `DISTINCT` around any join was
@@ -159,14 +161,17 @@ fixes of PR #1 are merged; the design problems below are still open.
      (`bridge/bisect_sqlite.py`, `results/sqlite-bisect.md`); pairs with the same commits
      are one bug. Three of the fixing commits name an SQLite ticket
      (`1dcb4d44964846ad`, `ee51301f316c09e9`, `8025674847`);
-   - 41 pairs are reduced (`bridge/reduce_sqlite.py`, `results/sqlite-reduced.md`).
+   - 42 pairs are reduced, query and database (`bridge/reduce_sqlite.py --latest --sql`,
+     `results/sqlite-reduced.md`, `results/sqlite-repro/`), and the bisection runs on the
+     reduced pairs, on the same database as on the reporting release.
    Open:
-   - bugs 1 and 7 are bad on the oldest releases that could be judged, so their
-     introducing commits are not known (bug 1 may be the same as bug 2 or 6); the "fix" of
-     bug 7 is an optimisation that may only hide the symptom; bugs 1, 2 and 6 share one
-     fixing commit (a rewrite of compound operators);
-   - pairs 37 and 40 are rejected by the static collation-law check (their columns hold
-     integers only), so they cannot be reduced;
+   - bug 1 (22 pairs) needs `WITHOUT ROWID`, so releases before 3.8.2 cannot judge it;
+     without `WITHOUT ROWID` (an approximation) its introducing commit is that of bug 2;
+     bugs 1, 2 and 7 share one fixing commit (a rewrite of compound operators); bug 5's
+     introducing commit only changes plan weights;
+   - pair 40 is rejected by the collation-law check (`||` on text columns above a
+     de-duplication), so it cannot be reduced; the check now looks at the data (columns of
+     one storage class) and at subqueries, which made pair 37 reducible;
    - the second campaign also saw 4 translation mismatches on the old releases only
      (`CROSS JOIN` versus `INNER JOIN ... ON 1 = 1`), not counted and not analysed.
 4. **Value-semantic and HAVING mutators found nothing on SQLite**; whether the value side

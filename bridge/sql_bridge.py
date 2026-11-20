@@ -133,7 +133,17 @@ SENSITIVE_NODES = (exp.DPipe, exp.Like, exp.ILike, exp.Glob, exp.RegexpLike, exp
 BINARY_TYPES = ('BINARY', 'VARBINARY', 'BLOB', 'TINYBLOB', 'MEDIUMBLOB', 'LONGBLOB', 'BIT')
 
 
+_SENSITIVE = {}
+
+
 def _sensitive_tree(tree, dialect):
+    k = (id(tree), dialect)
+    if k not in _SENSITIVE:
+        _SENSITIVE[k] = (tree, _sensitive_tree_uncached(tree, dialect))   # keep tree alive for id()
+    return _SENSITIVE[k][1]
+
+
+def _sensitive_tree_uncached(tree, dialect):
     for n in tree.walk():
         if isinstance(n, SENSITIVE_NODES):
             return True
@@ -162,8 +172,16 @@ def _dedup_tree(tree):
     return False
 
 
+_GLOBAL_PARSE = {}
+
+
 def _cached_parse(cache, text, dialect, wrap=None):
-    key = (text, wrap)
+    """sqlglot's tree of an atom text (shared by all translations: the same atom text
+    occurs in the original and in every re-parsed mutant)."""
+    cache = _GLOBAL_PARSE
+    if len(cache) > 200000:
+        cache.clear()
+    key = (text, dialect, wrap)
     if key not in cache:
         try:
             if wrap == 'table':
@@ -1218,16 +1236,46 @@ def _quote(text):
     return "'%s'" % text.replace("'", "''")
 
 
+_CLI = {}          # path -> running valscope_mutate process
+
+
+def _cli_process(cli):
+    p = _CLI.get(cli)
+    if p is None or p.poll() is not None:
+        p = subprocess.Popen([cli], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
+        _CLI[cli] = p
+    return p
+
+
 def _run_cli(term, cli):
-    out = subprocess.run([cli], input=term + '\n', capture_output=True, text=True, check=True).stdout
-    lines = []
-    for line in out.splitlines():
-        if line == 'END':
+    """The mutants the verified engine prints for one term.  The command-line mutator
+    reads one term per line and answers with lines ended by END, so one process serves
+    all queries; it is restarted if it dies."""
+    for attempt in (1, 2):
+        p = _cli_process(cli)
+        try:
+            p.stdin.write(term.replace('\n', ' ') + '\n')
+            p.stdin.flush()
+            lines = []
+            while True:
+                line = p.stdout.readline()
+                if line == '':
+                    raise BrokenPipeError('mutator exited')
+                line = line.rstrip('\n')
+                if line == 'END':
+                    break
+                lines.append(line)
             break
+        except (BrokenPipeError, OSError):
+            _CLI.pop(cli, None)
+            if attempt == 2:
+                raise
+    out = []
+    for line in lines:
         if line.startswith('ERROR'):
             raise Unsupported(line)
-        lines.append(line.split('\t'))
-    return lines
+        out.append(line.split('\t'))
+    return out
 
 
 # ---------------------------------------------------------------- round-trip validation
@@ -1257,7 +1305,20 @@ def _tree_key(node):
     return str(node)
 
 
+_KEY_CACHE = {}
+
+
 def _parse_key(text, dialect, wrap=None):
+    """The tree key of an SQL text (cached: the same atom occurs in every mutant)."""
+    k = (text, dialect, wrap)
+    if k not in _KEY_CACHE:
+        if len(_KEY_CACHE) > 200000:
+            _KEY_CACHE.clear()
+        _KEY_CACHE[k] = _parse_key_uncached(text, dialect, wrap)
+    return _KEY_CACHE[k]
+
+
+def _parse_key_uncached(text, dialect, wrap=None):
     try:
         if wrap == 'table':
             tree = sqlglot.parse_one('SELECT * FROM ' + text, read=dialect)
@@ -1269,11 +1330,23 @@ def _parse_key(text, dialect, wrap=None):
         return ('text', ' '.join(text.split()))
 
 
+_TREE_CACHE = {}
+
+
+def _parse_cached(text, dialect):
+    k = (text, dialect)
+    if k not in _TREE_CACHE:
+        if len(_TREE_CACHE) > 200000:
+            _TREE_CACHE.clear()
+        _TREE_CACHE[k] = sqlglot.parse_one(text, read=dialect)
+    return _TREE_CACHE[k]
+
+
 def _expr_tree(tr, e):
     """The syntax tree that an expression term stands for."""
     tag = e[0]
     if tag == 'EAtom':
-        return sqlglot.parse_one(tr.exprs[int(e[1])], read=tr.dialect)
+        return _parse_cached(tr.exprs[int(e[1])], tr.dialect)
     if tag == 'Int':
         return exp.Literal.number(int(e[1]))
     if tag == 'Null':
@@ -1291,7 +1364,9 @@ def canonical(tr, t):
     if t and isinstance(t[0], list):            # a list of terms (select items, row IN, ...)
         return tuple(canonical(tr, x) for x in t)
     tag, d = t[0], tr.dialect
-    if tag in ('EAtom', 'Int', 'Null', 'Add', 'Mul'):
+    if tag == 'EAtom':
+        return ('E', _parse_key(tr.exprs[int(t[1])], d))
+    if tag in ('Int', 'Null', 'Add', 'Mul'):
         try:
             return ('E', _tree_key(_expr_tree(tr, t)))
         except Exception:

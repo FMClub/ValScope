@@ -284,9 +284,9 @@ let is_value_query = function
 
 let () =
   if Array.length Sys.argv > 1 && Sys.argv.(1) = "--rules" then begin
-    List.iter (fun r -> Printf.printf "pred\t%s\t%s\n" (dir_name r.pr_dir) r.pr_name) pred_rules;
-    List.iter (fun r -> Printf.printf "query\t%s\t%s\n" (dir_name r.qr_dir) r.qr_name) query_rules;
-    List.iter (fun r -> Printf.printf "value\t%s\t%s\n" (rel_name r.vr_rel) r.vr_name) value_rules
+    List.iter (fun (n, d) -> Printf.printf "pred\t%s\t%s\n" (dir_name d) n) pred_rule_names;
+    List.iter (fun (n, d) -> Printf.printf "query\t%s\t%s\n" (dir_name d) n) query_rule_names;
+    List.iter (fun (n, r) -> Printf.printf "value\t%s\t%s\n" (rel_name r) n) value_rule_names
   end else
     try
       while true do

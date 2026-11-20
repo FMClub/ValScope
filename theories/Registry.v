@@ -93,3 +93,13 @@ Theorem thmutate_sound : forall d t name t', In (name, t') (thmutate d t) -> dle
 Proof. intros d t name t'. apply thmut_sound. Qed.
 
 Print Assumptions thmutate_sound.
+
+(** ---------------- what the command-line front end may see ----------------
+
+    The extracted rule records carry no proof.  The front end only needs the names of
+    the registered rules; the rule types are made abstract in the interface it is
+    compiled against (see the Makefile), so OCaml code cannot build a rule. *)
+
+Definition pred_rule_names : list (string * dir) := map (fun r => (pr_name r, pr_dir r)) pred_rules.
+Definition query_rule_names : list (string * dir) := map (fun r => (qr_name r, qr_dir r)) query_rules.
+Definition value_rule_names : list (string * vrel) := map (fun r => (vr_name r, vr_rel r)) value_rules.

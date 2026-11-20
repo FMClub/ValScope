@@ -14,7 +14,7 @@ Every violation was then re-checked from scratch by `bridge/confirm_sqlite.py`.
 ## Result
 
 **43 distinct (original, mutant) query pairs violate the relation that the rule's theorem
-guarantees; they come from 5 distinct SQLite bugs** (`results/sqlite-bisect.md`: each pair
+guarantees; they come from 7 distinct SQLite bugs** (`results/sqlite-bisect.md`: each pair
 is mapped to the commit that introduced and the commit that fixed it, and pairs with the
 same commits are one bug). 37 pairs were found by the first campaign, 5 by a second
 campaign run after the model was extended (strings, decimals, collations, opaque atoms), 2
@@ -213,15 +213,15 @@ the withdrawn ones with the reasons. `results/sqlite-reduced.md` has the pairs r
   The bisection (sixth round) builds SQLite from its git history on GitHub instead.
 - "Confirmed" means inconsistent on the old version and consistent on 3.53.1. It does not
   prove which of the two results on the old version is the wrong one.
-- The 43 pairs come from 5 bugs, identified by their introducing and fixing commits; three
+- The 43 pairs come from 7 bugs, identified by their introducing and fixing commits; three
   fixes name an SQLite ticket. A fixing commit can be a plan change that hides the
-  symptom (bug 5).
+  symptom (bug 7).
 
 ## Sixth round: commits, reduction, two withdrawals
 
-- `bridge/bisect_sqlite.py` built SQLite at about 150 commits of its history and mapped
+- `bridge/bisect_sqlite.py` built SQLite at 179 commits of its history and mapped
   every pair to the commit that fixed it and, where an older release is good, the commit
-  that introduced it: 5 distinct bugs (`results/sqlite-bisect.md`).
+  that introduced it: 7 distinct bugs (`results/sqlite-bisect.md`).
 - `bridge/reduce_sqlite.py` reduced 41 of the 43 pairs (mean length 453 -> 121 characters)
   while the verified mutator still produces a violating mutant of the same rule
   (`results/sqlite-reduced.md`).

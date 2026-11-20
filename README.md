@@ -384,6 +384,9 @@ How the audit fixes changed the numbers on the same inputs:
   group-by") returns `255` instead of its value when the result goes through a derived table
   and a `UNION ALL` with a string. Minimal case and plan in
   `issues/006-mariadb-bit-subquery-loose-scan.md`.
+- **Candidate MySQL bug** (`issues/008-mysql-distinct-intersect-all.md`, MySQL 8.4.13, CI):
+  `SELECT DISTINCT * FROM (A INTERSECT ALL (B UNION ALL C))` returns 4 rows of `A` that are
+  not in `B UNION ALL C`, while the intersection itself is empty (MariaDB: empty for both).
 - **SQLite compound collation** (`issues/007-sqlite-compound-collation.md`, 3.53.1 and
   3.54.1): the same `UNION ALL` de-duplicates `'a'` and `'A'` as equal in a compound
   (collation from the first arm that has one) and as different through a derived table

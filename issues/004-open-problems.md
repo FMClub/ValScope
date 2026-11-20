@@ -88,6 +88,13 @@ fixes of PR #1 are merged; the design problems below are still open.
    collation of each result column: reported by MariaDB / MySQL, and by SQLite through its
    column metadata for columns that come from a table. Open: SQLite expression columns
    and Python's built-in SQLite (no metadata API) fall back to the coarsest collation.
+2b. **Collation of set operations (found in the fifth round).** SQLite compares a compound
+   with the collations of its leftmost arm, and MySQL derives them from the arms; the model
+   has one equivalence. A rule that changes the leftmost arm (`INTERSECT->operand`) can
+   change the equality an enclosing UNION uses. Such mutants are now dropped
+   (`changes_compound_collation`), and one confirmed pair was withdrawn. The criterion
+   compares select lists syntactically; a world with per-operation collations would
+   cover this case in the model itself.
 3. **Character-by-character LIKE / REGEXP.** Collations with contractions or expansions
    (`'ss' = 'ß'`) are not covered.
 4. **Approximate numbers.** FLOAT / DOUBLE arithmetic is not exact; grouping keys of these
@@ -128,7 +135,7 @@ fixes of PR #1 are merged; the design problems below are still open.
    without `GROUP BY`). All were reproduced on MariaDB 10.11.14 only; other versions,
    MySQL, Percona, TiDB, OceanBase and PolarDB were not tested; causes not analysed.
 2. **MariaDB `GROUP BY` on DOUBLE**: plan-dependent number of groups; not analysed.
-3. **SQLite: 44 confirmed violations, causes mostly not analysed.** 37 from the first
+3. **SQLite: 45 confirmed violations (1 withdrawn), causes mostly not analysed.** 37 from the first
    campaign (all re-confirmed with the exact collation check), 5 from a second campaign
    with the extended model and 2 from a third run after the audit fixes
    (`results/sqlite-campaign.md`). Open:
@@ -142,7 +149,10 @@ fixes of PR #1 are merged; the design problems below are still open.
    - only the four releases bundled in npm packages could be built.
 4. **Value-semantic and HAVING mutators found nothing on SQLite**; whether the value side
    can find SQLite bugs at all is open.
-5. **Generator tuning is manual**; there is no feedback- or coverage-driven generation.
+5. **Generator tuning (partly solved).** `--adaptive` chooses the generator settings per
+   database seed by coverage features and violations (UCB1). The arms are only the four
+   existing settings; the generator's probabilities themselves are not learned, and a
+   20-seed comparison does not show a clear winner.
 6. No DBMS outside MariaDB and SQLite was run. The runner can now reach any MySQL-protocol
    server and any SQLite file, and documents how to add another DBMS
    (`docs/USAGE.md`, section 9), but no PostgreSQL target exists.

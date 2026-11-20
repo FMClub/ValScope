@@ -13,10 +13,11 @@ Every violation was then re-checked from scratch by `bridge/confirm_sqlite.py`.
 
 ## Result
 
-**44 distinct (original, mutant) query pairs violate the relation that the rule's theorem
+**45 distinct (original, mutant) query pairs violate the relation that the rule's theorem
 guarantees.** 37 were found by the first campaign, 5 by a second campaign run after the
-model was extended (strings, decimals, collations, opaque atoms), and 2 by a third run
-after the audit fixes (see below). All 44 are confirmed:
+model was extended (strings, decimals, collations, opaque atoms), 2 by a third run after the
+audit fixes and 2 by the comparison of generator settings in the fifth round; 1 pair was
+withdrawn in the fifth round (see "Withdrawn"). All 45 are confirmed:
 
 - the database of the seed was rebuilt by each SQLite library and both queries were run
   again;
@@ -37,21 +38,22 @@ results that are consistent with the theorem.
 | Distinct violating query pairs, confirmed | **37** (from 26 different databases) |
 | Second campaign (`--focus --rich`, seeds 2001-2030, 60 queries per kind) | 3600 queries, 386891 checks passed, 17 violations = **5 new distinct pairs**, all confirmed |
 | Third run (same seeds, after the audit fixes) | 3600 queries, 328852 checks passed, 24 violations = 6 distinct pairs, all confirmed; **2 new pairs** (seed 2009) |
-| Total confirmed pairs | **44** (from 30 databases) |
+| Fifth round: generator settings compared (seeds 3001-3020) | 3 x 1600 queries, 2 new confirmed pairs (seeds 3006, 3009), 1 pair outside the model (seed 3010) |
+| Total confirmed pairs | **45** (from 32 databases; 1 withdrawn) |
 | Negative control (`--flip`, 300 queries) | 1544 violations reported |
 
 The rule of the mutation that exposed each pair:
 
 | Rule | Pairs |
 | --- | --- |
-| `UNION->UNION-ALL` | 20 |
-| `UNION-ALL->UNION` | 9 |
+| `UNION->UNION-ALL` | 21 |
+| `UNION-ALL->UNION` | 10 |
 | `DISTINCT-add` | 6 |
 | `EXCEPT->left` | 3 |
 | `cond->TRUE` | 3 |
 | `LEFT->INNER-JOIN` | 1 |
 | `INNER->LEFT-JOIN` | 1 |
-| `INTERSECT->operand` | 1 |
+| `INTERSECT->operand` | 0 (1 withdrawn) |
 
 The number of pairs of the first campaign violated on each version (a pair can be violated
 on several):
@@ -63,7 +65,7 @@ on several):
 | 3.31.1 | 31 |
 | 3.34.0 | 31 |
 
-All 44 come from set-semantic rules. The value-semantic and HAVING mutators did not find a
+All 45 come from set-semantic rules. The value-semantic and HAVING mutators did not find a
 violation on these SQLite versions.
 
 24 of the 37 pairs were found in focus mode (`--focus`: more compound queries, more
@@ -134,6 +136,28 @@ Two pairs (#37, seed 515, and #41, seed 2022) apply `GLOB` or `||` to a column o
 both databases the affected column (`t2.c3`, `t3.c3`) holds integers only, so the
 representative kept by `DISTINCT` cannot change the result; the two pairs remain valid.
 
+## Withdrawn: a collation change hidden in a set operation (fifth round)
+
+A comparison of generator settings (seeds 3001-3020) reported a pair that also violates its
+relation on SQLite 3.53.1. Analysis (seed 3010, `INTERSECT->operand`):
+
+- The original `A INTERSECT B UNION C` is `(A INTERSECT B) UNION C`; the mutant is
+  `B UNION C`. In the model the mutant contains the original.
+- SQLite compares the rows of a compound with the collations of its **leftmost** arm. In the
+  original that is `A`, whose column 2 is an `INTEGER` column (BINARY): the UNION keeps both
+  `'B'` and `'b'` coming from `C`. In the mutant the leftmost arm is `B`, whose column 2 is
+  `TEXT COLLATE NOCASE`: the UNION keeps only one of them.
+- The rule changes the equality that the enclosing UNION uses. The model has one collation
+  equivalence for the whole database, so this case is outside it: not a bug.
+
+Since then the bridge drops every mutant that gives a set operation a leftmost select list
+that no set operation of the original has (`changes_compound_collation`, counted as
+`mutants_outside_model`). All 44 confirmed pairs were re-checked with SQLite's column
+metadata: only one, #40 of the earlier list (seed 2011, `INTERSECT->operand`), has result
+columns whose collations differ between original and mutant (BINARY -> NOCASE). Its
+violation can be explained by the same gap, so it is withdrawn. The other 43 have the same
+column collations on both sides and remain confirmed.
+
 ## Fourth round (same seeds again)
 
 After the P1 changes (types compared by family, correlated filters lifted out of
@@ -176,7 +200,8 @@ L=/tmp/sqlite-libs; python3 bridge/confirm_sqlite.py results/sqlite-confirmed.js
 
 `results/sqlite-confirmed.md` is the output of the last command. For every pair it has the
 queries, the first rows of both results and the verdict on each version.
-`results/sqlite-confirmed.jsonl` holds the 44 pairs as data.
+`results/sqlite-confirmed.jsonl` holds the 45 pairs as data; `results/sqlite-withdrawn.jsonl`
+the withdrawn one with the reason.
 
 ## Limitations
 
@@ -184,5 +209,5 @@ queries, the first rows of both results and the verdict on each version.
   from npm packages.
 - "Confirmed" means inconsistent on the old version and consistent on 3.53.1. It does not
   prove which of the two results on the old version is the wrong one.
-- The 44 pairs most likely share a few root causes; only one cause is analysed, and the
+- The 45 pairs most likely share a few root causes; only one cause is analysed, and the
   test cases are not reduced.

@@ -182,6 +182,16 @@ try:
 except Unsupported:
     report(True, 'UNION (DISTINCT) of value queries rejected')
 
+# a mutant that changes the leftmost arm of a set operation changes the collation that
+# operation compares with (SQLite: the leftmost arm's columns); such mutants are dropped
+_, mutants, _ = mutate_sql("SELECT a.x FROM a INTERSECT SELECT b.y FROM b UNION SELECT c.z FROM c", dialect='sqlite')
+report(not any(r == 'INTERSECT->operand' and m.startswith('SELECT b.y') for _, r, m in mutants) and
+       any(r == 'INTERSECT->operand' and m.startswith('SELECT a.x FROM a UNION') for _, r, m in mutants),
+       'INTERSECT->operand: the right arm may not become the leftmost arm of a UNION')
+_, mutants, _ = mutate_sql("SELECT a.x FROM a INTERSECT SELECT b.y FROM b")
+report(any(r == 'INTERSECT->operand' and m == 'SELECT b.y FROM b' for _, r, m in mutants),
+       'INTERSECT->operand at the top: the right arm is allowed')
+
 # the ON condition of a LEFT JOIN must never be mutated (Counter.v)
 _, mutants, _ = mutate_sql("SELECT t.a FROM t LEFT JOIN u ON t.a = u.a AND u.b > 1 WHERE t.c = 2")
 touched = [m for _, _, m in mutants if 'LEFT JOIN u ON' in m and 'ON (t.a = u.a) AND (u.b > 1)' not in m]

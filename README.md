@@ -44,7 +44,7 @@ database `test` from `data/mariadb/`. Logs and violations are written to `out/`.
 | `scripts/` | `setup_mariadb.sh` (set up the sample database), `demo.sh` (end-to-end run) |
 | `data/` | Sample MariaDB database and 870 queries produced by the original Python generator |
 | `docs/` | `USAGE.md`: the step-by-step guide |
-| `results/` | The SQLite campaign: 44 confirmed violations |
+| `results/` | The SQLite campaign: 45 confirmed violations (1 withdrawn) |
 | `issues/` | Problem reports and candidate DBMS bugs |
 
 The idea: **a mutation rule is a theorem**. Once the theorem is proved, a generic,
@@ -459,7 +459,7 @@ in which the term means what the SQL text means.
 ## Results on SQLite
 
 Run on four old SQLite releases (3.26.0, 3.30.1, 3.31.1, 3.34.0), the verified mutators found
-**44 distinct query pairs** whose results violate the relation guaranteed by the rule's
+**45 distinct query pairs** whose results violate the relation guaranteed by the rule's
 theorem. Each one reproduces from scratch and is consistent on SQLite 3.53.1. Details,
 root-cause notes and how to reproduce: [`results/sqlite-campaign.md`](results/sqlite-campaign.md).
 

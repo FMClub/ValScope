@@ -1428,6 +1428,54 @@ def _roundtrip_ok(tr, term, sql, kind):  # noqa: C901
     return canonical(tr, tree) == canonical(back, back.lift(parse_sexp(back.term)))
 
 
+SET_TAGS = ('Union', 'UnionAll', 'Intersect', 'Except', 'IntersectAll', 'ExceptAll')
+
+
+def _leftmost_arms(tr, t):
+    """The select list of the leftmost arm (canonical) of every set operation in t.  SQLite
+    compares the rows of a compound with the collations of its leftmost arm's columns,
+    and MySQL derives them from the arms; the model uses one equivalence everywhere."""
+    out = set()
+
+    def leftmost(x):
+        """The select list of the leftmost arm: it determines the columns and so their
+        collations (DISTINCT, WHERE and derived tables in between do not change them)."""
+        while isinstance(x, list) and x:
+            if x[0] in SET_TAGS or x[0] == 'Distinct':
+                x = x[1]
+            elif x[0] in ('Where', 'Named'):
+                x = x[2]
+            elif x[0] == 'Proj':
+                return ['Items'] + [e for e in x[1]]
+            else:
+                return x
+        return x
+
+    def walk(x):
+        if not isinstance(x, list) or not x:
+            return
+        if isinstance(x[0], list):
+            for y in x:
+                walk(y)
+            return
+        if x[0] in SET_TAGS:
+            out.add(canonical(tr, leftmost(x)))
+        for y in x[1:]:
+            walk(y)
+    walk(t)
+    return out
+
+
+def changes_compound_collation(tr, original, mutant):
+    """Does the mutant give a set operation a leftmost arm that no set operation of the
+    original has?  Then the collation that set operation compares with can change (the
+    left arm's column may be NOCASE where the old one was BINARY), which the model, with
+    one collation equivalence for the whole database, does not describe."""
+    o = _leftmost_arms(tr, parse_sexp(original) if isinstance(original, str) else original)
+    m = _leftmost_arms(tr, parse_sexp(mutant) if isinstance(mutant, str) else mutant)
+    return bool(m - o)
+
+
 def _validated(tr, term, kind):
     """The SQL of `term`, or None if it does not survive the round trip or is outside
     the collation law."""
@@ -1454,6 +1502,9 @@ def mutate_sql(sql, cli=DEFAULT_CLI, dialect='mysql', schema=None):
         raise Unsupported('the re-printed query does not parse back to its term')
     mutants, skipped, seen = [], 0, set()
     for direction, rule, term in _run_cli(tr.term, cli):
+        if changes_compound_collation(tr, tr.term, term):
+            STATS['outside_model'] += 1
+            continue
         try:
             text = _validated(tr, term, 'set')
         except Unsupported:

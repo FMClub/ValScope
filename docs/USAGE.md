@@ -450,7 +450,7 @@ there are any (`non_numeric_input`): SQLite's `AVG` converts text to numbers whi
 The campaign builds random databases, runs random queries and their mutants on several
 SQLite releases, and re-checks each violation on the newest SQLite. A violation on an old
 release that disappears on the newest one is a bug the newer release fixed; this is how the
-44 confirmed pairs in `results/sqlite-campaign.md` were found.
+45 confirmed pairs in `results/sqlite-campaign.md` were found.
 
 ### 8.1 Build old SQLite releases
 
@@ -500,6 +500,30 @@ L=/tmp/sqlite-libs; python3 bridge/confirm_sqlite.py violations.jsonl --libs $L/
 This rebuilds each seed's database with every library, re-runs both queries and writes a
 Markdown report. A pair is `confirmed` when it reproduces on the version that reported it
 and the relation holds on the newest SQLite.
+
+### 8.4 Coverage-guided generation (`--adaptive`)
+
+Every campaign counts **coverage features**: a pair (rule, the set of constructs of the
+original query's term, such as `Union`, `Distinct`, `Left`, `Like`). A feature counts when
+that rule was checked on a query of that shape. With `--adaptive`, the generator settings
+(plain, `--focus`, `--rich`, both) are chosen for each database seed by a UCB1 bandit.
+The reward is the new features per query, plus a large bonus for each new violating pair:
+
+```bash
+L=/tmp/sqlite-libs; python3 bridge/campaign_sqlite.py --adaptive --libs $L/libsqlite3-3260000.so $L/libsqlite3-3300100.so $L/libsqlite3-3310100.so $L/libsqlite3-3340000.so --seeds 3001-3020 --queries 40 --out violations.jsonl
+```
+
+Each seed's line on standard error names the chosen arm, and the final summary gives how
+often each arm was chosen and its mean reward. On seeds 3001-3020 (1600 queries each):
+
+| Setting | Checks passed | Coverage features | Violating pairs |
+| --- | --- | --- | --- |
+| plain | 127,896 | 6,412 | 0 |
+| `--focus --rich` (fixed) | 149,100 | 8,127 | 1 |
+| `--adaptive` (chose `focus` 12 times) | 152,372 | 7,608 | 2 (+1 outside the model) |
+
+Twenty seeds are too few to call a winner. The adaptive run found the most violating
+pairs and passed the most checks; the fixed best setting covered more features.
 
 ## 9. Test any other database
 

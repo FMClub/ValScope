@@ -5,14 +5,35 @@
 #   scripts/demo.sh mariadb     # MariaDB / MySQL (run scripts/setup_mariadb.sh first)
 #   scripts/demo.sh sqlite      # an SQLite database built on the fly; needs no server
 #
-# Environment (mariadb): HOST, PORT, DB_USER, PASSWORD as for setup_mariadb.sh.
+# Environment (mariadb): HOST, PORT, DB_USER, PASSWORD, DATABASE as for setup_mariadb.sh.
 # N (default 200) is the number of queries of each kind.  Output goes to out/.
 set -euo pipefail
 target=${1:-sqlite}
 N=${N:-200}
 HOST=${HOST:-127.0.0.1}; PORT=${PORT:-3306}; DB_USER=${DB_USER:-root}; PASSWORD=${PASSWORD-123456}
+DATABASE=${DATABASE:-test}
 cd "$(dirname "$0")/.."
 mkdir -p out
+
+# ---- check the dependencies first, with the command that installs what is missing
+missing=0
+need() {   # need <command> <how to install>
+  if ! command -v "$1" > /dev/null; then echo "missing: $1    install: $2" >&2; missing=1; fi
+}
+need coqc 'sudo apt-get install -y coq   (Coq 8.18 or newer, see docs/USAGE.md 2.2)'
+need coq_makefile 'sudo apt-get install -y coq'
+need ocamlfind 'sudo apt-get install -y ocaml ocaml-findlib'
+need make 'sudo apt-get install -y make'
+need python3 'sudo apt-get install -y python3 python3-pip'
+if command -v python3 > /dev/null; then
+  python3 -c 'import sqlglot' 2> /dev/null || { echo "missing: python package sqlglot    install: python3 -m pip install -r requirements.txt" >&2; missing=1; }
+  if [ "$target" = mariadb ]; then
+    python3 -c 'import pymysql' 2> /dev/null || { echo "missing: python package pymysql    install: python3 -m pip install -r requirements.txt" >&2; missing=1; }
+  fi
+  v=$(python3 -c 'import sqlglot; print(sqlglot.__version__)' 2> /dev/null || true)
+  [ -z "$v" ] || [ "$v" = 30.33.0 ] || echo "warning: sqlglot $v; the bridge is tested with 30.33.0 (requirements.txt)" >&2
+fi
+[ "$missing" = 0 ] || exit 1
 
 # the counters of a run, and its violations (see docs/USAGE.md, section 10)
 summary() {
@@ -37,7 +58,7 @@ python3 bridge/test_bridge.py > out/test.log; tail -n 1 out/test.log
 
 case "$target" in
   mariadb)
-    conn=(--host "$HOST" --port "$PORT" --user "$DB_USER" --password "$PASSWORD" --database test)
+    conn=(--host "$HOST" --port "$PORT" --user "$DB_USER" --password "$PASSWORD" --database "$DATABASE")
     echo "== 4. generate $N set-semantic and $N value queries for the sample schema"
     python3 bridge/gen_fragment.py "$N" 1 > out/queries.sql
     python3 bridge/gen_fragment.py --value "$N" 2 > out/vqueries.sql

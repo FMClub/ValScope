@@ -70,16 +70,20 @@ def statements(seed, focus=False):
     return stmts
 
 
+SKIPPED = []     # (seed, statement, error) of the statements that failed in build()
+
+
 def build(db, seed, focus=False):
-    """Create the tables in `db` (a sqlite_exec.SQLiteLib).  Statements that fail
-    (a UNIQUE index over duplicate data) are skipped.  Returns the statements used."""
+    """Create the tables in `db` (a sqlite_exec.SQLiteLib).  Statements that fail (a
+    UNIQUE index over duplicate data, an expression an old release does not support) are
+    skipped and recorded in SKIPPED.  Returns the statements used."""
     used = []
     for s in statements(seed, focus):
         try:
             db.executescript(s)
             used.append(s)
-        except Exception:      # RuntimeError from ctypes, sqlite3.Error from Python's module
-            pass
+        except Exception as e:      # RuntimeError from ctypes, sqlite3.Error from Python's module
+            SKIPPED.append((seed, s, str(e)))
     return used
 
 
@@ -89,6 +93,7 @@ if __name__ == '__main__':
         try:
             con.execute(s)
             print(s)
-        except sqlite3.Error:
-            pass
+        except sqlite3.Error as e:
+            print('-- skipped (%s): %s' % (e, s))
+            print('skipped (%s): %s' % (e, s), file=sys.stderr)
     con.commit()

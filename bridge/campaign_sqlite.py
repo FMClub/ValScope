@@ -27,6 +27,7 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gen_fragment  # noqa: E402
+import gen_sqlite_db  # noqa: E402
 from gen_sqlite_db import build  # noqa: E402
 from sqlite_exec import SQLiteLib  # noqa: E402
 import sql_bridge  # noqa: E402
@@ -185,6 +186,11 @@ def main():
                         out.flush()
         print('-- seed %d done: %s' % (seed, dict(st)), file=sys.stderr)
     # mutants whose printed SQL did not parse back to the term of the verified engine
+    if gen_sqlite_db.SKIPPED:
+        # schema statements that failed while the databases were built (per library)
+        st['schema_statements_skipped'] = len(gen_sqlite_db.SKIPPED)
+        reasons = collections.Counter(e.split(':')[0][:50] for _, _, e in gen_sqlite_db.SKIPPED)
+        print('schema statements skipped:', dict(reasons))
     if sql_bridge.STATS['roundtrip_rejected']:
         st['mutants_roundtrip_rejected'] = sql_bridge.STATS['roundtrip_rejected']
     # mutants that apply a collation-sensitive operation above a de-duplication

@@ -91,8 +91,6 @@ jobs:
     name: MySQL 8.4, end to end
     runs-on: ubuntu-24.04
     timeout-minutes: 60
-    # new: the sample database and the generator were written for MariaDB
-    continue-on-error: true
     services:
       mysql:
         image: mysql:8.4
@@ -114,6 +112,23 @@ jobs:
         run: YES=1 scripts/setup_mariadb.sh
       - name: End to end on MySQL (MySQL-protocol runner)
         run: N=60 scripts/demo.sh mariadb
+      - name: Rows of every violation (hex)
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json, os, pymysql
+          if not os.path.exists('out/violations.jsonl'):
+              raise SystemExit
+          c = pymysql.connect(host='127.0.0.1', user='root', password='123456', database='test')
+          cur = c.cursor()
+          for line in open('out/violations.jsonl'):
+              r = json.loads(line)
+              print('==', r['rule'], r['expect'])
+              for k in ('original', 'mutant'):
+                  cur.execute(r[k])
+                  rows = sorted(repr(tuple(v.hex() if isinstance(v, bytes) else v for v in row)) for row in cur.fetchall())
+                  print(k, len(rows), rows[:5])
+          PY
       - name: The BIT candidates of issues 005 and 006 on MySQL
         run: |
           mysql_() { mysql -h127.0.0.1 -uroot -p123456 "$@"; }

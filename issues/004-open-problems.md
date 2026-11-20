@@ -107,14 +107,18 @@ fixes of PR #1 are merged; the design problems below are still open.
 2. The checker: value checks now search for a one-to-one correspondence (bipartite
    matching), which is what the theorem states; tolerances for floats are chosen by hand.
 3. The list of monotone SQL functions is an assumption of the bridge.
-4. After extraction the proofs are erased; OCaml code could build an unproved rule record.
+4. After extraction the proofs are erased. (Since the fifth round the rule types are
+   abstract in the interface the front end is compiled against, and a test checks that a
+   forged rule does not compile; the extracted code and the extraction stay trusted.)
 5. Only the `mysql` and `sqlite` dialects of sqlglot were tested.
 
 ### B4. Tooling
 
-1. Built and tested with Coq 8.18.0 and OCaml 4.14.1 only; not built with Rocq 9.
-2. The command-line mutator is started once per query; there is no result cache and no
-   test-case reduction.
+1. Since the fifth round, GitHub Actions checks the proofs with Coq 8.18 and with Rocq 9
+   (opam) and runs the tests and end-to-end runs on SQLite and MariaDB 10.11. The bridge
+   tests pass with sqlglot 26.33 to 30.33.
+2. The command-line mutator now runs as one long-lived process, and the round trip
+   caches atom syntax trees (2.7 times faster). There is still no test-case reduction.
 
 ## C. Testing real DBMSs
 

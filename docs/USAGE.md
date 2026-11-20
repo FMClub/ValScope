@@ -104,8 +104,9 @@ python3 -m pip install -r requirements.txt
 
 (`requirements.txt` pins `sqlglot==30.33.0` and asks for `pymysql`.)
 
-sqlglot changes its syntax tree between releases; the bridge was written for 30.33.0. Pin
-it. `pymysql` is only needed to test MySQL-protocol servers.
+sqlglot changes its syntax tree between releases. The bridge tests pass with sqlglot 26.33
+to 30.33; `requirements.txt` pins 30.33.0, and `scripts/demo.sh` warns outside that range.
+`pymysql` is only needed to test MySQL-protocol servers.
 
 ### 2.4 A database to test (optional for the first steps)
 
@@ -328,11 +329,21 @@ scripts/setup_mariadb.sh
 ```
 
 It connects to `127.0.0.1:3306` as `root` with password `123456`, starts a local MariaDB
-first if none answers, and (re)creates the database `test`. Another server:
+first if none answers (with `sudo` when not run as root), and (re)creates the database
+`test`. If that database already has tables it asks first; without a terminal it refuses
+unless `YES=1` is set. Another server or database name:
 
 ```bash
-HOST=db.example.internal PORT=3306 DB_USER=root PASSWORD=secret scripts/setup_mariadb.sh
+HOST=db.example.internal PORT=3306 DB_USER=root PASSWORD=secret DATABASE=vs_test scripts/setup_mariadb.sh
 ```
+
+```bash
+DATABASE=vs_test scripts/demo.sh mariadb
+```
+
+The script reports the index statements of `data/mariadb/indexes.sql` it skips: the file
+collects several runs of the original generator, so 155 definitions are duplicates
+(`ERROR 1061`), and 9 indexes exceed MariaDB's key length of 3072 bytes (`ERROR 1071`).
 
 To load the files by hand instead:
 
@@ -473,6 +484,7 @@ L=/tmp/sqlite-libs; python3 bridge/campaign_sqlite.py --libs $L/libsqlite3-32600
 | `--queries N` | N set-semantic and N value queries per seed |
 | `--focus` | more set operations, `DISTINCT`, text and `COLLATE NOCASE` columns |
 | `--rich` | opaque predicates and derived tables |
+| `--adaptive` | choose plain / `--focus` / `--rich` / both per database seed by coverage feedback (section 8.4) |
 | `--flip` | negative control |
 
 Progress is printed to standard error after each seed; the summary and the per-rule
@@ -659,4 +671,7 @@ operator), also extend the printer in `bridge/sql_bridge.py` (`_e_sql`, `_p_sql`
 | `a GROUP BY clause is required before HAVING` on old SQLite | old releases reject HAVING without GROUP BY; these queries are skipped |
 | `FUNCTION test.REGEXP_LIKE does not exist` | an old bridge version; update the branch (REGEXP is now printed as an operator) |
 | everything `unsupported` | the queries use features outside the fragment; check one with the `Translation(...)` command of section 4 to see the reason |
+| `database test has N tables; set YES=1 ...` | `setup_mariadb.sh` would drop an existing database; set `YES=1`, or use another `DATABASE=` |
+| `missing: ...` from `demo.sh` | a tool or Python package is not installed; the message gives the install command |
+| `warning: sqlglot X` | sqlglot outside the tested range 26.33 to 30.33; `python3 -m pip install -r requirements.txt` |
 | `--flip` reports 0 violations | no mutant was checked: look at `supported`, `mutant_failed` and the errors |

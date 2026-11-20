@@ -86,7 +86,9 @@ results): [`docs/USAGE.md`](docs/USAGE.md).
 
 Requires Coq/Rocq 8.18 or newer, OCaml with ocamlfind, and for the bridge Python 3 with
 `sqlglot` (and `pymysql` to run against a database). Tested with Coq 8.18.0, OCaml 4.14.1,
-sqlglot 30.33.0.
+and sqlglot 26.33 to 30.33 (`requirements.txt` pins 30.33.0). The GitHub Actions workflow
+(`.github/workflows/ci.yml`) checks the proofs with Coq 8.18 and with Rocq 9, runs the tests
+and the end-to-end runs on SQLite and MariaDB 10.11 on every push.
 
 ```bash
 make        # check all proofs and extract the OCaml core
@@ -502,5 +504,7 @@ root-cause notes and how to reproduce: [`results/sqlite-campaign.md`](results/sq
   tolerance chosen by hand.
 - SQLite does not report the collation of an expression column; for those the checker uses
   the coarsest collation of the database and can miss a case difference.
-- After extraction the proofs are erased, so OCaml code can build an unproved rule record.
-  Plug-ins should be written and registered in Rocq.
+- After extraction the proofs are erased. To keep OCaml code from building an unproved
+  rule, `make cli` makes the rule types abstract in the interface the front end is
+  compiled against; `make check-abstract` (part of `make test`) checks that a rule forged
+  in OCaml does not compile. The extracted code itself and Rocq's extraction stay trusted.

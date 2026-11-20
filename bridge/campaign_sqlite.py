@@ -20,8 +20,10 @@ between the model and SQLite, and needs a closer look.
 import argparse
 import collections
 import json
+import math
 import os
 import random
+import re
 import sys
 import tempfile
 
@@ -61,6 +63,42 @@ def verdict_for(kind, mutant, base, res, fold=None):
     return check_inclusion(direction, base, res, fold), direction
 
 
+# ---------------------------------------------------------------- coverage guidance
+#
+# A coverage feature is a pair (rule, the set of constructs of the original term): the
+# rule was checked on a query of that shape.  With --adaptive, the generator settings
+# (arms) are chosen per database seed by UCB1, rewarding new features per query and,
+# much more, new violating pairs.
+
+ARMS = [('plain', False, False), ('focus', True, False), ('rich', False, True), ('focus+rich', True, True)]
+
+
+def term_shape(sql, kind):
+    """The constructs of the algebra term of a query (Union, Distinct, Left, Like, ...)."""
+    try:
+        tr = sql_bridge.Translation(sql, 'sqlite', kind)
+    except Exception:
+        return frozenset()
+    return frozenset(re.findall(r'\(([A-Z][A-Za-z]*)', tr.term))
+
+
+class Bandit:
+    def __init__(self, arms):
+        self.arms, self.n, self.total = arms, [0] * len(arms), [0.0] * len(arms)
+
+    def pick(self):
+        for i, n in enumerate(self.n):
+            if n == 0:
+                return i                       # try every arm once
+        t = sum(self.n)
+        return max(range(len(self.arms)),
+                   key=lambda i: self.total[i] / self.n[i] + math.sqrt(2 * math.log(t) / self.n[i]))
+
+    def update(self, i, reward):
+        self.n[i] += 1
+        self.total[i] += reward
+
+
 def parse_range(text):
     a, _, b = text.partition('-')
     return range(int(a), int(b or a) + 1)
@@ -76,6 +114,8 @@ def main():
     ap.add_argument('--rich', action='store_true', help='opaque predicates and derived tables')
     ap.add_argument('--focus', action='store_true',
                     help='more compounds, DISTINCT, text and COLLATE NOCASE columns')
+    ap.add_argument('--adaptive', action='store_true',
+                    help='choose --focus / --rich per database seed by coverage feedback (UCB1)')
     args = ap.parse_args()
     gen_fragment.use_sqlite()
     gen_fragment.RICH = args.rich
@@ -85,7 +125,15 @@ def main():
     st = collections.Counter()
     by_rule = collections.Counter()
     out = open(args.out, 'a') if args.out else None
+    features, pairs = set(), set()
+    bandit = Bandit(ARMS)
     for seed in parse_range(args.seeds):
+        arm = None
+        if args.adaptive:
+            arm = bandit.pick()
+            _, args.focus, args.rich = ARMS[arm]
+        gen_fragment.RICH, gen_fragment.FOCUS = args.rich, args.focus
+        features_before, pairs_before = len(features), len(pairs)
         dbs = []
         for lib in libs + [None]:          # the last one is the reference (latest)
             path = os.path.join(tmp, '%s_%d.db' % (os.path.basename(lib or 'python'), seed))
@@ -101,6 +149,7 @@ def main():
         rng = random.Random(seed)
         queries = [('set', gen_fragment.query(rng)) for _ in range(args.queries)]
         queries += [('value', gen_fragment.value_query(rng)) for _ in range(args.queries)]
+        shapes = {}
         for kind, sql in queries:
             st['queries'] += 1
             numeric_probe = None
@@ -157,6 +206,10 @@ def main():
                     fold = db.folds(base_collations, db.last_collations, db.fallback)
                     verdict, label = verdict_for(mk, m, base, res, fold)
                     rule = ('HAVING ' if mk == 'having' else '') + m[1]
+                    if verdict not in ('incomparable',):
+                        if sql not in shapes:
+                            shapes[sql] = term_shape(sql, 'set' if kind == 'set' else 'value')
+                        features.add((rule, shapes[sql]))
                     if verdict == 'ok':
                         st['checked_ok'] += 1
                         by_rule[rule] += 1
@@ -165,6 +218,7 @@ def main():
                         st[verdict] += 1
                         continue
                     st['VIOLATIONS'] += 1
+                    pairs.add((original, mutant[-1]))
                     if args.flip:
                         continue
                     # re-check on the latest SQLite
@@ -184,7 +238,12 @@ def main():
                     if out:
                         out.write(json.dumps(rec) + '\n')
                         out.flush()
-        print('-- seed %d done: %s' % (seed, dict(st)), file=sys.stderr)
+        new_f, new_p = len(features) - features_before, len(pairs) - pairs_before
+        if arm is not None:
+            bandit.update(arm, new_f / max(1, len(queries)) + 5.0 * new_p)
+        print('-- seed %d done%s: new coverage features %d, new violating pairs %d; %s'
+              % (seed, ' (arm %s)' % ARMS[arm][0] if arm is not None else '', new_f, new_p, dict(st)),
+              file=sys.stderr)
     # mutants whose printed SQL did not parse back to the term of the verified engine
     if gen_sqlite_db.SKIPPED:
         # schema statements that failed while the databases were built (per library)
@@ -196,6 +255,12 @@ def main():
     # mutants that apply a collation-sensitive operation above a de-duplication
     if sql_bridge.STATS['outside_model']:
         st['mutants_outside_model'] = sql_bridge.STATS['outside_model']
+    st['coverage_features'] = len(features)
+    st['violating_pairs'] = len(pairs)
+    if args.adaptive:
+        print('arms (times chosen, mean reward):',
+              {ARMS[i][0]: (bandit.n[i], round(bandit.total[i] / bandit.n[i], 3) if bandit.n[i] else None)
+               for i in range(len(ARMS))})
     print(dict(st))
     print('ok checks per rule:', dict(by_rule))
     if ERRORS:

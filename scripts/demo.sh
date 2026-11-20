@@ -20,8 +20,13 @@ missing=0
 need() {   # need <command> <how to install>
   if ! command -v "$1" > /dev/null; then echo "missing: $1    install: $2" >&2; missing=1; fi
 }
-need coqc 'sudo apt-get install -y coq   (Coq 8.18 or newer, see docs/USAGE.md 2.2)'
-need coq_makefile 'sudo apt-get install -y coq'
+# Coq 8.x: coqc and coq_makefile; Rocq 9: the rocq command (rocq c, rocq makefile)
+if command -v coqc > /dev/null; then COQC=(coqc); elif command -v rocq > /dev/null; then COQC=(rocq c); else
+  echo "missing: coqc or rocq    install: sudo apt-get install -y coq   (Coq 8.18 or newer, or Rocq 9; see docs/USAGE.md 2.2)" >&2
+  missing=1
+fi
+command -v coq_makefile > /dev/null || command -v rocq > /dev/null ||
+  { echo "missing: coq_makefile or rocq    install: sudo apt-get install -y coq" >&2; missing=1; }
 need ocamlfind 'sudo apt-get install -y ocaml ocaml-findlib'
 need make 'sudo apt-get install -y make'
 need python3 'sudo apt-get install -y python3 python3-pip'
@@ -47,7 +52,7 @@ echo "== 1. check the proofs and extract the verified engine (make)"
 make -s > out/make.log 2>&1 || { tail -n 30 out/make.log; exit 1; }
 # ask Rocq which axioms the three soundness theorems depend on
 printf 'From ValScope Require Import Registry.\nPrint Assumptions mutate_sound.\nPrint Assumptions vmutate_sound.\nPrint Assumptions hmutate_sound.\n' > out/Assumptions.v
-coqc -R theories ValScope out/Assumptions.v > out/assumptions.log
+"${COQC[@]}" -R theories ValScope out/Assumptions.v > out/assumptions.log
 awk '/^Closed under/ {print "   set-semantic mutator (mutate_sound): no axioms"; next}
      /^Axioms:/ {n++; next}
      /^[A-Za-z]/ && n {split($1, a, "."); ax[n] = ax[n] " " a[length(a)]}

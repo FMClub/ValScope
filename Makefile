@@ -1,10 +1,13 @@
 # Build the Rocq (Coq) development, extract the verified core to OCaml and build the CLI.
+# Coq 8.x ships coq_makefile; Rocq 9 replaced it by `rocq makefile`.
+COQMAKEFILE ?= $(shell command -v coq_makefile 2>/dev/null || echo rocq makefile)
+
 all: Makefile.coq
 	mkdir -p extracted
 	$(MAKE) -f Makefile.coq
 
 Makefile.coq: _CoqProject
-	coq_makefile -f _CoqProject -o Makefile.coq
+	$(COQMAKEFILE) -f _CoqProject -o Makefile.coq
 
 # The command-line mutator: extracted core + glue (cli/main.ml).
 # The rule types are made abstract in the interface main.ml is compiled against: the

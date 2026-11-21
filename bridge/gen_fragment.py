@@ -7,6 +7,7 @@
     add --value-ext for windows over groups, DISTINCT arms of a UNION ALL, INTERSECT / EXCEPT,
         an outer query over a derived value query
     add --sqlite-seed SEED (with --sqlite --value): only the numeric columns of that database
+    add --mysql-seed SEED: queries for the database of gen_mysql_db.py with that seed
     add --schema FILE.json for another schema (see below)
 
 By default the schema is the sample schema of the Python generator (tables t1, t2, t3).
@@ -23,6 +24,7 @@ OPS = ['=', '<>', '<', '<=', '>', '>=']
 CONSTS = [1, 5, 20, 50, 100, 1000, 5000]
 SHIFTS = [5, 50, 500, 5000]
 SQLITE = False
+SMALL = False     # small values in the tables (gen_mysql_db.py): small constants
 RICH = False      # opaque predicates and derived tables that stress the SQLite planner
 FOCUS = False     # more compound queries and more DISTINCT
 VALUE_EXT = False # value queries with windows over groups, a DISTINCT arm in a UNION ALL,
@@ -65,6 +67,19 @@ def use_sqlite():
     SHIFTS = [1, 2, 3]
     AGGS = ['SUM(%s)', 'MIN(%s)', 'MAX(%s)', 'AVG(%s)', 'COUNT(%s)', 'COUNT(DISTINCT %s)']
     MONO = ['ROUND']
+
+
+def use_small_schema():
+    """Profile for the databases of gen_mysql_db.py: all columns of t1, t2, t3 and small
+    constants (their values are small), with the MySQL syntax and functions."""
+    global CONSTS, SHIFTS, SMALL
+    SMALL = True
+    cols = {'t1': ['c1', 'c4'], 't2': ['c1', 'c2', 'c3', 'c14', 'c15'],
+            't3': ['c1', 'c2', 'c3', 'c6', 'c7', 'c8', 'c9']}
+    TABLES.clear(); TABLES.update(cols)
+    NUM.clear(); NUM.update(cols)
+    CONSTS = [-1, 0, 1, 2, 3, 5, 7, 10]
+    SHIFTS = [1, 2, 3]
 
 
 def cmp_(rng, aliases):
@@ -242,7 +257,7 @@ def having_pred(rng, alias, t, depth):
     r = rng.random()
     if depth <= 0 or r < 0.45:
         left = rng.choice(AGGS[:6]) % scalar(rng, alias, t)
-        right = str(rng.choice(CONSTS if SQLITE else [0, 1, 2, 10, 100, 1000, 5000]))
+        right = str(rng.choice(CONSTS if SQLITE or SMALL else [0, 1, 2, 10, 100, 1000, 5000]))
         if rng.random() < 0.2:
             right = rng.choice(AGGS[:5]) % scalar(rng, alias, t)
         return '%s %s %s' % (left, rng.choice(OPS), right)
@@ -371,6 +386,16 @@ if __name__ == '__main__':
     if '--value-ext' in sys.argv:
         VALUE_EXT = True
     argv = sys.argv[1:]
+    if '--mysql-seed' in argv:
+        # the databases of gen_mysql_db.py; value queries over their exact numeric columns
+        import gen_mysql_db
+        i = argv.index('--mysql-seed')
+        use_small_schema()
+        num = {t: c for t, c in gen_mysql_db.numeric_columns(int(argv[i + 1])).items() if c}
+        if num and '--value' in argv:
+            NUM.clear()
+            NUM.update(num)
+        del argv[i:i + 2]
     if '--sqlite-seed' in argv:
         # value queries over the columns declared INTEGER or REAL in the database of
         # gen_sqlite_db.py for this seed (a value query that aggregates text is skipped)

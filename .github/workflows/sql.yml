@@ -11,7 +11,7 @@ on:
         required: true
         default: "mysql:9"
       script:
-        description: "Path of the script in the repository (data/mariadb/*.sql, data/mysql/*.sql)"
+        description: "A script of the repository (data/mariadb/x.sql) or a directory of scripts (data/mariadb)"
         required: true
 
 permissions:
@@ -46,6 +46,13 @@ jobs:
         env:
           SCRIPT: ${{ inputs.script }}
         run: |
-          case "$SCRIPT" in data/*.sql) ;; *) echo "not a script under data/: $SCRIPT" >&2; exit 1 ;; esac
           case "$SCRIPT" in *..*) echo "no .. in the path" >&2; exit 1 ;; esac
-          mysql -h127.0.0.1 -uroot -p123456 --force --skip-column-names --default-character-set=utf8mb4 < "$SCRIPT"
+          case "$SCRIPT" in
+            data/*.sql) files="$SCRIPT" ;;
+            data/*) files=$(ls "$SCRIPT"/*.sql) ;;      # a directory: every script in it
+            *) echo "not under data/: $SCRIPT" >&2; exit 1 ;;
+          esac
+          for f in $files; do
+            echo "=== $f"
+            mysql -h127.0.0.1 -uroot -p123456 --force --skip-column-names --default-character-set=utf8mb4 < "$f" 2>&1 | grep -v "Using a password" || true
+          done

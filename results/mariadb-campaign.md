@@ -93,6 +93,8 @@ CI runs a small campaign (seeds 1-12, `--focus`) on MySQL 8.4 and 9 and on Maria
 | MySQL 8.4.13 | seeds 231-280, `--rich` | 89483 | 2 | `issues/008`: 1; the same false alarm: 1 |
 | MySQL 9.7.4 | seeds 171-230, `--rich --focus` | 155729 | 3 | `issues/008` in a new, simpler form (NULL matches 0): 1; 2 false alarms (a number arm and a text arm; `CEIL(VAR_SAMP(...))` in another column, both fixed) |
 
+| Percona Server 8.4.11-12 (`percona/percona-server:8.4`) | seeds 131-160, `--rich` | 51869 | 7 | `issues/015`: 6 (the pairs of seed 144, as on MySQL 9), `issues/008` (NULL matches 0): 1 |
+| TiDB 7.5.1 (`pingcap/tidb:latest`, port 4000) | seeds 1-10, `--focus` | 8054 | 0 | TiDB refused 213 of 600 queries (a subquery in a join condition, `INTERSECT ALL`, `EXCEPT ALL`); the generator has `--tidb` since |
 
 The reproducers of `data/mariadb/` on MariaDB 13.0.2 (`sql.yml` with the directory): issues
 009, 010, 011, 012, 013 and 014 give the same wrong results as on 10.11.14; of issue 003

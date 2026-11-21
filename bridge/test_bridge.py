@@ -552,6 +552,29 @@ for sql, expect in [
         got = False
     report(got == expect, 'window in a value query: %s %s' % ('accepted' if got else 'rejected', sql))
 
+# SQLite: HAVING without GROUP BY is printed as a WHERE over a derived table (old releases
+# reject the HAVING); both forms give the same rows, on every predicate value and on an empty table
+import sqlite3  # noqa: E402
+import sql_bridge as _sb  # noqa: E402
+con = sqlite3.connect(':memory:')
+con.execute('CREATE TABLE t (a INT, x INT)')
+same = True
+for data in ([], [(1, 2), (2, None), (3, 5)], [(None, None)]):
+    con.execute('DELETE FROM t')
+    con.executemany('INSERT INTO t VALUES (?, ?)', data)
+    for sql in ['SELECT SUM(t.x) AS k0, COUNT(*) AS k1 FROM t HAVING COUNT(*) > 1',
+                'SELECT MAX(t.a) AS k0 FROM t WHERE t.a > 1 HAVING SUM(t.x) IS NULL',
+                'SELECT DISTINCT COUNT(t.x) AS k0 FROM t HAVING MIN(t.a) < 3']:
+        tr = _sb.Translation(sql, 'sqlite', kind='value')
+        plain = tr.to_sql(tr.term)
+        tr.wrap_global_having = True
+        wrapped = tr.to_sql(tr.term)
+        same = same and 'HAVING' in plain and 'HAVING' not in wrapped and \
+            sorted(con.execute(plain).fetchall(), key=repr) == sorted(con.execute(wrapped).fetchall(), key=repr)
+report(same, 'SQLite: HAVING without GROUP BY printed as WHERE over a derived table gives the same rows')
+_, _, _, _, hm = mutate_value('SELECT SUM(t.x) AS k0 FROM t', dialect='sqlite')
+report(hm and all('HAVING' not in m for _, _, m in hm), 'SQLite: HAVING mutants of an ungrouped aggregate need no GROUP BY')
+
 # the adaptive campaign: UCB1 tries every arm once, then prefers the arm with more reward
 import random  # noqa: E402
 import campaign_sqlite  # noqa: E402

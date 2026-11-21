@@ -1646,6 +1646,14 @@ class Translation:
             sql += ' WHERE ' + where
         if keys:
             sql += ' GROUP BY ' + ', '.join(self._e_sql(k) for k in keys)
+        if having != 'True' and not keys and self.dialect == 'sqlite' and getattr(self, 'wrap_global_having', False):
+            # SQLite before 3.39 rejects HAVING without GROUP BY.  The aggregate query (one
+            # row) keeps that row exactly when the predicate is TRUE, which is a WHERE on
+            # the predicate's value computed as an extra column (_validated: the standard
+            # form is the one checked by the round trip; test_bridge runs both forms)
+            outer = ', '.join('vs_g.%s' % aliases[j] for j in range(len(items)))
+            return 'SELECT %s FROM (%s, (%s) AS vs_h%s) AS vs_g WHERE vs_g.vs_h' % (
+                outer, sql[:len('SELECT ') + len(cols)], self._p_sql(having), sql[len('SELECT ') + len(cols):])
         if having != 'True':
             sql += ' HAVING ' + self._p_sql(having)
         return sql
@@ -2014,6 +2022,12 @@ def _validated(tr, term, kind):
         return None
     sql = tr.to_sql(term)
     if _roundtrip_ok(tr, term, sql, kind):
+        if tr.dialect == 'sqlite':
+            tr.wrap_global_having = True     # the form old SQLite releases accept
+            try:
+                sql = tr.to_sql(term)
+            finally:
+                tr.wrap_global_having = False
         return sql
     STATS['roundtrip_rejected'] += 1
     return None

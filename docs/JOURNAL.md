@@ -305,3 +305,36 @@ materialized `EXISTS` takes its key from the table of the `NOT EXISTS` antijoin.
 3. The SQLite side has not been touched for three rounds: run the rich campaign against
    the newest release again after the generator changes (the stream is unchanged, so this
    is a regression check).
+
+## Round 12 (2026-11-21)
+
+**Milestone.** Campaigns on four more servers through the workflows, all classified, and
+issue 008 in a much simpler form: MySQL takes the NULL of one operand of `INTERSECT` /
+`EXCEPT` for the constant 0 of the other. Wrong in 8.0.46, 8.4.13 and 9.7.4
+(`data/mysql/intersect-null-zero.sql`, a table of twelve variants on three releases).
+
+- MariaDB 13.0.2 (`mariadb:latest`): 91064 checks, 18 pairs of issues 003, 010, 012, 013;
+  the reproducers of 009 to 014 and the nested form of 003 are all still wrong there.
+- MySQL 8.4.13 (seeds 231-280): 89483 checks, issue 008 once. MySQL 9.7.4 (seeds 171-230,
+  `--rich --focus`): 155729 checks, issue 008 in the new form.
+- MariaDB 10.11.14, sixth local campaign (seeds 281-360): 144990 checks, 17 pairs of known
+  issues. `results/mariadb-campaign.jsonl` has 207 pairs.
+- `sql.yml` runs a directory of scripts; `scripts/triage_mysql.py` has hints for 008 and 015.
+
+**Audit findings (four false alarms of the tool, all from these campaigns, all fixed).**
+- A number arm and a text arm in one compound column: `COALESCE(decimal, 0)` prints as
+  `'0'` or `'0.00'` depending on whether its arm is materialized. Any such column is now
+  `incomparable` (BIT excepted, or issue 005 would be hidden).
+- The arms of the compound at the top were not probed when an arm held a compound in a
+  derived table.
+- `AVG(x) * 2` in a column that the mutation does not touch: 5.3333 or 5.3334. DECIMALs of
+  other columns are matched one decimal shorter, as a last attempt.
+- `CEIL(VAR_SAMP(x))` in such a column: 1 or 2 from the last bit of a float. A step
+  function of a variance makes "other columns changed" `incomparable`.
+
+**TODO for round 13.**
+1. The tolerances grew by four rules in two rounds. Review them together: what does each
+   hide, is each as narrow as it can be, are they documented in one place?
+2. The negative control (`--flip`) after these changes: the checker must still report
+   violations by the hundred.
+3. CI: green after the changes? The MySQL baseline (issue 008's pair) must still appear.

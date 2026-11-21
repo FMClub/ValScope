@@ -86,6 +86,12 @@ Proof. intros t name r j t'. apply tmut_sound. Qed.
 
 Print Assumptions tmutate_sound.
 
+(** Value mutants keep the grouping keys, HAVING predicates and sources of every arm. *)
+Theorem tmutate_frame : forall t name r j t', In (name, (r, (j, t'))) (tmutate t) -> same_frame t t'.
+Proof. intros t name r j t'. apply tmut_frame. Qed.
+
+Print Assumptions tmutate_frame.
+
 (** HAVING mutation of one arm. *)
 Definition thmutate : dir -> vtop -> list (string * vtop) := thmut pred_rules query_rules.
 

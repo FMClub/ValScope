@@ -541,7 +541,11 @@ for sql, expect in [
         ("SELECT t.a AS a, ROW_NUMBER() OVER (ORDER BY t.b) AS r, FLOOR(t.x) AS f FROM t", False),
         ("SELECT t.a AS a, SUM(t.x) OVER (ORDER BY t.b ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS s, "
          "FLOOR(t.x) AS f FROM t", False),
-        ("SELECT t.a AS a, SUM(t.x) AS s, RANK() OVER (ORDER BY SUM(t.x)) AS r FROM t GROUP BY t.a", False),
+        # over the groups (the value mutants keep them: tmutate_frame); keys and aggregates only
+        ("SELECT t.a AS a, SUM(t.x) AS s, RANK() OVER (ORDER BY SUM(t.x)) AS r FROM t GROUP BY t.a", True),
+        ("SELECT t.a AS a, SUM(t.x) AS s, SUM(SUM(t.x)) OVER (PARTITION BY t.a % 2) AS r FROM t GROUP BY t.a", True),
+        ("SELECT t.a AS a, SUM(t.x) AS s, RANK() OVER (ORDER BY t.x) AS r FROM t GROUP BY t.a", False),
+        ("SELECT t.a AS a, SUM(t.x) AS s, SUM(t.x) OVER () AS r FROM t GROUP BY t.a", False),
         # MariaDB ranks by the select alias a (the item -t.a, which a mutation changes)
         ("SELECT -t.a AS a, RANK() OVER (ORDER BY a) AS r, FLOOR(t.x) AS f FROM t", False),
         ("SELECT t.a + 0 AS k0, SUM(t.x) OVER (PARTITION BY k0) AS s, FLOOR(t.x) AS f FROM t", False)]:
@@ -551,6 +555,10 @@ for sql, expect in [
     except Unsupported:
         got = False
     report(got == expect, 'window in a value query: %s %s' % ('accepted' if got else 'rejected', sql))
+
+_, vm, _, _, hm = mutate_value('SELECT t.a AS a, SUM(t.x) AS s, RANK() OVER (ORDER BY SUM(t.x)) AS r '
+                                'FROM t GROUP BY t.a HAVING COUNT(*) > 1')
+report(vm and not hm, 'window over groups: value mutants only, no HAVING mutants (they change the groups)')
 
 # SQLite: HAVING without GROUP BY is printed as a WHERE over a derived table (old releases
 # reject the HAVING); both forms give the same rows, on every predicate value and on an empty table

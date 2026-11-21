@@ -149,6 +149,49 @@ Proof.
       apply forall2_refl_rows. intros row Hr. rewrite (teval_length env db a na row Ea Hr). exact Hj.
 Qed.
 
+
+(** A value mutant changes select items only: every arm keeps its grouping keys, its
+    HAVING predicate and its source.  So anything computed from those alone (the groups
+    that survive HAVING, and a window function over them) is the same for the original
+    and the mutant, which is why such a window can be an opaque item ([AOpaque]). *)
+Fixpoint same_frame (t t' : vtop) : Prop :=
+  match t, t' with
+  | VOne v, VOne v' => exists i, v' = with_items v i
+  | VUnionAll a b, VUnionAll a' b' => same_frame a a' /\ same_frame b b'
+  | _, _ => False
+  end.
+
+Lemma same_frame_refl : forall t, same_frame t t.
+Proof.
+  induction t as [v|a IHa b IHb]; simpl.
+  - exists (vitems v). destruct v; reflexivity.
+  - split; assumption.
+Qed.
+
+Lemma vmut_frame : forall v name r j v', In (name, (r, (j, v'))) (vmut rs v) -> exists i, v' = with_items v i.
+Proof.
+  intros v name r j v' H. unfold vmut in H.
+  apply in_flat_map in H as [[[pre a] post] [_ Hm]]. simpl in Hm.
+  apply in_map_iff in Hm as [[n [r0 a']] [E _]]. simpl in E. inversion E; subst.
+  eexists. reflexivity.
+Qed.
+
+Theorem tmut_frame : forall t name r j t', In (name, (r, (j, t'))) (tmut t) -> same_frame t t'.
+Proof.
+  induction t as [v|a IHa b IHb]; intros name r j t' H; simpl in H.
+  - apply in_map_iff in H as [[n0 [r0 [j0 v']]] [E Hin]]. simpl in E. inversion E; subst.
+    exact (vmut_frame _ _ _ _ _ Hin).
+  - destruct (tarity a) as [na|] eqn:Ea; destruct (tarity b) as [nb|] eqn:Eb; simpl in H;
+      rewrite ?Ea, ?Eb in H; try contradiction.
+    destruct (Nat.eqb na nb); [|contradiction].
+    apply in_app_or in H as [H|H]; unfold tmap in H; apply in_map_iff in H as [[n0 [r0 [j0 x]]] [Em Hin]];
+      simpl in Em; inversion Em; subst; simpl; split.
+    + exact (IHa _ _ _ _ Hin).
+    + apply same_frame_refl.
+    + apply same_frame_refl.
+    + exact (IHb _ _ _ _ Hin).
+Qed.
+
 End TEngine.
 
 (** ---------------- HAVING mutation of an arm ---------------- *)

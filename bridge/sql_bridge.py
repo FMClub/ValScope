@@ -594,7 +594,18 @@ def _bare_columns(select):
             continue
 
         def walk(n):
-            if isinstance(n, (exp.AggFunc, exp.Select, exp.Subquery, exp.Window)):
+            if isinstance(n, exp.Window):
+                # a window of a grouped query is evaluated per group: the arguments of its
+                # function (SUM(SUM(x)) OVER ...: the inner SUM is an aggregate) and its
+                # PARTITION BY / ORDER BY read the group, so a column there must be a key
+                for c in n.this.iter_expressions():
+                    walk(c)
+                for e in n.args.get('partition_by') or []:
+                    walk(e)
+                if n.args.get('order') is not None:
+                    walk(n.args['order'])
+                return
+            if isinstance(n, (exp.AggFunc, exp.Select, exp.Subquery)):
                 return
             if _strip_parens(n).sql().lower() in keys:
                 return          # a grouping key (also inside an expression: LN(c) + 3)
@@ -1219,7 +1230,13 @@ class Translation:
             # (Value.v: magg), copied and never mutated.  Value mutations change only select
             # items, so the original and the mutant see the same windows.  Not with
             # aggregation: a HAVING mutant changes the groups a window ranges over.
-            why = None if key_texts is None else 'window function in a grouped value query'
+            # In a grouped query the window ranges over the groups that survive HAVING.
+            # A value mutant keeps the keys, the HAVING predicate and the source of every
+            # arm (Registry.v: tmutate_frame), so it sees the same groups and the window is
+            # again an opaque item; a HAVING mutant changes the groups, so a query with a
+            # window gets no HAVING mutants (mutate_value).
+            self.has_window = True
+            why = None
             for w in windows:
                 why = why or _window_undetermined(w)
                 # MariaDB / MySQL resolve an unqualified name in PARTITION BY / ORDER BY of a
@@ -2107,6 +2124,9 @@ def mutate_value(sql, cli=DEFAULT_CLI, dialect='mysql', translation=None, schema
             mutants.append((relation, rule, int(column), text))
         else:
             direction, rule, _ = fields
+            if getattr(tr, 'has_window', False):
+                STATS['having_with_window'] += 1     # the window would range over other groups
+                continue
             having_mutants.append((direction, rule, text))
     return original, mutants, skipped, tr.type_probe(), having_mutants
 

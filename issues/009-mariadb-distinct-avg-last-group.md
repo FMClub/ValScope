@@ -73,6 +73,9 @@ FROM t3 AS t3a GROUP BY t3a.c7 HAVING ...
 
 ## Newer versions and MySQL (CI, sixth round)
 
+MariaDB 13.0.2 (`mariadb:latest`, round 12, `.github/workflows/sql.yml`): the same wrong
+values as below.
+
 MariaDB 11.8.9 returns `3.0000` on every row (and `30.0000` for the last variant): still
 present. MySQL 8.4.13 and 9.7.4 return `1, 2, 3` (and `10, 20, 30`): correct, the problem
 is specific to MariaDB.

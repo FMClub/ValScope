@@ -81,6 +81,7 @@ does not change the result).
 ## Limitations
 
 - MariaDB 10.11.14 (locally, and CI), 11.4.13 and 11.8.9 (CI): both symptoms present.
+- MariaDB 13.0.2 (`mariadb:latest`, round 12): both symptoms present.
   MySQL 8.4.13 and 9.7.4 (CI): 2 rows in every variant, correct; the problem is specific to
   MariaDB.
 - Not checked against the MariaDB bug tracker.

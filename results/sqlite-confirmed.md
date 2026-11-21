@@ -1,6 +1,6 @@
 # SQLite violations found by the verified mutators
 
-45 recorded, 45 confirmed (reproduced on the reporting version, relation holds on SQLite 3.53.1).
+46 recorded, 46 confirmed (reproduced on the reporting version, relation holds on SQLite 3.53.1).
 
 | # | Reported on | Seed | Rule | Expected | Rows (original / mutant) | Violated on | Confirmed |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -49,6 +49,7 @@
 | 43 | 3.26.0 | 4004 | `UNION-ALL->UNION` | Down | 44 / 51 | 3.26.0, 3.30.1, 3.31.1, 3.34.0 | yes |
 | 44 | 3.26.0 | 4028 | `UNION-ALL->UNION` | Down | 9 / 10 | 3.26.0, 3.30.1, 3.31.1, 3.34.0 | yes |
 | 45 | 3.26.0 | 4028 | `UNION-ALL->UNION` | Down | 55 / 59 | 3.26.0, 3.30.1, 3.31.1, 3.34.0 | yes |
+| 46 | 3.26.0 | 5023 | `UNION->UNION-ALL` | Up | 50 / 44 | 3.26.0, 3.30.1, 3.31.1, 3.34.0 | yes |
 
 ## 1. `UNION->UNION-ALL` on SQLite 3.26.0 (seed 1004)
 
@@ -812,6 +813,23 @@ SELECT DISTINCT t1b.c1 AS k0, t1b.c4 AS k1, t1b.c1 AS k2 FROM t1 AS t1a INNER JO
 Original rows: `["('2', 10.0, '2')", '(-0.5, 2, -3)', '(-0.5, 2, 1)', '(-0.5, 2, 2)', '(-0.5, 2, None)', "(-1, '1', '01')", "(-1, '1', '7')", "(-1, '1', 'a')", "(-1, '1', None)", "(-1, None, '01')", "(-1, None, '7')", "(-1, None, 'a')"]`
 
 Mutant rows: `["('2', 10.0, '2')", '(-0.5, 2, -3)', '(-0.5, 2, 1)', '(-0.5, 2, 2)', '(-0.5, 2, None)', "(-1, '1', '01')", "(-1, '1', '7')", "(-1, '1', 'A')", "(-1, '1', 'a')", "(-1, '1', None)", "(-1, None, '01')", "(-1, None, '7')"]`
+
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+
+## 46. `UNION->UNION-ALL` on SQLite 3.26.0 (seed 5023)
+
+Expected relation: Up. Verdict: violation.
+
+```sql
+-- original
+SELECT t3b.c7 AS k0, t3b.c6 AS k1, t2c.c15 AS k2 FROM t3 AS t3a LEFT JOIN t3 AS t3b ON EXISTS (SELECT t2s89.c1 FROM t2 AS t2s89 WHERE t2s89.c15 = t3a.c7) INNER JOIN t2 AS t2c ON t3b.c8 < t3b.c1 WHERE NOT (t3b.c9 <> 1) UNION ALL SELECT DISTINCT t1a.c1 AS k0, t1b.c4 AS k1, t1a.c1 AS k2 FROM t1 AS t1a LEFT JOIN t1 AS t1b ON EXISTS (SELECT t2s73.c1 FROM t2 AS t2s73 WHERE t1b.c4 = t2s73.c2) WHERE ((t1a.c1 <> 0) AND (t1a.c4 <> t1a.c1)) OR ((t1a.c4 < 5) OR (t1a.c1 <> 2)) UNION SELECT DISTINCT t1b.c4 AS k0, t1b.c4 AS k1, t2a.c3 AS k2 FROM t2 AS t2a LEFT JOIN t1 AS t1b ON (t1b.c1 > 7) OR (t2a.c2 <> t1b.c1) WHERE ((t1b.c1 = 7) AND (t2a.c2 = 1)) OR ((t1b.c1 = 0) OR (t2a.c15 <= 10));
+-- mutant
+SELECT t3b.c7 AS k0, t3b.c6 AS k1, t2c.c15 AS k2 FROM t3 AS t3a LEFT JOIN t3 AS t3b ON EXISTS (SELECT t2s89.c1 FROM t2 AS t2s89 WHERE t2s89.c15 = t3a.c7) INNER JOIN t2 AS t2c ON t3b.c8 < t3b.c1 WHERE NOT (t3b.c9 <> 1) UNION ALL SELECT DISTINCT t1a.c1 AS k0, t1b.c4 AS k1, t1a.c1 AS k2 FROM t1 AS t1a LEFT JOIN t1 AS t1b ON EXISTS (SELECT t2s73.c1 FROM t2 AS t2s73 WHERE t1b.c4 = t2s73.c2) WHERE ((t1a.c1 <> 0) AND (t1a.c4 <> t1a.c1)) OR ((t1a.c4 < 5) OR (t1a.c1 <> 2)) UNION ALL SELECT DISTINCT t1b.c4 AS k0, t1b.c4 AS k1, t2a.c3 AS k2 FROM t2 AS t2a LEFT JOIN t1 AS t1b ON (t1b.c1 > 7) OR (t2a.c2 <> t1b.c1) WHERE ((t1b.c1 = 7) AND (t2a.c2 = 1)) OR ((t1b.c1 = 0) OR (t2a.c15 <= 10));
+```
+
+Original rows: `["('', '', '-1')", "('', '', '1')", "('', '', 'A')", "('', '', 'B')", "('', '', 'a')", "('', '', 'x')", "('', '', None)", "('-3', '5', '-3')", "('01', '01', '-1')", "('01', '01', '1')", "('01', '01', 'A')", "('01', '01', 'B')"]`
+
+Mutant rows: `["('', '', '-1')", "('', '', '1')", "('', '', 'A')", "('', '', 'B')", "('', '', 'x')", "('', '', None)", "('-3', '5', '-3')", "('01', '01', '-1')", "('01', '01', '1')", "('01', '01', 'A')", "('01', '01', 'B')", "('01', '01', 'x')"]`
 
 Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
 

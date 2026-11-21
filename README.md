@@ -44,7 +44,7 @@ database `test` from `data/mariadb/`. Logs and violations are written to `out/`.
 | `scripts/` | `setup_mariadb.sh` (set up the sample database), `demo.sh` (end-to-end run) |
 | `data/` | Sample MariaDB database and 870 queries produced by the original Python generator |
 | `docs/` | `USAGE.md`: the step-by-step guide |
-| `results/` | The SQLite campaign: 45 confirmed violations from 5 bugs (4 withdrawn), reduced pairs, commits |
+| `results/` | The SQLite campaign: 46 confirmed violations from 5 bugs (4 withdrawn), reduced pairs, commits |
 | `issues/` | Problem reports and candidate DBMS bugs |
 
 The idea: **a mutation rule is a theorem**. Once the theorem is proved, a generic,

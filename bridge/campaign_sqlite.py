@@ -12,7 +12,8 @@ and every query is
 3. checked: the relation stated by the rule's theorem must hold between the
    original and the mutant on that library.
 
-A violation is re-checked on the SQLite that Python ships (`latest`).  If the
+A violation is re-checked on the reference library (`--latest`; by default the SQLite
+that Python ships).  If the
 relation holds there, the old library computed a wrong result that a later release
 corrected.  If it is violated there as well, the cause is either a live bug or a gap
 between the model and SQLite, and needs a closer look.
@@ -108,6 +109,9 @@ def parse_range(text):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--libs', nargs='+', required=True, help='shared libraries; "python" = the SQLite Python ships')
+    ap.add_argument('--latest', default=None, metavar='LIB.so',
+                    help='the reference library a violation is re-checked on (default: the SQLite Python ships); '
+                         'a violation that it also shows is a bug of the newest release, or a false alarm')
     ap.add_argument('--seeds', default='1-10')
     ap.add_argument('--queries', type=int, default=100, help='queries of each kind per seed')
     ap.add_argument('--out', default=None, help='JSON lines file for the violations')
@@ -141,8 +145,8 @@ def main():
         gen_fragment.RICH, gen_fragment.FOCUS = args.rich, args.focus
         features_before, pairs_before = len(features), len(pairs)
         dbs = []
-        for lib in libs + [None]:          # the last one is the reference (latest)
-            path = os.path.join(tmp, '%s_%d.db' % (os.path.basename(lib or 'python'), seed))
+        for lib in libs + [args.latest]:   # the last one is the reference (latest)
+            path = os.path.join(tmp, '%d_%s_%d.db' % (len(dbs), os.path.basename(lib or 'python'), seed))
             if os.path.exists(path):
                 os.remove(path)
             db = SQLiteLib(lib, path)
@@ -255,7 +259,7 @@ def main():
                     st['violations_fixed_in_latest' if fixed else 'violations_also_in_latest'] += 1
                     rec = {'version': db.version, 'seed': seed, 'focus': args.focus, 'kind': mk,
                            'rule': rule, 'expect': label,
-                           'verdict': verdict, 'latest_verdict': on_latest, 'original': original,
+                           'verdict': verdict, 'latest_verdict': on_latest, 'query': sql, 'original': original,
                            'mutant': mutant[-1], 'original_rows': len(base), 'mutant_rows': len(res),
                            'distinct': distinct}
                     print('VIOLATION [%s seed %d] %s %s (%s) latest: %s\n  original: %s\n  mutant  : %s'

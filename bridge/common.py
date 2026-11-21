@@ -29,7 +29,11 @@ def parse_sexp(text):
 def _strip_parens(node):
     """A copy of the expression without parentheses (they do not change its meaning
     in a syntax tree)."""
-    return node.copy().transform(lambda n: n.this if isinstance(n, exp.Paren) else n)
+    def bare(n):
+        while isinstance(n, exp.Paren):       # ((x)): every level
+            n = n.this
+        return n
+    return bare(node.copy()).transform(bare)
 
 
 CMP_SQL = {'eq': '=', 'ne': '<>', 'lt': '<', 'le': '<=', 'gt': '>', 'ge': '>='}

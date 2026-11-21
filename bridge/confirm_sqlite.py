@@ -1,12 +1,14 @@
 """Re-check recorded violations from scratch and summarise them.
 
-    python3 bridge/confirm_sqlite.py --libs LIB.so ... VIOLATIONS.jsonl [...] > report.md
+    python3 bridge/confirm_sqlite.py --libs LIB.so ... [--latest NEWEST.so] VIOLATIONS.jsonl [...] > report.md
 
 For every recorded violation, the database of its seed is rebuilt by every library and
 by the SQLite that Python ships; the original and the mutant are run again on each,
 and the relation is checked again.  A violation counts as CONFIRMED when it reproduces
-on the version that reported it and the relation holds on the latest SQLite (so the
-old version computed a wrong result that a later release corrected).
+on the version that reported it and the relation holds on the reference SQLite (so the
+old version computed a wrong result that a later release corrected).  The reference is
+the library given with --latest (the newest release, built from source), or the SQLite
+that Python ships.  A bug that the Python SQLite still has is confirmed only with --latest.
 """
 import argparse
 import json
@@ -38,6 +40,8 @@ def recheck(rec, db, fallback):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--libs', nargs='+', required=True)
+    ap.add_argument('--latest', default=None, metavar='LIB.so',
+                    help='the reference library (default: the SQLite that Python ships)')
     ap.add_argument('files', nargs='+')
     args = ap.parse_args()
     recs = [json.loads(line) for f in args.files for line in open(f)]
@@ -59,11 +63,11 @@ def main():
     rows = []
     for i, rec in enumerate(recs, 1):
         per_version = {}
-        for lib in libs + [None]:
+        for lib in libs + [None] + ([args.latest] if args.latest else []):
             db, fold = db_for(lib, rec['seed'], rec.get('focus', False))
             per_version[db.version] = recheck(rec, db, fold)
         own = per_version[rec['version']][0]
-        latest_version = SQLiteLib(None, ':memory:').version
+        latest_version = SQLiteLib(args.latest, ':memory:').version
         latest = per_version[latest_version][0]
         ok = own not in ('ok', 'collation', 'incomparable') and not own.startswith('error') \
             and latest in ('ok', 'collation')

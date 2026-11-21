@@ -727,8 +727,36 @@ report(same, 'SQLite: HAVING without GROUP BY printed as WHERE over a derived ta
 _, _, _, _, hm = mutate_value('SELECT SUM(t.x) AS k0 FROM t', dialect='sqlite')
 report(hm and all('HAVING' not in m for _, _, m in hm), 'SQLite: HAVING mutants of an ungrouped aggregate need no GROUP BY')
 
-# the adaptive campaign: UCB1 tries every arm once, then prefers the arm with more reward
+# a re-printed query translates again, with the same mutants (the reducers and bisect_sqlite
+# start from recorded, re-printed queries); parenthesised grouping keys used to break this
 import random  # noqa: E402
+import gen_fragment  # noqa: E402
+bad = []
+for q0 in ['SELECT (t.a % 5) AS k0, COUNT(*) AS c FROM t GROUP BY (t.a % 5) HAVING COUNT(*) > 1',
+           'SELECT ((t.a)) AS k0, MAX(t.x) AS m FROM t GROUP BY ((t.a))']:
+    o1, m1, _, _, h1 = mutate_value(q0, dialect='sqlite')
+    o2, m2, _, _, h2 = mutate_value(o1, dialect='sqlite')
+    if (len(m1), len(h1)) != (len(m2), len(h2)) or not m1:
+        bad.append(q0)
+gen_fragment.VALUE_EXT = True
+rng = random.Random(11)
+for kind in ['set'] * 25 + ['value'] * 25:
+    q0 = gen_fragment.query(rng) if kind == 'set' else gen_fragment.value_query(rng)
+    f = mutate_sql if kind == 'set' else mutate_value
+    try:
+        r1 = f(q0)
+    except Unsupported:
+        continue
+    try:
+        r2 = f(r1[0])
+        if len(r1[1]) != len(r2[1]):
+            bad.append(q0)
+    except Unsupported:
+        bad.append(q0)
+gen_fragment.VALUE_EXT = False
+report(not bad, 're-printed queries translate again with the same number of mutants (%d failures)' % len(bad))
+
+# the adaptive campaign: UCB1 tries every arm once, then prefers the arm with more reward
 import campaign_sqlite  # noqa: E402
 bandit = campaign_sqlite.Bandit(campaign_sqlite.ARMS)
 for _ in range(4):

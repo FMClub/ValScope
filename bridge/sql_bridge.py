@@ -627,6 +627,12 @@ class Translation(Printer):
             return '(VUnionAll %s %s)' % (left, right), mask
         return self._value_query(node), ('one', False)
 
+    @staticmethod
+    def _unparen(node):
+        while isinstance(node, exp.Paren):
+            node = node.this
+        return node
+
     def _value_arms(self, tree):
         """The value queries of a (possibly UNION ALL) value term, left to right."""
         if tree[0] in ('VUnionAll', 'SInter', 'SExcept'):
@@ -643,7 +649,8 @@ class Translation(Printer):
         if group is not None:
             if any(group.args.get(k) for k in ('rollup', 'cube', 'grouping_sets', 'totals', 'all')):
                 raise Unsupported('ROLLUP / CUBE / GROUPING SETS')
-            keys = list(group.expressions)
+            # without outer parentheses: the printer adds its own around an atom
+            keys = [self._unparen(k) for k in group.expressions]
         self._check_alias_references(node)
         key_texts = {_strip_parens(k).sql(dialect=self.dialect) for k in keys}
         def agg_outside_window(n):

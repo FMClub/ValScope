@@ -6,8 +6,9 @@
 
 The steps of results/sqlite-bisect.md, for the pairs that results/ does not have yet:
 
-1. confirm (bridge/confirm_sqlite.py): reproduced on the reporting release, consistent on
-   the SQLite that Python ships; a pair that is not confirmed stops the run;
+1. confirm (bridge/confirm_sqlite.py --latest): reproduced on the reporting release,
+   consistent on the newest release; a pair that is not confirmed stops the run (it is a
+   false alarm to analyse, or a bug the newest release still has);
 2. bisect on the full database (bridge/bisect_sqlite.py --introduced --compat);
 3. reduce, keeping the verdicts on the bisection boundaries (bridge/reduce_sqlite.py
    --boundaries); a pair that cannot be reduced stops the run;
@@ -83,7 +84,8 @@ def main():
     n, first = len(new), len(confirmed) + 1
 
     # 1. confirm
-    rep = run([os.path.join(BRIDGE, 'confirm_sqlite.py'), w('new.jsonl'), '--libs'] + libs, w('confirm.md'))
+    rep = run([os.path.join(BRIDGE, 'confirm_sqlite.py'), w('new.jsonl'), '--latest', a.latest, '--libs'] + libs,
+              w('confirm.md'))
     if '%d recorded, %d confirmed' % (n, n) not in rep:
         sys.exit('not every new pair is confirmed: see %s' % w('confirm.md'))
     # 2. bisect on the full databases
@@ -170,7 +172,8 @@ def main():
         with open(os.path.join(RES, name), 'w') as f:
             f.write(text)
     # the full report, from the complete file
-    rep = run([os.path.join(BRIDGE, 'confirm_sqlite.py'), os.path.join(RES, 'sqlite-confirmed.jsonl'), '--libs'] + libs)
+    rep = run([os.path.join(BRIDGE, 'confirm_sqlite.py'), os.path.join(RES, 'sqlite-confirmed.jsonl'),
+               '--latest', a.latest, '--libs'] + libs)
     total = len(confirmed) + n
     if '%d recorded, %d confirmed' % (total, total) not in rep:
         sys.exit('the complete file is not fully confirmed (results/sqlite-confirmed.md not rewritten)')

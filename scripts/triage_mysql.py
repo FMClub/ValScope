@@ -51,7 +51,7 @@ DISTINCT_AGGREGATE = re.compile(r'\b(COUNT|SUM|AVG|MIN|MAX)\s*\(\s*DISTINCT\b')
 
 
 def hint(original, mutant, index_only):
-    """The known MariaDB issue that a reduced pair looks like, or ''.  A hint, not a
+    """The known issue (MariaDB; 015: MySQL) that a reduced pair looks like, or ''.  A hint, not a
     verdict: it is checked against the classified pairs of results/mariadb-campaign.jsonl
     (bridge/test_bridge.py), and a new defect can have the look of a known one."""
     o, both = original.upper(), (original + ' ' + mutant).upper()
@@ -66,6 +66,8 @@ def hint(original, mutant, index_only):
         return '009'        # an aggregate computed at the end, under SELECT DISTINCT
     if re.search(r' GROUP BY .*%', o) and DISTINCT_AGGREGATE.search(both):
         return '013'        # GROUP BY x % n with a DISTINCT aggregate on one side
+    if ' LEFT JOIN ' in o and 'NOT (EXISTS ' in o and o.count('EXISTS ') >= 2:
+        return '015'        # MySQL: LEFT JOIN with an EXISTS, under a NOT EXISTS
     return ''
 
 

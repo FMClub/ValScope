@@ -796,6 +796,9 @@ hinted = ('003', '009', '010', '012', '013')      # issue 014 cannot be told fro
 report(len(reduced) >= 32 and all(a == b if a in hinted else b == '' for a, b in wrong),
        'triage: the hint is the recorded issue for all %d reduced pairs (%s)'
        % (len(reduced), sorted({w for w in wrong if w[0] != w[1]})))
+report(hint('SELECT t1b.c1 AS k0 FROM t3 AS t3a LEFT JOIN (SELECT x.c1 AS c1 FROM t1 AS x WHERE EXISTS (SELECT s.c1 FROM t1 AS s)) '
+            'AS t1b ON (1) WHERE NOT (EXISTS (SELECT u.c1 FROM t3 AS u WHERE (CAST(t3a.c6 AS SIGNED)) = 1))', '', False) == '015',
+       'triage: the pair of issue 015 as the campaign on MySQL 9 found it')
 report(hint('SELECT t.a AS k0 FROM t AS t WHERE t.a > 1', 'SELECT t.a AS k0 FROM t AS t', False) == '',
        'triage: no hint for a pair that looks like no known issue')
 report(query_shape("SELECT t3a.c9 AS k0 FROM t3 AS t3a WHERE t3a.c1 > (-3) AND t3a.c2 = 'x'") ==

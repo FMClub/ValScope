@@ -392,10 +392,10 @@ How the audit fixes changed the numbers on the same inputs:
 - **Candidate MariaDB bug** (`issues/009-mariadb-distinct-avg-last-group.md`, found by the
   DISTINCT value queries of the sixth round): `SELECT DISTINCT g + 0, MAX(x) * 2, AVG(g)
   FROM t GROUP BY g` returns the `AVG` of the last group on every row.
-- **Candidate MySQL bug** (`issues/008-mysql-intersect-derived-table.md`, MySQL 8.4.13, CI):
-  `A INTERSECT ALL (B UNION ALL C)` is empty, but as a derived table (with or without
-  DISTINCT, with INTERSECT or INTERSECT ALL) it returns 4 rows of `A` that are not in
-  `B UNION ALL C` (MariaDB: empty everywhere).
+- **Candidate MySQL bug** (`issues/008-mysql-intersect-not-null-outer-join.md`, MySQL 8.4.13, CI):
+  `INTERSECT` matches a row whose first column is a `NOT NULL` integer with a row that has
+  `NULL` there (from an outer join): two one-row tables reproduce it on MySQL 8.4.13 and
+  9.7.4 (MariaDB: correct).
 - **SQLite compound collation** (`issues/007-sqlite-compound-collation.md`, 3.53.1 and
   3.54.1): the same `UNION ALL` de-duplicates `'a'` and `'A'` as equal in a compound
   (collation from the first arm that has one) and as different through a derived table

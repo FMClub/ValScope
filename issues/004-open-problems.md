@@ -160,9 +160,8 @@ fixes of PR #1 are merged; the design problems below are still open.
    violation on the `MIN(BIT)` query that also shows issue 005 on MariaDB: the original
    returns the decimal text `'14'`, the mutant the bit value `0x0E` (`issues/005`, section
    MySQL). CI prints the rows of every violation. With 300 generated queries per kind,
-   MySQL also shows `issues/008`: an INTERSECT evaluated as a derived table returns rows of
-   its left operand that are not in its right operand (the same INTERSECT at the top level
-   is correct).
+   MySQL also shows `issues/008`: INTERSECT matches a `NOT NULL` column with the `NULL` of an
+   outer join (reduced to two one-row tables; MySQL 8.4.13 and 9.7.4).
 2. **MariaDB `GROUP BY` on DOUBLE**: plan-dependent number of groups; not analysed.
 3. **SQLite: 42 confirmed violations from 5 distinct bugs (4 withdrawn).** 37 pairs from
    the first campaign, 5 from a second campaign with the extended model, 2 from a third run

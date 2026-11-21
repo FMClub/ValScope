@@ -1,7 +1,42 @@
-# 008: MySQL returns rows of the left operand for INTERSECT in a derived table
+# 008: MySQL INTERSECT matches a NOT NULL column with the NULL of an outer join
 
-Status: open, candidate (MySQL 8.4.13, CI job `mysql`, found by `scripts/demo.sh mariadb`
-with N=300 on the sample database; rule `DISTINCT-add`).
+Status: open, candidate (MySQL 8.4.13 and 9.7.4, CI; MariaDB 10.11.14 and 11.8.9 are
+correct). Found by `scripts/demo.sh mariadb` on MySQL with N=300 (rule `DISTINCT-add`).
+
+## Minimal case (`data/mysql/intersect-min.sql`, variant B)
+
+```sql
+CREATE TABLE t1 (c1 INT PRIMARY KEY, c4 INT);
+CREATE TABLE t2 (c1 INT PRIMARY KEY, c2 INT NOT NULL);
+INSERT INTO t1 VALUES (8811, 13);
+INSERT INTO t2 VALUES (9623, 3704);
+(SELECT t2a.c2 AS k0, t1b.c4 AS k1, t2a.c1 AS k2 FROM t2 AS t2a LEFT JOIN t1 AS t1b ON (1))
+INTERSECT ALL
+(SELECT t1b.c1 AS k0, t1a.c4 AS k1, t1b.c4 AS k2 FROM t1 AS t1a LEFT JOIN t1 AS t1b ON (0));
+```
+
+The left arm is `(3704, 13, 9623)`, the right arm `(NULL, 13, NULL)`: the intersection is
+empty. MySQL 8.4.13 returns 1 row (the left one) when `t2.c2` is declared `NOT NULL`, and
+no row when it is nullable (variant A). The `k0` column of the right arm is `NULL` only
+because of the outer join (`t1.c1` is a primary key): MySQL seems to take the column's
+`NOT NULL` property, or that of the left arm, for the result of the outer join when it
+compares the rows of the two arms.
+
+| Variant (`data/mysql/intersect-min.sql`) | MySQL 8.4.13 | MariaDB 10.11.14 |
+| --- | --- | --- |
+| A: `t2.c2 INT` (nullable) | 0 | 0 |
+| B: `t2.c2 INT NOT NULL` | **1** | 0 |
+| C: B with `AUTO_INCREMENT` keys | **1** | 0 |
+| D: the column definitions of the sample tables | **1** | 0 |
+
+The steps that led here: `bridge/reduce_mysql.py` reduced the pair found by the demo on
+MySQL 8.4 (query 750 -> 197 characters, rows 14 / 13 -> 1 / 1, 77 secondary indexes -> 0),
+and the variants of the column definitions isolated `NOT NULL`.
+
+## History of the analysis
+
+
+
 
 ## Symptom
 

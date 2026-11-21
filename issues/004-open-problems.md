@@ -117,6 +117,14 @@ fixes of PR #1 are merged; the design problems below are still open.
    more pairs. The criterion
    compares select lists syntactically; a world with per-operation collations would
    cover this case in the model itself.
+2c. **Arms of a compound that differ in type or collation on MySQL-protocol servers (round
+   9).** Two shapes gave false alarms and are now judged `incomparable` / `collation`
+   instead of a violation (`MySQLTarget.last_arm_mix`): a column with two numeric types and
+   a non-numeric one among its arms (the text of a number depends on which arms meet
+   first), and an INTERSECT / EXCEPT over arms with a `_ci` and another collation (which
+   rows match depends on the representative a `DISTINCT` kept). Open: the arms are probed
+   only for a compound at the top level (also in parentheses); a compound inside a derived
+   table is not, and a real bug in such a mixed compound is no longer reported.
 3. **Character-by-character LIKE / REGEXP.** Collations with contractions or expansions
    (`'ss' = 'ß'`) are not covered.
 4. **Approximate numbers.** FLOAT / DOUBLE arithmetic is not exact; grouping keys of these
@@ -175,9 +183,13 @@ fixes of PR #1 are merged; the design problems below are still open.
    (`results/mariadb-campaign.md`): 110 are issue 009, which turns out to be a family
    (`SELECT DISTINCT` over a grouped query: wrong aggregate values, NULLs, missing rows),
    and two are new candidates: `issues/012` (`number IN (SELECT date ...)` FALSE instead of
-   NULL with an index) and `issues/013` (DECIMAL `-0.00` in `GROUP BY`). Open: issue 009
-   hides whatever else such queries might show; a campaign without `SELECT DISTINCT` over
-   grouped queries, and the same campaign on MySQL, were not run.
+   NULL with an index) and `issues/013` (DECIMAL `-0.00` in `GROUP BY`). Issue 009 hides
+   whatever else such queries might show, so round 9 ran a second campaign without
+   `SELECT DISTINCT` in value queries (50 databases, 4000 queries, 37 pairs): no new defect;
+   issues 003, 010, 012 and 013 again, three of them in new forms, and five false alarms of
+   the tool, fixed. MySQL 8.4.13 in CI (12 databases): no violation. Open: MySQL refused
+   166 mutants in that run (reported from the next run on); larger MySQL campaigns need a
+   local server, which this environment does not have.
 1b. **MySQL 8.4.13 (CI, sixth round)**: the Python-generator run reports one `DISTINCT-add`
    violation on the `MIN(BIT)` query that also shows issue 005 on MariaDB: the original
    returns the decimal text `'14'`, the mutant the bit value `0x0E` (`issues/005`, section

@@ -26,9 +26,43 @@ MariaDB 10.11.14, 40 databases, 3200 queries, 122200 checks passed, 125 violatin
 | `issues/003` | 3 | `HAVING <aggregate> IN (subquery)` finds no match. |
 | `issues/013` (new) | 1 | The DECIMAL `-0.00` (from `-3.00 % 3`) is grouped with `0.00` or apart depending on an unrelated aggregate. |
 
-`results/mariadb-campaign.jsonl` has the 123 pairs that are still violated (seed, rule,
-expected relation, verdict, original, mutant, the issue they were assigned to). A pair is
+## Second campaign (round 9 of the journal)
+
+The same campaign on the seeds 41-90 with `--no-value-distinct`: no `SELECT DISTINCT` and no
+`UNION` in the value queries, so that issue 009 does not hide the rest.
+
+```bash
+python3 bridge/campaign_mysql.py --seeds 41-90 --queries 40 --focus --value-ext --no-value-distinct --port 3306 --password 123456 --out violations.jsonl
+python3 scripts/triage_mysql.py violations.jsonl --port 3306 --password 123456 --out-dir triage
+```
+
+MariaDB 10.11.14, 50 databases, 4000 queries, 148599 checks passed, 37 violating pairs.
+`scripts/triage_mysql.py` (new) judged each pair again, with and without the secondary
+indexes, reduced it and grouped the pairs by the shape of the reduced query.
+
+| Class | Pairs | What |
+| --- | --- | --- |
+| False alarms of the tool | 5 | (1) `AVG->MAX` in a derived query: `AVG` of a `DECIMAL(10,2)` has scale 6, an `AVG` over it scale 10, and `3.3333333333 > 3.333333`. Fixed: one unit of the coarser scale is allowed for DECIMALs of different scales. (2) Three pairs: `EXCEPT ALL` of a `DISTINCT` arm over a `_ci` column and an arm over a `_bin` column; which rows match depends on whether the `DISTINCT` kept `'a'` or `'A'`. (3) One pair: a column that is `DOUBLE`, `DECIMAL` and `DATE` in three arms; the numbers become text, `'5'` or `'5.00'` depending on which arms are combined first. Fixed: such compounds give the verdicts `collation` and `incomparable` (`MySQLTarget.last_arm_mix`). |
+| `issues/003` | 11 | `HAVING <aggregate> IN (subquery)`. New here: the rule `COUNT->COUNT-DISTINCT` finds it too, because an aggregate of the select list decides whether the defect shows. |
+| `issues/012` | 9 | All nine hold without the secondary indexes. New here: the left value can be a `VARCHAR`, a `BIGINT` or a row `(a, b)`; the result is FALSE exactly for values that cannot be read as a date. |
+| `issues/013` | 7 | Every reduced pair has two rows, `-3.00` and `0.00` or `3.00`, grouped by `x % 3` with `COUNT(DISTINCT ...)` on one side. |
+| `issues/010` | 5 | A window function with a `DISTINCT` aggregate over a semi-join. |
+
+No new defect; no pair is left unexplained. The four known defects are found again on
+fifty other databases, three of them in forms that the issues did not have yet.
+
+## MySQL
+
+CI runs the campaign on MySQL 8.4 (seeds 1-12, 960 queries) and prints the candidates with
+their triage. First run (8.4.13): 36003 checks passed, no violation.
+
+## The records
+
+`results/mariadb-campaign.jsonl` has the 155 pairs that are still violated (campaign, seed,
+rule, expected relation, verdict, original, mutant, the issue they were assigned to; for the
+second campaign also the reduced pair and the verdict without secondary indexes). A pair is
 reproduced with `python3 bridge/gen_mysql_db.py SEED | mysql --force DATABASE` and its two queries.
 
-No violation is left unexplained. Nearly nine out of ten come from one defect family
-(issue 009), which hides whatever else a `SELECT DISTINCT` over a grouped query might show.
+In the first campaign nearly nine pairs out of ten come from one defect family (issue 009),
+which hides whatever else a `SELECT DISTINCT` over a grouped query might show; hence the
+second campaign.

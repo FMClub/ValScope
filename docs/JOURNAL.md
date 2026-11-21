@@ -194,3 +194,42 @@ pairs, all classified (`results/mariadb-campaign.md`).
    the rest), and the same campaign on MySQL (CI only: no local MySQL server).
 3. `campaign_mysql.py` runs `run_on_db.py` twice per seed as a subprocess: fine, but the
    records get their seed after the fact; a shared function would be cleaner.
+
+## Round 9 (2026-11-21)
+
+**Milestone.** Second MariaDB campaign (seeds 41-90, `--no-value-distinct`: 50 databases,
+4000 queries, 148599 checks, 37 violating pairs), all classified
+(`results/mariadb-campaign.md`), and a tool that does the mechanical part of the
+classification: `scripts/triage_mysql.py` (every pair again, without secondary indexes,
+reduced, grouped by the shape of the reduced query).
+
+- No new defect. Issues 003 (11 pairs), 012 (9), 013 (7) and 010 (5) again, three in new
+  forms: 003 is switched on or off by an aggregate of the select list; 012 also happens
+  with text, a BIGINT or a row on the left, exactly for values that are not dates.
+- Five false alarms, fixed: DECIMALs of different scales (`AVG` over `AVG`); compounds
+  whose arms mix numeric types with a date, or `_ci` with `_bin` under EXCEPT
+  (`last_arm_mix`, `arm_mix_verdict`).
+- CI results read for issues 011-013: MariaDB 11.4.13 and 11.8.9 affected, MySQL 8.4.13 and
+  9.7.4 not. CI now runs a 12-database campaign on MySQL 8.4: no violation.
+
+**Tidying.** One judging path for MySQL pairs: `reduce_mysql.py` and `triage_mysql.py` use
+`recheck_mysql.judge`; `printed_decimals` and `arm_mix_verdict` live in `run_on_db.py`.
+`campaign_mysql.py` removes its temporary directory and reports the server's errors.
+
+**Audit findings.**
+- `gen_mysql_db.py SEED | mysql` stopped at the first UNIQUE index that failed, so a
+  database built by hand was not the one of the campaign. Documented with `--force`;
+  `reduce_mysql.py --build-seed` builds it itself.
+- Issue 003 is plan-dependent: two pairs of the demo are violated locally and not in CI.
+  Baseline signature `mariadb-having-in-subquery`.
+- The first version of the mixed-types rule hid the known pair of issue 005 (BIT against
+  text arms); narrowed to two numeric types plus a non-numeric one.
+
+**TODO for round 10.**
+1. Read the errors of the MySQL campaign in CI (166 refused mutants): a printer problem for
+   MySQL, or statements only MariaDB accepts?
+2. `scripts/triage_mysql.py` groups by shape only; a hint of the known issue (signatures on
+   the reduced pair) would make a repeated campaign cheaper to read.
+3. The MariaDB campaign with other generator settings (`--rich`, set queries only) and on
+   the Python-generator queries over random databases.
+

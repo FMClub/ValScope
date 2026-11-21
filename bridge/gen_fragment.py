@@ -4,7 +4,9 @@
     python3 bridge/gen_fragment.py N [SEED] > queries.sql            # set-semantic fragment
     python3 bridge/gen_fragment.py --value N [SEED] > queries.sql    # value queries (aggregates)
     add --sqlite for the SQLite databases of gen_sqlite_db.py
-    add --value-ext for windows over groups, DISTINCT arms of a UNION ALL, INTERSECT / EXCEPT
+    add --value-ext for windows over groups, DISTINCT arms of a UNION ALL, INTERSECT / EXCEPT,
+        an outer query over a derived value query
+    add --sqlite-seed SEED (with --sqlite --value): only the numeric columns of that database
     add --schema FILE.json for another schema (see below)
 
 By default the schema is the sample schema of the Python generator (tables t1, t2, t3).
@@ -369,6 +371,16 @@ if __name__ == '__main__':
     if '--value-ext' in sys.argv:
         VALUE_EXT = True
     argv = sys.argv[1:]
+    if '--sqlite-seed' in argv:
+        # value queries over the columns declared INTEGER or REAL in the database of
+        # gen_sqlite_db.py for this seed (a value query that aggregates text is skipped)
+        import gen_sqlite_db
+        i = argv.index('--sqlite-seed')
+        num = {t: c for t, c in gen_sqlite_db.numeric_columns(int(argv[i + 1]), FOCUS).items() if c}
+        if num:
+            NUM.clear()
+            NUM.update(num)
+        del argv[i:i + 2]
     if '--schema' in argv:
         i = argv.index('--schema')
         use_schema(argv[i + 1])

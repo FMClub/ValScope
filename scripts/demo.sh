@@ -49,6 +49,15 @@ summary() {
   grep -A2 "^VIOLATION\|^TRANSLATION MISMATCH" "$1" | cut -c1-300 | sed 's/^/   /' || true
 }
 
+# negative control: with every expected relation flipped the checks must report violations
+# (if they report none, they are not checking anything: the run fails)
+control() {
+  local n
+  n=$(python3 bridge/run_on_db.py "$@" --flip | grep -o "'VIOLATIONS': [0-9]*" | grep -o "[0-9]*$" || true)
+  echo "   $1: ${n:-0} violations with flipped relations"
+  if [ "${n:-0}" -eq 0 ]; then echo "   the checks are not working" >&2; exit 1; fi
+}
+
 echo "== 1. check the proofs and extract the verified engine (make)"
 make -s > out/make.log 2>&1 || { tail -n 30 out/make.log; exit 1; }
 # ask Rocq which axioms every soundness theorem depends on
@@ -84,20 +93,22 @@ case "$target" in
     echo "== 7b. the same queries, value and HAVING rules"
     python3 bridge/run_on_db.py data/python-generator-queries.sql --value "${conn[@]}" --out out/violations.jsonl > out/run-python-value.log; summary out/run-python-value.log
     echo "== 8. negative control (--flip): must report many violations"
-    python3 bridge/run_on_db.py out/queries.sql --flip "${conn[@]}" | grep -o "'VIOLATIONS': [0-9]*" || echo "   no violations: the checks are not working"
+    control out/queries.sql "${conn[@]}"
+    control out/vxqueries.sql --value "${conn[@]}"
     ;;
   sqlite)
     rm -f out/demo.db
     echo "== 4. build a random SQLite database (out/demo.db) and generate queries"
     python3 bridge/gen_sqlite_db.py out/demo.db 1004 > /dev/null
     python3 bridge/gen_fragment.py --sqlite "$N" 1 > out/queries.sql
-    python3 bridge/gen_fragment.py --sqlite --value "$N" 2 > out/vqueries.sql
+    python3 bridge/gen_fragment.py --sqlite --value --value-ext --sqlite-seed 1004 "$N" 2 > out/vqueries.sql
     echo "== 5. set-semantic rules on SQLite $(python3 -c 'import sqlite3; print(sqlite3.sqlite_version)')"
     python3 bridge/run_on_db.py out/queries.sql --sqlite out/demo.db --out out/violations.jsonl > out/run-set.log; summary out/run-set.log
     echo "== 6. value-semantic and HAVING rules"
     python3 bridge/run_on_db.py out/vqueries.sql --value --sqlite out/demo.db --out out/violations.jsonl > out/run-value.log; summary out/run-value.log
     echo "== 7. negative control (--flip): must report many violations"
-    python3 bridge/run_on_db.py out/queries.sql --flip --sqlite out/demo.db | grep -o "'VIOLATIONS': [0-9]*" || echo "   no violations: the checks are not working"
+    control out/queries.sql --sqlite out/demo.db
+    control out/vqueries.sql --value --sqlite out/demo.db
     ;;
   *) echo "usage: scripts/demo.sh mariadb|sqlite" >&2; exit 2 ;;
 esac

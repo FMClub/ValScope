@@ -201,7 +201,11 @@ fixes of PR #1 are merged; the design problems below are still open.
    to write MySQL spelling, found `issues/014` on its first run (the subquery cache keys a
    `_ci` outer column while the subquery compares under `_bin`; rows appear or disappear
    with the order of the table). CI now also runs the campaign on MariaDB 11.4, 11.8 and
-   MySQL 9.
+   MySQL 9. Round 11: two workflows started by hand run a campaign
+   (`.github/workflows/campaign.yml`) or one script (`sql.yml`) on any server image. The
+   first campaign on MySQL 9.7.4 found `issues/015` (a LEFT JOIN loses its inner side; a
+   regression of MySQL 8.0, present in 8.0.46, 8.4.13 and 9.7.4), and the one on MariaDB
+   11.8.9 showed that the 11.x fix of issue 003 is partial.
 1b. **MySQL 8.4.13 (CI, sixth round)**: the Python-generator run reports one `DISTINCT-add`
    violation on the `MIN(BIT)` query that also shows issue 005 on MariaDB: the original
    returns the decimal text `'14'`, the mutant the bit value `0x0E` (`issues/005`, section

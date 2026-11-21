@@ -267,3 +267,41 @@ generator once it wrote MySQL spelling (seed 147, rule `OR-drop-operand`).
    the mutants MySQL refuses.
 2. Update issue 003 with what 11.x shows; decide whether it is one defect or two.
 3. Fifth campaign (`--rich --focus`, seeds 171-230): triage and record.
+
+## Round 11 (2026-11-21)
+
+**Milestone.** Campaigns on servers that are not installed here, and the first candidate
+bug found that way: `issues/015`, a wrong result of MySQL 8.0.46, 8.4.13 and 9.7.4 (a
+regression: 5.7.44 is right). `a LEFT JOIN b ON EXISTS (...) WHERE NOT EXISTS (... = 1)`
+returns the rows of `a` extended with NULLs although `b` has rows: the lookup of the
+materialized `EXISTS` takes its key from the table of the `NOT EXISTS` antijoin.
+
+- `.github/workflows/campaign.yml` (a campaign on any server image, with triage and an
+  artifact) and `.github/workflows/sql.yml` (one script of `data/` on any image), both
+  started by hand or through the API.
+- MySQL 9.7.4, seeds 131-170 `--rich`: 12 pairs. Six were the mixed-types false alarm under
+  a compound in a derived table (the arms at the top are now probed in that case); six are
+  issue 015, reduced by hand to two tables after reading `EXPLAIN FORMAT=TREE` from the log.
+- MariaDB 11.8.9, the same seeds: 11 pairs, issues 013, 010, 003 and 014. Issue 014 is in
+  10.11.14, 11.4.13 and 11.8.9; the fix of issue 003 in 11.x is partial
+  (`data/mariadb/having-in-nested.sql`).
+- Fifth local campaign (MariaDB 10.11.14, seeds 171-230, `--rich --focus`): 160621 checks,
+  20 pairs, 18 known by their hint, 2 false alarms that the fix above removes.
+- README: a table of the candidates by server version.
+
+**Audit findings.**
+- A script that wraps a query in `SELECT COUNT(*) FROM (...)` hid issue 015 (another
+  plan); the reproducer counts in the query itself.
+- My first hand-written reduction did not reproduce (the constant was 100); the plan, not
+  the shape of the query, said what mattered.
+- MySQL refuses value mutants of a grouping expression (error 1055): recorded in
+  `issues/004`, B3.6.
+
+**TODO for round 12.**
+1. More campaigns through the workflow: MySQL 9 and 8.4 with other seeds and `--focus`,
+   MariaDB 12 if the image exists.
+2. `scripts/triage_mysql.py` cannot name issue 014 or 015 (no hint): a hint needs the plan
+   or the schema; think about what is cheap.
+3. The SQLite side has not been touched for three rounds: run the rich campaign against
+   the newest release again after the generator changes (the stream is unchanged, so this
+   is a regression check).

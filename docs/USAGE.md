@@ -452,6 +452,9 @@ The same campaign can be run on any server image without a local server: the wor
 workflow") with the image (`mariadb:11.8`, `mysql:9`, ...), the seeds, the number of queries
 and the generator options. It prints the candidates with their triage and keeps
 `campaign.jsonl` and the reduced scripts as an artifact.
+`.github/workflows/sql.yml` runs one script of `data/` on a server image in the same way;
+`issues/015` was narrowed down with it on MySQL 5.7, 8.0, 8.4 and 9 (the table of variants
+in the issue is the output of four runs).
 
 ### 6.7 Reduce a violation found on a server
 

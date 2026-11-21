@@ -281,6 +281,7 @@ value cannot be read off the result.
 | `scripts/check_reduced_mysql.py` | Checks that a reduced script still shows its violation |
 | `scripts/triage_mysql.py` | Triage of a server campaign: every pair again, without secondary indexes, reduced, grouped by the shape of the reduced query, with a hint of the known issue |
 | `.github/workflows/campaign.yml` | A campaign over random databases on any server image, started by hand; candidates, triage and reduced scripts as an artifact |
+| `.github/workflows/sql.yml` | One SQL script of `data/` on any server image, started by hand (a reproducer on a release that is installed nowhere else) |
 | `docs/JOURNAL.md` | The log of the autonomous work rounds: milestone, audit findings, what was done |
 | `docs/USAGE.md` | End-to-end usage guide |
 | `results/` | The SQLite campaigns (summary, confirmed and reduced pairs, bisection) and the MariaDB campaigns over random databases (classified pairs) |
@@ -553,7 +554,8 @@ and fixed its bug (self-contained scripts in `results/sqlite-repro/`). Details a
 
 There is no reference release for these servers, so each finding is a candidate, reduced by
 hand or by `bridge/reduce_mysql.py` to a short script in `data/mariadb/` that CI runs on
-MariaDB 10.11, 11.4 and 11.8 and on MySQL 8.4 and 9. None was reported upstream (no access
+MariaDB 10.11, 11.4 and 11.8 and on MySQL 8.4 and 9 (`.github/workflows/sql.yml` runs one
+script on any other image). None was reported upstream (no access
 to the trackers from the environment this was written in). The columns say where the
 script gives a wrong result.
 
@@ -569,10 +571,11 @@ script gives a wrong result.
 | [012](issues/012-mariadb-in-date-index-null.md) | `x IN (SELECT date_column ...)` is FALSE instead of NULL when the column is indexed and `x` is not a date | wrong | wrong | correct |
 | [013](issues/013-mariadb-decimal-negative-zero-group.md) | the DECIMAL `-0.00` (from `-3.00 % 3`) is grouped with `0.00` or apart depending on an unrelated aggregate | wrong | wrong | correct |
 | [014](issues/014-mariadb-subquery-cache-collation.md) | the subquery cache matches `'A'` and `'a'` of a `_ci` outer column although the subquery compares under `_bin`: the result depends on the order of the rows | wrong | wrong | correct |
+| [015](issues/015-mysql-left-join-semijoin-antijoin.md) | a LEFT JOIN loses its inner side (NULL-extended rows) when an `EXISTS` inside it and a `NOT EXISTS` outside it are both materialized on the constant 1 | correct | correct | wrong (8.0.46, 8.4.13, 9.7.4; 5.7.44 correct) |
 
 Not counted: [002](issues/002-mariadb-enum-max-having.md) (probably intended behaviour) and
 [007](issues/007-sqlite-compound-collation.md) (SQLite, perhaps intended). The campaigns over
-random databases that found 012, 013 and 014 and re-found the others on 172 pairs are in
+random databases that found 012 to 015 and re-found the others on 190 pairs are in
 [`results/mariadb-campaign.md`](results/mariadb-campaign.md).
 
 ## Not done yet

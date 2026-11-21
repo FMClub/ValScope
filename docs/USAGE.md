@@ -447,6 +447,12 @@ and `reduce_mysql.py`. To look at a pair by hand:
 a column with duplicates fails, as it does in the campaign, and the client must go on).
 The campaigns so far are in `results/mariadb-campaign.md`.
 
+The same campaign can be run on any server image without a local server: the workflow
+`.github/workflows/campaign.yml` is started by hand (GitHub: Actions, "campaign", "Run
+workflow") with the image (`mariadb:11.8`, `mysql:9`, ...), the seeds, the number of queries
+and the generator options. It prints the candidates with their triage and keeps
+`campaign.jsonl` and the reduced scripts as an artifact.
+
 ### 6.7 Reduce a violation found on a server
 
 ```bash

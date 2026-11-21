@@ -1,0 +1,85 @@
+name: campaign
+
+# A campaign over random databases on any MySQL-protocol server image, started by hand
+# (Actions -> campaign -> Run workflow, or the API).  The candidates are printed with their
+# triage and kept as an artifact; nothing is judged, the job fails only when a step breaks.
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: "Server image (mariadb:11.8, mariadb:12, mysql:9, mysql:8.4, ...)"
+        required: true
+        default: "mariadb:11.8"
+      seeds:
+        description: "Seeds of the random databases (bridge/campaign_mysql.py --seeds)"
+        required: true
+        default: "1-40"
+      queries:
+        description: "Queries of each kind per seed"
+        required: true
+        default: "40"
+      options:
+        description: "Generator options (--focus, --rich, --value-ext, --no-value-distinct)"
+        required: false
+        default: "--rich --value-ext --no-value-distinct"
+
+permissions:
+  contents: read
+
+jobs:
+  campaign:
+    name: "${{ inputs.image }}, seeds ${{ inputs.seeds }} ${{ inputs.options }}"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    services:
+      db:
+        image: ${{ inputs.image }}
+        env:
+          MARIADB_ROOT_PASSWORD: "123456"
+          MYSQL_ROOT_PASSWORD: "123456"
+        ports: ["3306:3306"]
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Coq, OCaml, the client and Python packages
+        run: |
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends coq ocaml ocaml-findlib make gcc mysql-client
+          python3 -m pip install --break-system-packages -r requirements.txt cryptography
+      - name: Check the proofs and build the mutator
+        run: make && make cli
+      - name: Wait for the server
+        run: |
+          for i in $(seq 1 60); do
+            if mysql -h127.0.0.1 -uroot -p123456 -N -e "SELECT VERSION()" 2> /dev/null; then exit 0; fi
+            sleep 5
+          done
+          echo "the server did not start" >&2; exit 1
+      - name: Campaign
+        env:
+          SEEDS: ${{ inputs.seeds }}
+          QUERIES: ${{ inputs.queries }}
+          OPTIONS: ${{ inputs.options }}
+        run: |
+          # the options are split on spaces on purpose; each must be one of the known flags
+          for o in $OPTIONS; do
+            case "$o" in --focus|--rich|--value-ext|--no-value-distinct) ;; *) echo "unknown option: $o" >&2; exit 1 ;; esac
+          done
+          python3 bridge/campaign_mysql.py --seeds "$SEEDS" --queries "$QUERIES" $OPTIONS --password 123456 --out campaign.jsonl | grep -v '^  ' | cut -c1-1500
+      - name: Triage
+        run: |
+          mkdir -p triage
+          if [ -s campaign.jsonl ]; then
+            python3 scripts/triage_mysql.py campaign.jsonl --password 123456 --out-dir triage --timeout 300
+            for f in triage/pair-*.sql; do echo "=== $f"; cat "$f"; done | head -n 1500
+          else
+            echo "no violation"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: campaign
+          path: |
+            campaign.jsonl
+            triage
+          if-no-files-found: ignore

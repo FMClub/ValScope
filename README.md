@@ -280,6 +280,7 @@ value cannot be read off the result.
 | `scripts/replay_reduced_sqlite.py` | Replays the reduced SQLite pairs of `results/` on their releases: every known bug must still be detected (CI) |
 | `scripts/check_reduced_mysql.py` | Checks that a reduced script still shows its violation |
 | `scripts/triage_mysql.py` | Triage of a server campaign: every pair again, without secondary indexes, reduced, grouped by the shape of the reduced query, with a hint of the known issue |
+| `.github/workflows/campaign.yml` | A campaign over random databases on any server image, started by hand; candidates, triage and reduced scripts as an artifact |
 | `docs/JOURNAL.md` | The log of the autonomous work rounds: milestone, audit findings, what was done |
 | `docs/USAGE.md` | End-to-end usage guide |
 | `results/` | The SQLite campaigns (summary, confirmed and reduced pairs, bisection) and the MariaDB campaigns over random databases (classified pairs) |

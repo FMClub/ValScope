@@ -534,6 +534,26 @@ in which the term means what the SQL text means.
 - **Failing mutants** are skipped, never treated as empty results; a lost server connection
   stops the run.
 
+## What the checker tolerates
+
+The theorems speak of exact values; a server prints rounded ones and types a column from
+the plan. Each rule below was added after a false alarm of a campaign, and each can hide a
+real defect of the kind in its last column. They are all in `bridge/checker.py` and
+`bridge/run_on_db.py`; a tolerated pair is counted (`incomparable`, `collation`,
+`type_mismatch_skipped`), never counted as a passed check.
+
+| Difference accepted | Why it is not a violation | What it can hide |
+| --- | --- | --- |
+| The mutated value off by 1e-9 relative (1e-4 when an input is single precision) | binary floats are summed in the order of the plan | a float wrong by less than that |
+| The mutated value off by one unit of the last printed decimal, for a float printed with a fixed number of decimals and for DECIMALs of different scales (`printed_decimals`) | MariaDB prints `VAR_SAMP` with 4 decimals and an `AVG` over it with 8; `AVG` of a `DECIMAL(10,2)` has scale 6, an `AVG` over it scale 10 | a value wrong in its last digit |
+| Other columns equal after rounding floats to 12, then 9 significant digits; DECIMALs with a fraction one decimal shorter (`_norm`) | `AVG(x) * 2` is 5.3333 or 5.3334 depending on whether the `AVG` went through a temporary table | a value of an unmutated column wrong in its last digits |
+| "Other columns changed" in a query with `FLOOR` / `CEIL` / `ROUND` / `SIGN` of a variance or standard deviation (`step_verdict`) | the last bit of a float decides between 1 and 2 | any change of an unmutated column in such a query |
+| Strings equal under the collation of their result column (`fold`; verdict `collation`) | `DISTINCT` and `GROUP BY` keep one of `'a'` and `'A'`, unspecified which | a wrong string that is collation-equal to the right one |
+| A compound column that is a number in one arm and text or a date in another, `BIT` excepted (`last_arm_mix`; `incomparable`) | the text of a number (`'0'`, `'0.00'`) depends on which arms meet first and on materialization | any wrong row of such a compound |
+| `INTERSECT` / `EXCEPT` over arms with a `_ci` and another collation (`last_arm_mix`; `collation`) | which rows match depends on the representative a `DISTINCT` kept | any wrong row of such a compound |
+| The two results type a column differently (number in one, text in the other): the check is skipped | the values cannot be compared as SQL values | a wrong value that comes with a type change (on SQLite with numeric inputs, text on one side only **is** reported: `strict_types`) |
+| Value queries grouped by a FLOAT / DOUBLE key are not run | equal keys can differ in the last bit between plans | defects of grouping by approximate values (`issues/011` was found by hand) |
+
 ## Results on SQLite
 
 Run on four old SQLite releases (3.26.0, 3.30.1, 3.31.1, 3.34.0), the verified mutators found

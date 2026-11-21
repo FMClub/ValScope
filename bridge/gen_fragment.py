@@ -272,7 +272,7 @@ def _value_query_base(rng):
         items = [agg_item(rng, alias, t) for _ in range(n)]
         group = ''
     else:                 # GROUP BY
-        keys = ['%s.%s' % (alias, c) for c in rng.sample(NUM[t], rng.randint(1, 2))]
+        keys = ['%s.%s' % (alias, c) for c in rng.sample(NUM[t], min(len(NUM[t]), rng.randint(1, 2)))]
         if rng.random() < 0.4:
             keys = ['%s %% %d' % (keys[0], rng.choice([2, 3, 5]))]   # few, larger groups
         items = keys + [agg_item(rng, alias, t) for _ in range(n)]

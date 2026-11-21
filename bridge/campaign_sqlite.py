@@ -115,6 +115,8 @@ def main():
     ap.add_argument('--rich', action='store_true', help='opaque predicates and derived tables')
     ap.add_argument('--focus', action='store_true',
                     help='more compounds, DISTINCT, text and COLLATE NOCASE columns')
+    ap.add_argument('--any-column', action='store_true',
+                    help='value queries over all columns, also text ones (the value queries of the rounds before the ninth)')
     ap.add_argument('--value-ext', action='store_true',
                     help='value queries with windows over groups, DISTINCT arms of a UNION ALL, INTERSECT / EXCEPT')
     ap.add_argument('--adaptive', action='store_true',
@@ -156,7 +158,17 @@ def main():
         exact.by_table = {tc: k for tc, k in per_db[0].by_table.items() if all(e.by_table.get(tc) == k for e in per_db)}
         rng = random.Random(seed)
         queries = [('set', gen_fragment.query(rng)) for _ in range(args.queries)]
+        # value queries read the columns declared INTEGER or REAL in this seed's schema: a
+        # query that aggregates a column with text is outside the value model and would
+        # only be skipped (non_numeric_input; 46% of the runs before)
+        all_num = dict(gen_fragment.NUM)
+        num = {t: cols for t, cols in gen_sqlite_db.numeric_columns(seed, args.focus).items() if cols}
+        if num and not args.any_column:
+            gen_fragment.NUM.clear()
+            gen_fragment.NUM.update(num)
         queries += [('value', gen_fragment.value_query(rng)) for _ in range(args.queries)]
+        gen_fragment.NUM.clear()
+        gen_fragment.NUM.update(all_num)
         shapes = {}
         for kind, sql in queries:
             st['queries'] += 1

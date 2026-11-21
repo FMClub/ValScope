@@ -67,7 +67,19 @@ def statements(seed, focus=False):
         stmts.append('CREATE %sINDEX i%d ON %s (%s)%s;' % (unique, i, t, ', '.join(cols), where))
     if rng.random() < 0.5:
         stmts.append('ANALYZE;')
+    KINDS.clear()
+    KINDS.update(kinds)
     return stmts
+
+
+KINDS = {}       # (table, column) -> declared type, of the last call of statements()
+
+
+def numeric_columns(seed, focus=False):
+    """table -> the columns declared INTEGER or REAL for this seed (they hold numbers or
+    NULL only; a TEXT or untyped column can hold text)."""
+    statements(seed, focus)
+    return {t: [c for c in cols if KINDS[(t, c)] in ('INTEGER', 'REAL')] for t, cols in COLUMNS.items()}
 
 
 SKIPPED = []     # (seed, statement, error) of the statements that failed in build()

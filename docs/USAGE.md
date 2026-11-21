@@ -245,7 +245,7 @@ Options:
 | `--schema FILE.json` | use your own tables and numeric columns (below) |
 | `--rich` | also opaque predicates (`BETWEEN`, `CAST`, `COLLATE`, ...) and derived tables |
 | `--focus` | more set operations and `DISTINCT` |
-| `--value-ext` | value queries (with `--value`) with windows over groups, a `SELECT DISTINCT` arm in a `UNION ALL`, `INTERSECT` / `EXCEPT`; from side streams, so without it the queries of a seed stay those of earlier runs |
+| `--value-ext` | value queries (with `--value`) with windows over groups, a `SELECT DISTINCT` arm in a `UNION ALL`, `INTERSECT` / `EXCEPT`, an outer query over a derived value query; from side streams, so without it the queries of a seed stay those of earlier runs |
 
 For your own schema, write a JSON file that maps each table to its **numeric** columns; the
 first column of each table is used in `EXISTS` subqueries:
@@ -766,6 +766,10 @@ Then `ok checks per rule` and the most frequent database errors.
   checks exactly that. The same holds when only some arms of a `UNION ALL` are under
   DISTINCT (`tmutate_mask_sound`); a mutant that changes only arms outside the DISTINCT
   parts keeps the one-to-one check (`tmutate_mask_plain_sound`; `Translation.cover_for`).
+- Value rules through a derived table (`VLineage.v`, `wmutate_sound`): for a `SELECT` over
+  one derived value query, the mutants of the derived table are also used; the checked
+  column is the outer item that reads the mutated column. The check is the same
+  correspondence (a cover under an outer `SELECT DISTINCT`).
 - HAVING rules on a top-level `INTERSECT` / `EXCEPT` of value queries (`VSet.v`,
   `shmutate_sound`): inclusion of the sets of rows, with the direction flipped in the
   right operand of `EXCEPT`; the checker's inclusion check applies as it is (the results

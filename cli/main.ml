@@ -29,6 +29,12 @@
      vtop   ::= vquery | (VUnionAll vtop vtop)          UNION ALL of value queries
      stop   ::= (SInter s s) | (SExcept s s)            INTERSECT / EXCEPT (set semantics)
      s      ::= vtop | stop                             of value queries: HAVING mutants only
+     wtop   ::= (W mode (F id (c ...)) (H id (c ...)) (oitem ...) vtop)
+                                                        an outer query over a derived value query
+     mode   ::= (OProj) | (OGlobal) | (OGroup (c ...))  c: a column of the inner query
+     oitem  ::= (OCol c) | (OSum c) | (OMin c) | (OMax c) | (OAvg c) | (OCount c)
+              | (OOpaque id (c ...))                    value mutants of the inner query whose
+                                                        relation the outer query passes on
    Each mutant is printed as
      <Le|Ge|AwayZero|TowardOne|AwayOne> TAB <rule name> TAB <column> TAB <vquery>
    where the relation says how the mutated column of the mutant relates to the original.
@@ -290,6 +296,53 @@ let is_set_value_query = function
   | L (A ("SInter" | "SExcept") :: _) -> true
   | _ -> false
 
+let ints = function L l -> List.map (function A x -> int_of_string x | _ -> failwith "column") l
+                    | _ -> failwith "columns"
+
+let oitem_of = function
+  | L [A "OCol"; A c] -> OCol (int_of_string c)
+  | L [A "OSum"; A c] -> OSum (int_of_string c)
+  | L [A "OMin"; A c] -> OMin (int_of_string c)
+  | L [A "OMax"; A c] -> OMax (int_of_string c)
+  | L [A "OAvg"; A c] -> OAvg (int_of_string c)
+  | L [A "OCount"; A c] -> OCount (int_of_string c)
+  | L [A "OOpaque"; A n; cs] -> OOpaque (int_of_string n, ints cs)
+  | _ -> failwith "outer item"
+
+let ints_to l = String.concat " " (List.map string_of_int l)
+
+let oitem_to = function
+  | OCol c -> Printf.sprintf "(OCol %d)" c
+  | OSum c -> Printf.sprintf "(OSum %d)" c
+  | OMin c -> Printf.sprintf "(OMin %d)" c
+  | OMax c -> Printf.sprintf "(OMax %d)" c
+  | OAvg c -> Printf.sprintf "(OAvg %d)" c
+  | OCount c -> Printf.sprintf "(OCount %d)" c
+  | OOpaque (n, cs) -> Printf.sprintf "(OOpaque %d (%s))" n (ints_to cs)
+
+let wtop_of = function
+  | L [A "W"; mode; L [A "F"; A fid; fcs]; L [A "H"; A hid; hcs]; L items; inner] ->
+      let m = (match mode with
+               | L [A "OProj"] -> OProj
+               | L [A "OGlobal"] -> OGlobal
+               | L [A "OGroup"; ks] -> OGroup (ints ks)
+               | _ -> failwith "outer mode") in
+      W ({ o_mode = m; o_fid = int_of_string fid; o_fcols = ints fcs;
+           o_hid = int_of_string hid; o_hcols = ints hcs; o_items = List.map oitem_of items },
+         vtop_of inner)
+  | _ -> failwith "outer query"
+
+let wtop_to (W (o, t)) =
+  let m = (match o.o_mode with
+           | OProj -> "(OProj)" | OGlobal -> "(OGlobal)"
+           | OGroup ks -> Printf.sprintf "(OGroup (%s))" (ints_to ks)) in
+  Printf.sprintf "(W %s (F %d (%s)) (H %d (%s)) (%s) %s)" m o.o_fid (ints_to o.o_fcols)
+    o.o_hid (ints_to o.o_hcols) (String.concat " " (List.map oitem_to o.o_items)) (vtop_to t)
+
+let is_outer_query = function
+  | L (A "W" :: _) -> true
+  | _ -> false
+
 let rel_name = function
   | VLe -> "Le" | VGe -> "Ge" | VAwayZero -> "AwayZero"
   | VTowardOne -> "TowardOne" | VAwayOne -> "AwayOne"
@@ -310,7 +363,12 @@ let () =
         if String.trim line <> "" then begin
           (try
              let term = parse_sexp line in
-             if is_set_value_query term then begin
+             if is_outer_query term then begin
+               List.iter (fun (name, (rel, (i, w'))) ->
+                 Printf.printf "%s\t%s\t%d\t%s\n" (rel_name rel) name i (wtop_to w'))
+                 (wmutate (wtop_of term))
+             end
+             else if is_set_value_query term then begin
                let s = stop_of term in
                List.iter (fun d ->
                  List.iter (fun (name, s') ->

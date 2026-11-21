@@ -513,8 +513,15 @@ and fixed its bug (self-contained scripts in `results/sqlite-repro/`). Details a
 ## Not done yet
 
 - Value mutation applies to the select items of a `SELECT` or of the arms of a `UNION ALL`.
-  Following a mutated value through derived tables (what the Python lineage analysis does)
-  is not modelled. Value queries with `SELECT DISTINCT` (and a `UNION` of value queries)
+  Since the tenth round a mutated value is also followed through one derived table
+  (`VLineage.v`, `wmutate_sound`): for `SELECT ... FROM (value query) AS d [WHERE] [GROUP BY]
+  [HAVING]` the inner query is mutated, and the relation holds in the outer item that reads
+  the mutated column, when that item is the column itself or `SUM` / `MIN` / `MAX` / `AVG`
+  of it (order relations only) and nothing else reads the column (no other item, `WHERE`,
+  grouping key or `HAVING`). The outer query is not re-printed: the mutant is the query as
+  written with the body of the derived table replaced, and its reading is checked again on
+  every mutant. Not followed: joins in the outer query, several levels, expressions over
+  the column (what the Python lineage analysis approximates). Value queries with `SELECT DISTINCT` (and a `UNION` of value queries)
   are supported since the sixth round with a weaker check: after DISTINCT the rows no
   longer correspond one to one, and the theorem (`VDistinct.v`) states a cover in both
   directions (every row of each result is related to a row of the other).

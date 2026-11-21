@@ -158,3 +158,30 @@ Theorem tmutate_mask_plain_sound : forall t m name r j t',
 Proof. intros t m name r j t'. apply tmut_mask_plain_sound. Qed.
 
 Print Assumptions tmutate_mask_plain_sound.
+
+(** ---------------- a mutated value through a derived table ---------------- *)
+
+From ValScope Require Import VLineage.
+
+(** The inner value query is mutated; the outer query (projection, SUM / MIN / MAX / AVG,
+    opaque WHERE, GROUP BY, HAVING and items that do not read the mutated column) passes
+    the relation on to the one item that reads the column. *)
+Definition wmutate : wtop -> list (string * (vrel * (nat * wtop))) := wmut value_rules.
+
+Theorem wmutate_sound : forall w name r i w',
+  In (name, (r, (i, w'))) (wmutate w) ->
+  forall oe env db, Forall2 (row_rel r i) (wteval oe env db w) (wteval oe env db w').
+Proof. intros w name r i w'. apply wmut_sound. Qed.
+
+Print Assumptions wmutate_sound.
+
+(** The same under SELECT DISTINCT of the outer query: a cover. *)
+Theorem wmutate_distinct_sound : forall w name r i w',
+  In (name, (r, (i, w'))) (wmutate w) ->
+  forall oe env db, covers r i (distinct_rows (wteval oe env db w)) (distinct_rows (wteval oe env db w')).
+Proof.
+  intros w name r i w' H oe env db. apply covers_distinct, forall2_covers.
+  exact (wmutate_sound w name r i w' H oe env db).
+Qed.
+
+Print Assumptions wmutate_distinct_sound.

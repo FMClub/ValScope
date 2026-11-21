@@ -24,7 +24,8 @@ SQLITE = False
 RICH = False      # opaque predicates and derived tables that stress the SQLite planner
 FOCUS = False     # more compound queries and more DISTINCT
 VALUE_EXT = False # value queries with windows over groups, a DISTINCT arm in a UNION ALL,
-                  # INTERSECT / EXCEPT (from side streams: off, the queries are those of earlier runs)
+                  # INTERSECT / EXCEPT, an outer query over a derived value query (from side
+                  # streams: off, the queries are those of earlier runs)
 ALIAS = {}        # alias -> table
 
 
@@ -338,6 +339,23 @@ def value_query(rng):
                     if y < 0.15:
                         return '%s UNION ALL SELECT DISTINCT %s' % (sql, arm[len('SELECT '):])
                     return '%s %s %s' % (sql, ext.choice(['INTERSECT', 'EXCEPT']), arm)
+        elif y < 0.55 and ' OVER ' not in sql:
+            # 20%: the value query as a derived table under an outer query that projects,
+            # groups or aggregates its columns (VLineage.v): a mutated inner value is
+            # followed to the outer result
+            width = sql.count(' AS k')
+            cols = ['d.k%d' % i for i in range(width)]
+            shape = ext.random()
+            agg = lambda c: '%s(%s)' % (ext.choice(['SUM', 'MIN', 'MAX', 'AVG']), c)
+            if shape < 0.35 or width == 1:
+                items = cols[::-1] if shape < 0.2 else [agg(c) for c in cols]
+                where = ' WHERE d.k0 IS NOT NULL' if shape < 0.1 and width > 1 else ''
+                group = ''
+            else:
+                items = [cols[0]] + [agg(c) for c in cols[1:]]
+                where, group = '', ' GROUP BY d.k0'
+            return 'SELECT %s FROM (%s) AS d%s%s' % (', '.join('%s AS c%d' % (x, i) for i, x in enumerate(items)),
+                                                    sql, where, group)
     return sql
 
 

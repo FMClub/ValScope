@@ -52,7 +52,7 @@ summary() {
 echo "== 1. check the proofs and extract the verified engine (make)"
 make -s > out/make.log 2>&1 || { tail -n 30 out/make.log; exit 1; }
 # ask Rocq which axioms every soundness theorem depends on
-thms="mutate_sound vmutate_sound hmutate_sound tmutate_sound tmutate_frame thmutate_sound tmutate_distinct_sound tmutate_mask_sound tmutate_mask_plain_sound thmutate_distinct_sound shmutate_sound"
+thms="mutate_sound vmutate_sound hmutate_sound tmutate_sound tmutate_frame thmutate_sound tmutate_distinct_sound tmutate_mask_sound tmutate_mask_plain_sound thmutate_distinct_sound shmutate_sound wmutate_sound wmutate_distinct_sound"
 { echo 'From ValScope Require Import Registry.'; for t in $thms; do echo "Print Assumptions $t."; done; } > out/Assumptions.v
 "${COQC[@]}" -R theories ValScope out/Assumptions.v > out/assumptions.log
 awk -v names="$thms" 'BEGIN {split(names, nm, " ")}

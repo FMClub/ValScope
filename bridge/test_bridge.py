@@ -574,6 +574,43 @@ try:
 except Unsupported:
     report(True, 'INTERSECT: AVG over a REAL column rejected')
 
+# a mutated value followed through a derived table (VLineage.v, wmutate_sound)
+from sql_bridge import _lineage_mutants, DEFAULT_CLI  # noqa: E402
+inner = 'SELECT t.a AS k, MAX(t.x) AS m, SUM(t.x) AS s, COUNT(t.x) AS n FROM t GROUP BY t.a'
+lin, lm = _lineage_mutants('SELECT d.k AS k, SUM(d.s) AS total, MAX(d.m) AS top, MIN(d.n) AS low, AVG(d.n) AS mean '
+                           'FROM (%s) AS d WHERE d.k > 0 GROUP BY d.k HAVING COUNT(*) > 0' % inner, DEFAULT_CLI, 'sqlite', None, None)
+cols = {c for _, _, c, _ in lm}
+report(lin.outer == '(OGroup (0)) (F 0 (0)) (H 0 ()) ((OCol 0) (OSum 2) (OMax 1) (OMin 3) (OAvg 3))' and cols == {1, 2},
+       'lineage: the outer query is read; mutants for the columns read once (%s), none for the key, '
+       'the filtered column and the column read twice' % sorted(cols))
+report(all(r in ('Le', 'Ge') for r, _, c, _ in lm), 'lineage: only order relations pass through SUM / MAX')
+_, lm2 = _lineage_mutants('SELECT d.m AS m, d.k AS k FROM (%s) AS d' % inner, DEFAULT_CLI, 'sqlite', None, None)
+report(any(r not in ('Le', 'Ge') for r, _, _, _ in lm2), 'lineage: a plain projection passes every relation on')
+for bad, why in [('SELECT d.k AS k, d.m + d.s AS z FROM (%s) AS d' % inner, 'no item carries'),
+                 ('SELECT d.k AS k FROM (%s) AS d JOIN u ON u.b = d.k' % inner, 'joins'),
+                 ('SELECT d.k AS k, m AS m FROM (%s) AS d' % inner, 'unqualified'),
+                 ('SELECT d.k AS k, RANK() OVER (ORDER BY d.m) AS r FROM (%s) AS d' % inner, 'window')]:
+    try:
+        _, x = _lineage_mutants(bad, DEFAULT_CLI, 'sqlite', None, None)
+        report(why == 'no item carries' and not [m for m in x if m[2] == 1], 'lineage: %s: no mutant' % why)
+    except Unsupported as e:
+        report(why in str(e), 'lineage: rejected (%s)' % e)
+con4 = sqlite3.connect(':memory:')
+con4.executescript('CREATE TABLE t (a INT, x INT); INSERT INTO t VALUES (1, 1), (1, 4), (2, 5), (2, NULL), (3, NULL), (4, -2), (4, 7);')
+ok, n = True, 0
+for sql in ['SELECT d.k AS k, d.s AS s, d.m AS m FROM (%s) AS d WHERE d.k < 4' % inner,
+            'SELECT d.n AS n, SUM(d.s) AS total, MAX(d.m) AS top FROM (%s) AS d GROUP BY d.n' % inner,
+            'SELECT MIN(d.s) AS lo, AVG(d.m) AS mean, COUNT(*) AS c FROM (%s) AS d' % inner,
+            'SELECT DISTINCT d.n AS n, MAX(d.m) AS top FROM (%s) AS d GROUP BY d.n' % inner]:
+    trs = []
+    original, mutants, _, _, _ = mutate_value(sql, dialect='sqlite', translation=trs)
+    base = con4.execute(original).fetchall()
+    for r0, _, c, m in mutants:
+        n += 1
+        ok = ok and check_value(r0, c, base, con4.execute(m).fetchall(), cover=trs[0].cover_for(m)) == 'ok'
+    ok = ok and getattr(trs[0], 'lineage', None) is not None
+report(ok and n > 20, 'lineage on SQLite: every mutant (outer and inner, %d) keeps its relation' % n)
+
 # INTERSECT / EXCEPT of value queries (VSet.v, shmutate_sound): HAVING mutants only, the
 # direction flipped in the right operand of EXCEPT
 q_ex = ("SELECT t.a AS a, COUNT(*) AS c FROM t GROUP BY t.a EXCEPT "

@@ -64,7 +64,11 @@ fixes of PR #1 are merged; the design problems below are still open.
    and a first `RIGHT JOIN` is translated as the swapped `LEFT JOIN`.) Unanalysed predicates
    and expressions are opaque atoms (sound, never mutated inside).
 2. Value mutation applies to the select items of a `SELECT` or of the arms of a `UNION ALL`
-   (`VUnion.v`, fourth round); a mutated value is not followed through derived tables.
+   (`VUnion.v`, fourth round). Tenth round: a mutated value is followed through one derived
+   table when the outer query reads the column in exactly one item, as the column or under
+   `SUM` / `MIN` / `MAX` / `AVG` (`VLineage.v`, `wmutate_sound`; `gen_fragment.py --value-ext`
+   generates such queries). The 870 Python-generator queries gain nothing from it: their
+   outer queries join, or read the column twice (as a key and under an aggregate).
    Since the sixth round, value queries with `SELECT DISTINCT` and `UNION`s of value
    queries are proved (`VDistinct.v`: a cover in both directions) and used: 280 of the 870
    Python-generator queries are translated for the value rules (136 before, 69 before the

@@ -112,7 +112,7 @@ def main():
     if errors:      # queries the server refused (mutant_failed, original_failed)
         print('most frequent errors:')
         for message, count in errors.most_common(10):
-            print('  %6d  %s' % (count, message))
+            print('error x%d: %s' % (count, message))
     return 0
 
 

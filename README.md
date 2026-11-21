@@ -44,7 +44,7 @@ database `test` from `data/mariadb/`. Logs and violations are written to `out/`.
 | `scripts/` | `setup_mariadb.sh` (set up the sample database), `demo.sh` (end-to-end run), CI helpers |
 | `data/` | Sample MariaDB database and 870 queries produced by the original Python generator |
 | `docs/` | `USAGE.md`: the step-by-step guide; `JOURNAL.md`: the log of work rounds |
-| `results/` | The SQLite campaigns: 64 confirmed violations from 5 bugs (4 withdrawn), reduced pairs, commits; the MariaDB campaign over random databases |
+| `results/` | The SQLite campaigns: 64 confirmed violations from 5 bugs (4 withdrawn), reduced pairs, commits; the two MariaDB campaigns over random databases (155 pairs, all assigned to issues 003, 009, 010, 012, 013) |
 | `issues/` | Problem reports and candidate DBMS bugs |
 
 The idea: **a mutation rule is a theorem**. Once the theorem is proved, a generic,
@@ -279,10 +279,10 @@ value cannot be read off the result.
 | `scripts/record_sqlite_pairs.py` | Adds the new pairs of an SQLite campaign to `results/`: confirm, bisect, reduce, bisect again, regenerate the reports |
 | `scripts/replay_reduced_sqlite.py` | Replays the reduced SQLite pairs of `results/` on their releases: every known bug must still be detected (CI) |
 | `scripts/check_reduced_mysql.py` | Checks that a reduced script still shows its violation |
-| `scripts/triage_mysql.py` | Triage of a server campaign: every pair again, without secondary indexes, reduced, grouped by the shape of the reduced query |
+| `scripts/triage_mysql.py` | Triage of a server campaign: every pair again, without secondary indexes, reduced, grouped by the shape of the reduced query, with a hint of the known issue |
 | `docs/JOURNAL.md` | The log of the autonomous work rounds: milestone, audit findings, what was done |
 | `docs/USAGE.md` | End-to-end usage guide |
-| `results/` | The SQLite campaign: summary, confirmed pairs (report and data) |
+| `results/` | The SQLite campaigns (summary, confirmed and reduced pairs, bisection) and the MariaDB campaigns over random databases (classified pairs) |
 
 ## What is proved
 

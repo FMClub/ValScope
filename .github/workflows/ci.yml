@@ -97,6 +97,10 @@ jobs:
         run: scripts/check_violations.py out/violations.jsonl data/ci-baseline/mariadb.txt
       - name: The AVG candidate of issue 009
         run: mariadb -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mariadb/avg-distinct.sql
+      - name: "The candidates of issues 002 (same groups everywhere) and 003 (expected 1, 2, 1)"
+        run: |
+          mariadb -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mariadb/enum-max-having.sql
+          mariadb -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mariadb/having-count-in.sql
       - name: Reduce the pair of issue 009 (test of bridge/reduce_mysql.py)
         run: |
           python3 bridge/reduce_mysql.py out/violations.jsonl --key 'expr->expr+k|38b7c18e86d54299' --password 123456 --database test > /tmp/reduced-009.sql
@@ -160,6 +164,10 @@ jobs:
         run: mysql -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mysql/intersect-min.sql || true
       - name: The AVG candidate of issue 009 on MySQL
         run: mysql -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mariadb/avg-distinct.sql || true
+      - name: "issue 002: HAVING MAX(enum) <> 3 (expected the same groups, 1,2, in every query)"
+        run: mysql -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mariadb/enum-max-having.sql || true
+      - name: "issue 003: HAVING COUNT(x) IN (subquery) (expected 1, 2, 1)"
+        run: mysql -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mariadb/having-count-in.sql || true
       - name: No violation outside the baseline (issues 005, 008 are known)
         run: scripts/check_violations.py out/violations.jsonl data/ci-baseline/mysql.txt
       - name: Reduce the pair of issue 008 (query and data)
@@ -211,3 +219,7 @@ jobs:
         run: mysql -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mysql/intersect-min.sql || true
       - name: "issue 009: AVG under SELECT DISTINCT (expected 1, 2, 3)"
         run: mysql -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mariadb/avg-distinct.sql || true
+      - name: "issue 002: HAVING MAX(enum) <> 3 (expected the same groups, 1,2, in every query)"
+        run: mysql -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mariadb/enum-max-having.sql || true
+      - name: "issue 003: HAVING COUNT(x) IN (subquery) (expected 1, 2, 1)"
+        run: mysql -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mariadb/having-count-in.sql || true

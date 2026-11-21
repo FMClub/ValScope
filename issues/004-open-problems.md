@@ -122,9 +122,10 @@ fixes of PR #1 are merged; the design problems below are still open.
    instead of a violation (`MySQLTarget.last_arm_mix`): a column with two numeric types and
    a non-numeric one among its arms (the text of a number depends on which arms meet
    first), and an INTERSECT / EXCEPT over arms with a `_ci` and another collation (which
-   rows match depends on the representative a `DISTINCT` kept). Open: the arms are probed
-   only for a compound at the top level (also in parentheses); a compound inside a derived
-   table is not, and a real bug in such a mixed compound is no longer reported.
+   rows match depends on the representative a `DISTINCT` kept). The arms at the top level are probed also when one of them holds a compound in a
+   derived table (six of the twelve pairs of the first MySQL 9 campaign were of that
+   kind). Open: a compound that is itself inside a derived table is not probed, and a real
+   bug in a compound with such mixed arms is no longer reported.
 3. **Character-by-character LIKE / REGEXP.** Collations with contractions or expansions
    (`'ss' = 'ß'`) are not covered.
 4. **Approximate numbers.** FLOAT / DOUBLE arithmetic is not exact; grouping keys of these

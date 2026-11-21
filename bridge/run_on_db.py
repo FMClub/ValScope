@@ -141,11 +141,12 @@ class MySQLTarget:
             else:
                 arms.append(n)
         flatten(tree)
-        if any(isinstance(n, setops) and id(n) not in chain for n in tree.walk()):
-            return coarsest
+        # a compound inside a derived table or a CTE: its arms are not probed, so the
+        # collations are the coarsest; the arms of the compound at the top still are
+        nested = any(isinstance(n, setops) and id(n) not in chain for n in tree.walk())
         compares = any(isinstance(n, (exp.Intersect, exp.Except)) and id(n) in chain for n in tree.walk())
         if not chain:
-            return names
+            return coarsest if nested else names
         with_ = tree.args.get('with')
         prefix = with_.sql(dialect='mysql') + ' ' if with_ is not None else ''
         combined = [{n} for n in names]
@@ -187,7 +188,7 @@ class MySQLTarget:
                 out.append(insensitive[0])      # one coarse collation over exact ones
             else:
                 out.append(MariaDBColumns.COARSEST)
-        return out
+        return coarsest if nested else out
 
 
 class SQLiteTarget:

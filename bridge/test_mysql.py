@@ -62,6 +62,10 @@ def main():
         report(target.last_arm_mix is None, 'UNION ALL compares nothing: mixed collations do not matter')
         target.run('(SELECT t.n FROM t UNION SELECT t.a FROM t) UNION ALL (SELECT t.n FROM t EXCEPT SELECT t.n + 0.5 FROM t)')
         report(target.last_arm_mix == 'types', 'INT, DECIMAL and text arms, nested in parentheses: mixed types')
+        target.run('SELECT d.n FROM (SELECT t.n FROM t UNION ALL SELECT t.n FROM t) AS d UNION SELECT t.a FROM t '
+                   'UNION ALL SELECT t.n + 0.5 FROM t')
+        report(target.last_arm_mix == 'types' and target.last_collations == [MariaDBColumns.COARSEST],
+               'a compound in a derived table of an arm: the arms at the top are still probed')
         target.run('SELECT t.n FROM t UNION SELECT t.a FROM t')
         report(target.last_arm_mix is None, 'one numeric type and text: the conversion does not depend on the order')
         report(arm_mix_verdict('Up violated', None, 'types') == 'incomparable' and

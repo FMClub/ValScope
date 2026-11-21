@@ -539,8 +539,9 @@ in which the term means what the SQL text means.
 The theorems speak of exact values; a server prints rounded ones and types a column from
 the plan. Each rule below was added after a false alarm of a campaign, and each can hide a
 real defect of the kind in its last column. They are all in `bridge/checker.py` and
-`bridge/run_on_db.py`; a tolerated pair is counted (`incomparable`, `collation`,
-`type_mismatch_skipped`), never counted as a passed check.
+`bridge/run_on_db.py`. The first three are part of what a passed check means; the others
+give a verdict of their own (`incomparable`, `collation`, `type_mismatch_skipped`,
+`approximate_group_key`), counted apart from the passed checks.
 
 | Difference accepted | Why it is not a violation | What it can hide |
 | --- | --- | --- |

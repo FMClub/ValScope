@@ -168,7 +168,7 @@ def main():
                                                                          schema=schema, exact_columns=exact)
                     work = [('value', m) for m in mutants] + [('having', m) for m in having]
                     numeric_probe = trs[0].numeric_probe()
-                    distinct = trs[0].value_distinct
+                    distinct = trs[0].value_cover
             except Unsupported:
                 st['unsupported'] += 1
                 continue

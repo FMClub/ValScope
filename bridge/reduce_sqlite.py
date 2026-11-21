@@ -185,7 +185,7 @@ class Judge:
                 trs = []
                 original, vm, _, _, hm = mutate_value(sql, dialect='sqlite', translation=trs, schema=self.schema,
                                                       exact_columns=self.exact)
-                if bool(trs[0].value_distinct) != self.cover:
+                if bool(trs[0].value_cover) != self.cover:
                     return None
                 if self.kind == 'value':
                     rel = self._relation(self.expect)

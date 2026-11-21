@@ -190,12 +190,10 @@ _, mutants, _, _, having = mutate_value(
 report(any(r == 'SUM(c)->SUM(c*k)' and m.endswith('UNION ALL (SELECT u.g AS c0, COUNT(u.y) AS c1 FROM u GROUP BY u.g)')
            for _, r, _, m in mutants) and any(r == 'COUNT->COUNT-DISTINCT' and 'SUM(t.x) AS s' in m for _, r, _, m in mutants)
        and any(r == 'cond->TRUE' for _, r, _ in having), 'UNION ALL of value queries: each arm mutated alone')
-try:
-    # DISTINCT inside an arm of a UNION ALL is not modelled (only DISTINCT at the top)
-    mutate_value("SELECT DISTINCT t.g AS g FROM t UNION ALL SELECT u.g FROM u")
-    report(False, 'DISTINCT inside a UNION ALL of value queries must be rejected')
-except Unsupported:
-    report(True, 'DISTINCT inside a UNION ALL of value queries rejected')
+# DISTINCT inside an arm of a UNION ALL: modelled by a mask (tmutate_mask_sound), checked by a cover
+trs = []
+mutate_value("SELECT DISTINCT t.g AS g FROM t UNION ALL SELECT u.g FROM u", translation=trs)
+report(trs[0].value_cover and not trs[0].value_distinct, 'DISTINCT inside a UNION ALL of value queries: a cover check')
 
 # a mutant that changes the leftmost arm of a set operation changes the collation that
 # operation compares with (SQLite: the leftmost arm's columns); such mutants are dropped
@@ -515,6 +513,31 @@ trs = []
 _, mutants, _, _, _ = mutate_value("SELECT DISTINCT t.a AS a, MAX(t.x) AS m FROM t GROUP BY t.a UNION "
                                    "SELECT u.b AS a, MIN(u.y) AS m FROM u GROUP BY u.b", translation=trs)
 report(trs[0].value_distinct and bool(mutants), 'UNION of value queries: a DISTINCT arm is accepted (redundant)')
+import sqlite3  # noqa: E402
+# DISTINCT on a part of a UNION ALL (VDistinct.v: meval, tmutate_mask_sound): a cover check,
+# no HAVING mutants
+for sql, mask in [("SELECT t.a AS a, MAX(t.x) AS m FROM t GROUP BY t.a HAVING COUNT(*) > 1 UNION ALL "
+                   "SELECT DISTINCT u.b AS a, u.y AS m FROM u", ('union', ('one', False), ('one', True))),
+                  ("SELECT t.a AS a, MAX(t.x) AS m FROM t GROUP BY t.a UNION SELECT u.b AS a, u.y AS m FROM u "
+                   "UNION ALL SELECT u.c AS a, u.y AS m FROM u", ('union', ('one', True), ('one', False)))]:
+    trs = []
+    _, mutants, _, _, having = mutate_value(sql, translation=trs)
+    report(trs[0].value_mask == mask and trs[0].value_cover and not trs[0].value_distinct and mutants and not having
+           and all(('SELECT DISTINCT' in m[3]) == ('SELECT DISTINCT' in sql) and m[3].count(' UNION ALL ') == 1
+                   for m in mutants),
+           'DISTINCT on a part of a UNION ALL: %s' % (mask,))
+# executed: a SELECT DISTINCT arm next to a plain arm, on SQLite; the cover holds
+con2 = sqlite3.connect(':memory:')
+con2.executescript('CREATE TABLE t (a INT, x INT); CREATE TABLE u (b INT, y INT);'
+                   'INSERT INTO t VALUES (1, 1), (1, 1), (2, 5); INSERT INTO u VALUES (3, 3), (3, 3), (4, 4);')
+trs = []
+original, mutants, _, _, _ = mutate_value('SELECT t.a AS a, t.x AS m FROM t UNION ALL SELECT DISTINCT u.b AS a, u.y AS m FROM u',
+                                          dialect='sqlite', translation=trs)
+base = con2.execute(original).fetchall()
+report(len(base) == 5 and mutants and all(check_value(r0, c, base, con2.execute(m).fetchall(), cover=True) == 'ok'
+                                          for r0, _, c, m in mutants),
+       'DISTINCT arm of a UNION ALL on SQLite: every mutant covers (%d mutants)' % len(mutants))
+
 # rows merge: original (1, 2), (1, 2), (2, 3) -> DISTINCT (1, 2), (2, 3); mutant +1 in column 1
 orig = [(1, 2), (2, 3)]
 report(check_value('Le', 1, orig, [(1, 3), (2, 4)], cover=True) == 'ok', 'cover: related rows on both sides')

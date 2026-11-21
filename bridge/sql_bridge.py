@@ -619,6 +619,11 @@ def _bare_columns(select):
     return bare
 
 
+def _mask_any(mask):
+    """Is some part of the value query under DISTINCT?"""
+    return mask[1] is True if mask[0] == 'one' else _mask_any(mask[1]) or _mask_any(mask[2])
+
+
 # window functions whose value is the same for identical rows (peers): no row numbers, no
 # offsets into the partition, the default frame (RANGE ... CURRENT ROW includes the peers)
 DETERMINED_WINDOWS = {'RANK', 'DENSE_RANK', 'PERCENT_RANK', 'CUME_DIST', 'COUNT', 'SUM', 'MIN', 'MAX', 'AVG'}
@@ -744,7 +749,7 @@ class Translation:
         tree = self._take_ctes(tree)
         # a value query under DISTINCT, or a UNION of value queries (VDistinct.v): the
         # mutants are those of the query without it, and the check is a cover
-        self.value_distinct = False
+        self.value_distinct, self.value_cover, self.value_mask = False, False, ('one', False)
         self.term = self._query(tree) if kind == 'set' else self._value_top(tree, top=True)
         why = outside_collation_law(self, self.term)
         if why:
@@ -1101,11 +1106,20 @@ class Translation:
     # ---------------------------------------------------- value queries
     def _value_top(self, node, top=False):
         """A value query, or a UNION ALL of value queries with the same number of columns
-        (VUnion.v: one arm is mutated, the other arms' rows stay as they are).  At the
-        top, SELECT DISTINCT or a UNION (without ALL) is DISTINCT over the same term
-        (VDistinct.v: Translation.value_distinct)."""
+        (VUnion.v: one arm is mutated, the other arms' rows stay as they are).  SELECT
+        DISTINCT, or a UNION (without ALL), is DISTINCT over the same term; it can be the
+        whole query or any part of a UNION ALL (VDistinct.v: meval, a mask over the UNION
+        ALL; Translation.value_mask).  Sets self.value_mask at the top."""
+        term, mask = self._value_part(node)
+        if top:
+            self.value_mask = mask
+            self.value_distinct = mask == ('one', True)          # the whole result
+            self.value_cover = _mask_any(mask)                   # a cover check, not Forall2
+        return term
+
+    def _value_part(self, node):
         node = self._unwrap(node)
-        if top and isinstance(node, exp.Union) and node.args.get('distinct'):
+        if isinstance(node, exp.Union) and node.args.get('distinct'):
             arms = []
 
             def flatten(n):
@@ -1125,24 +1139,24 @@ class Translation:
                 else:
                     arms.append(n)
             flatten(node)
-            self.value_distinct = True
-            terms = [self._value_top(a) for a in arms]
+            terms = [self._value_part(a)[0] for a in arms]       # under DISTINCT: inner masks do not matter
             out = terms[0]
             for t in terms[1:]:
                 out = '(VUnionAll %s %s)' % (out, t)
-            return out
-        if top and isinstance(node, exp.Select) and isinstance(node.args.get('distinct'), exp.Distinct) \
+            return out, ('one', True)
+        if isinstance(node, exp.Select) and isinstance(node.args.get('distinct'), exp.Distinct) \
                 and not node.args['distinct'].args.get('on'):
             node = node.copy()
             node.set('distinct', None)
-            self.value_distinct = True
+            return self._value_query(node), ('one', True)
         if isinstance(node, exp.Union) and not node.args.get('distinct'):
             for key in ('limit', 'offset', 'with_', 'with'):
                 if node.args.get(key):
                     raise Unsupported('%s on a UNION ALL of value queries' % key)
-            left, right = self._value_top(node.this), self._value_top(node.expression)
-            return '(VUnionAll %s %s)' % (left, right)
-        return self._value_query(node)
+            (left, ml), (right, mr) = self._value_part(node.this), self._value_part(node.expression)
+            mask = ('one', False) if ml == mr == ('one', False) else ('union', ml, mr)
+            return '(VUnionAll %s %s)' % (left, right), mask
+        return self._value_query(node), ('one', False)
 
     def _value_arms(self, tree):
         """The value queries of a (possibly UNION ALL) value term, left to right."""
@@ -1378,18 +1392,29 @@ class Translation:
             return self._vt_sql(tree)
         return self._q_sql(tree)
 
-    def _vt_sql(self, t, top=True):
-        distinct = getattr(self, 'value_distinct', False)
+    def _vt_sql(self, t, mask=None):
+        """SQL of a value term; `mask` (VDistinct.v: mask) says which parts are under DISTINCT."""
+        mask = self.value_mask if mask is None else mask
+        if mask[0] == 'union' and t[0] == 'VUnionAll':
+            return self._compound_sql('UNION ALL', t, self._vt_sql(t[1], mask[1]), self._vt_sql(t[2], mask[2]))
+        return self._arms_sql(t, mask == ('one', True))
+
+    def _arms_sql(self, t, distinct):
+        """SQL of a UNION ALL of arms; under DISTINCT, SELECT DISTINCT for one arm and UNION
+        (DISTINCT over their UNION ALL) for several."""
         if t[0] != 'VUnionAll':
             sql = self._v_sql(t)
-            if distinct and top:
+            if distinct:
                 assert sql.startswith('SELECT ')
                 sql = 'SELECT DISTINCT ' + sql[len('SELECT '):]
             return sql
-        # under DISTINCT, DISTINCT over a UNION ALL of the arms is their UNION
-        op = 'UNION' if distinct else 'UNION ALL'
-        left, right = self._vt_sql(t[1], False), self._vt_sql(t[2], False)
+        return self._compound_sql('UNION' if distinct else 'UNION ALL', t,
+                                  self._arms_sql(t[1], False), self._arms_sql(t[2], False))
+
+    def _compound_sql(self, op, t, left, right):
         if self.dialect == 'sqlite':
+            # no parentheses around compound operands in SQLite; compounds are
+            # left-associative, so a compound right operand becomes a derived table
             if t[2][0] == 'VUnionAll':
                 right = 'SELECT * FROM (%s)' % right
             return '%s %s %s' % (left, op, right)
@@ -1866,7 +1891,7 @@ def _roundtrip_ok(tr, term, sql, kind):  # noqa: C901
         back = Translation(sql, tr.dialect, kind=kind, schema=tr.schema, exact_columns=tr.exact_columns)
     except Exception:
         return False
-    if getattr(back, 'value_distinct', False) != getattr(tr, 'value_distinct', False):
+    if getattr(back, 'value_mask', None) != getattr(tr, 'value_mask', None):
         return False
     return canonical(tr, tree) == canonical(back, back.lift(parse_sexp(back.term)))
 
@@ -2126,6 +2151,10 @@ def mutate_value(sql, cli=DEFAULT_CLI, dialect='mysql', translation=None, schema
             direction, rule, _ = fields
             if getattr(tr, 'has_window', False):
                 STATS['having_with_window'] += 1     # the window would range over other groups
+                continue
+            if tr.value_cover and not tr.value_distinct:
+                # DISTINCT on a part of a UNION ALL only: no theorem for HAVING mutants
+                STATS['having_partial_distinct'] += 1
                 continue
             having_mutants.append((direction, rule, text))
     return original, mutants, skipped, tr.type_probe(), having_mutants

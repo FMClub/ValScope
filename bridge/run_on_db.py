@@ -347,7 +347,7 @@ def main():
                     relation = FLIP_VALUE[relation]
                 loose = single or (types is not None and target.SINGLE in (base_types[column], types[column]))
                 verdict = check_value(relation, column, base, res, single_precision=loose, fold=fold,
-                                      cover=bool(trs) and trs[0].value_distinct)
+                                      cover=bool(trs) and trs[0].value_cover)
                 label = '%s col %d' % (relation, column)
             else:
                 # set-semantic mutant, or a mutant of the HAVING predicate

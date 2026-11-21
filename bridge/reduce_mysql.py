@@ -56,7 +56,7 @@ class Judge:
                 trs = []
                 original, vm, _, _, hm = mutate_value(sql, dialect='mysql', translation=trs, schema=self.t.schema,
                                                       exact_columns=self.t.exact)
-                self.rec['distinct'] = trs[0].value_distinct
+                self.rec['distinct'] = trs[0].value_cover
                 if self.value:
                     relation, _, column = self.rec['expect'].split()
                     cands = [m for r0, r, c, m in vm if r == self.rule and r0 == relation and c == int(column)]

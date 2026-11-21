@@ -82,3 +82,75 @@ Qed.
 
 Lemma distinct_rows_nodup : forall l, NoDup (distinct_rows l).
 Proof. intros l. apply NoDup_nodup. Qed.
+
+(** ---------------- DISTINCT on some arms of a UNION ALL ---------------- *)
+
+(** Which parts of a UNION ALL of value queries are under DISTINCT: [MOne true] over an arm
+    is [SELECT DISTINCT], over a UNION ALL of arms it is their [UNION]; [MOne false] is no
+    DISTINCT, and [MUnion] follows the two operands of a UNION ALL.  A mask that does not
+    follow the shape of the term means no DISTINCT. *)
+Inductive mask : Type :=
+  | MOne   : bool -> mask
+  | MUnion : mask -> mask -> mask.
+
+Fixpoint meval (env : venv) (db : db_t) (m : mask) (t : vtop) : list vrow :=
+  match m, t with
+  | MOne true, _ => distinct_rows (teval env db t)
+  | MUnion ma mb, VUnionAll a b => meval env db ma a ++ meval env db mb b
+  | _, _ => teval env db t
+  end.
+
+Lemma meval_in : forall env db m t x, In x (meval env db m t) -> In x (teval env db t).
+Proof.
+  intros env db m t. revert m. induction t as [v|a IHa b IHb]; intros m x H;
+    destruct m as [[|]|ma mb]; simpl in *; try exact H; try (apply nodup_In in H; exact H).
+  apply in_app_or in H as [H|H]; apply in_or_app; [left; exact (IHa _ _ H)|right; exact (IHb _ _ H)].
+Qed.
+
+Lemma covers_app : forall r j a a' b b', covers r j a a' -> covers r j b b' -> covers r j (a ++ b) (a' ++ b').
+Proof.
+  intros r j a a' b b' [A1 A2] [B1 B2]. split.
+  - intros y Hy. apply in_app_or in Hy as [Hy|Hy].
+    + destruct (A1 y Hy) as [x [Hx R]]. exists x. split; [apply in_or_app; left; exact Hx|exact R].
+    + destruct (B1 y Hy) as [x [Hx R]]. exists x. split; [apply in_or_app; right; exact Hx|exact R].
+  - intros x Hx. apply in_app_or in Hx as [Hx|Hx].
+    + destruct (A2 x Hx) as [y [Hy R]]. exists y. split; [apply in_or_app; left; exact Hy|exact R].
+    + destruct (B2 x Hx) as [y [Hy R]]. exists y. split; [apply in_or_app; right; exact Hy|exact R].
+Qed.
+
+Lemma covers_refl : forall r j l, (forall x, In x l -> j < List.length x) -> covers r j l l.
+Proof.
+  intros r j l H. split; intros z Hz; exists z; split; try exact Hz; apply row_rel_refl; apply H; exact Hz.
+Qed.
+
+(** The value mutator, with DISTINCT on any parts of the UNION ALL. *)
+Theorem tmut_mask_sound : forall rs t m name r j t',
+  In (name, (r, (j, t'))) (tmut rs t) ->
+  forall env db, covers r j (meval env db m t) (meval env db m t').
+Proof.
+  intros rs t. induction t as [v|a IHa b IHb]; intros m name r j t' H env db.
+  - pose proof (tmut_sound rs _ _ _ _ _ H env db) as F. simpl in H.
+    apply in_map_iff in H as [[n0 [r0 [j0 v']]] [E Hin]]. simpl in E. inversion E; subst.
+    destruct m as [[|]|ma mb]; simpl in *.
+    + apply covers_distinct, forall2_covers. exact F.
+    + apply forall2_covers. exact F.
+    + apply forall2_covers. exact F.
+  - pose proof (tmut_sound rs _ _ _ _ _ H env db) as F.
+    destruct m as [[|]|ma mb].
+    + simpl. apply covers_distinct, forall2_covers. exact F.
+    + apply forall2_covers. exact F.
+    + simpl in H.
+      destruct (tarity a) as [na|] eqn:Ea; destruct (tarity b) as [nb|] eqn:Eb; simpl in H;
+        rewrite ?Ea, ?Eb in H; try contradiction.
+      destruct (Nat.eqb na nb) eqn:Enb; [|contradiction]. apply Nat.eqb_eq in Enb. subst nb.
+      apply in_app_or in H as [H|H]; unfold tmap in H; apply in_map_iff in H as [[n0 [r0 [j0 x]]] [Em Hin]];
+        simpl in Em; inversion Em; subst; simpl.
+      * apply covers_app; [exact (IHa ma _ _ _ _ Hin env db)|].
+        destruct (tmut_shape rs a _ _ _ _ Hin) as [n [Ha [_ Hj]]].
+        assert (n = na) by congruence. subst n.
+        apply covers_refl. intros row Hr. rewrite (teval_length env db b na row Eb (meval_in _ _ _ _ _ Hr)). exact Hj.
+      * apply covers_app; [|exact (IHb mb _ _ _ _ Hin env db)].
+        destruct (tmut_shape rs b _ _ _ _ Hin) as [n [Hb [_ Hj]]].
+        assert (n = na) by congruence. subst n.
+        apply covers_refl. intros row Hr. rewrite (teval_length env db a na row Ea (meval_in _ _ _ _ _ Hr)). exact Hj.
+Qed.

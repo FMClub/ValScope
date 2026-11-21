@@ -128,3 +128,12 @@ Print Assumptions thmutate_distinct_sound.
 Definition pred_rule_names : list (string * dir) := map (fun r => (pr_name r, pr_dir r)) pred_rules.
 Definition query_rule_names : list (string * dir) := map (fun r => (qr_name r, qr_dir r)) query_rules.
 Definition value_rule_names : list (string * vrel) := map (fun r => (vr_name r, vr_rel r)) value_rules.
+
+(** DISTINCT on some arms of a UNION ALL (SELECT DISTINCT arms, nested UNIONs): the same
+    cover, with the DISTINCT parts given by a mask over the UNION ALL. *)
+Theorem tmutate_mask_sound : forall t m name r j t',
+  In (name, (r, (j, t'))) (tmutate t) ->
+  forall env db, covers r j (meval env db m t) (meval env db m t').
+Proof. intros t m name r j t'. apply tmut_mask_sound. Qed.
+
+Print Assumptions tmutate_mask_sound.

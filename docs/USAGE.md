@@ -372,7 +372,10 @@ For every query:
 1. **Translation validation.** The query as written and the query re-printed from its
    algebra term are both executed; if they do not return the same rows, the query is not
    used and `TRANSLATION MISMATCH` is printed. This protects against bridge errors (and,
-   occasionally, reveals a DBMS inconsistency between two equivalent queries).
+   occasionally, reveals a DBMS inconsistency between two equivalent queries: `issues/010`
+   was found this way). With `--out`, the pair is recorded with the rule `TRANSLATION`
+   (the query as written, the query re-printed), and `reduce_mysql.py` reduces it like a
+   violation.
 2. Every mutant is executed and the relation of its rule is checked, modulo the equality of
    the database's collation (section 10.2).
 
@@ -439,6 +442,13 @@ SQL, so a change of how the bridge prints queries (or of the generator) changes 
 of known violations: the run then reports them as new, and the baseline is updated from
 `--keys` after checking that they are the known ones.
 
+A bug that many generated queries hit is listed by signature instead: a baseline line
+`sig:NAME` names a predicate of `scripts/check_violations.py` (`SIGNATURES`) on the record,
+for example `mariadb-distinct-avg` for `issues/009` (a value rule, `SELECT DISTINCT` in a
+grouped query with `AVG` or `STDDEV`, verdict "other columns changed"). The script prints
+how many violations each signature matched. A signature must be narrow: it hides every
+violation that satisfies it.
+
 ## 7. Test an SQLite database file
 
 Any SQLite file can be tested, with the SQLite that Python ships or with any SQLite
@@ -470,7 +480,10 @@ The runner reads the `CREATE` statements of the file to find which collations th
 columns use (`NOCASE`, `RTRIM`) and compares results with that equality. For value queries
 it first counts the rows where an aggregated expression holds text, and skips the query if
 there are any (`non_numeric_input`): SQLite's `AVG` converts text to numbers while
-`MIN`/`MAX` order text above all numbers, which is outside the numeric model.
+`MIN`/`MAX` order text above all numbers, which is outside the numeric model. Since the
+ninth round the campaign generates value queries over the columns declared `INTEGER` or
+`REAL` in the seed's schema, so this no longer happens (it skipped 46% of the value-query
+runs before); `--any-column` gives the earlier queries.
 
 ## 8. Run a differential campaign on old SQLite releases
 
@@ -751,7 +764,8 @@ Then `ok checks per rule` and the most frequent database errors.
   states a cover in both directions: every row of each result agrees outside the mutated
   column with a row of the other result and satisfies the relation with it. The checker
   checks exactly that. The same holds when only some arms of a `UNION ALL` are under
-  DISTINCT (`tmutate_mask_sound`).
+  DISTINCT (`tmutate_mask_sound`); a mutant that changes only arms outside the DISTINCT
+  parts keeps the one-to-one check (`tmutate_mask_plain_sound`; `Translation.cover_for`).
 - HAVING rules on a top-level `INTERSECT` / `EXCEPT` of value queries (`VSet.v`,
   `shmutate_sound`): inclusion of the sets of rows, with the direction flipped in the
   right operand of `EXCEPT`; the checker's inclusion check applies as it is (the results

@@ -521,13 +521,17 @@ and fixed its bug (self-contained scripts in `results/sqlite-repro/`). Details a
 - `SELECT DISTINCT` and `UNION` can also be any part of a `UNION ALL` of value queries
   (a `SELECT DISTINCT` arm next to plain arms): the theorem (`VDistinct.v`,
   `tmutate_mask_sound`) is the same cover, with the DISTINCT parts given by a mask over the
-  `UNION ALL`. Such queries get no HAVING mutants (no theorem for them).
+  `UNION ALL`. A mutation outside the DISTINCT parts keeps the one-to-one correspondence
+  (`tmutate_mask_plain_sound`), and the bridge then uses the exact check. Such queries get
+  no HAVING mutants (no theorem for them).
 - Value rules do not apply to a top-level `INTERSECT` or `EXCEPT` of value queries: changing
   a value of one arm changes which rows the operator keeps. HAVING rules do (`VSet.v`,
   `shmutate_sound`): the result, as a set, grows with both operands of `INTERSECT` and with
   the left operand of `EXCEPT`, and shrinks with its right operand, where the direction is
-  flipped. Operands with an aggregate that adds floats (`SUM`, `AVG`, `VAR_*`, `STDDEV_*`)
-  are rejected: the server compares rows exactly, and two plans can round differently.
+  flipped. Operands with an aggregate that adds floats (`VAR_*`, `STDDEV_*`, and `SUM` /
+  `AVG` unless their argument is integer arithmetic over columns that hold only integers
+  on the database under test) are rejected: the server compares rows exactly, and two
+  plans can round differently.
   `INTERSECT ALL` / `EXCEPT ALL` of value queries are rejected.
 - Window functions are accepted as opaque items of value queries, and only those whose
   value is the same for identical rows (`RANK`, aggregates over the default frame, ...),

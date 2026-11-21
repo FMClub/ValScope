@@ -79,8 +79,9 @@ It was the only violation in 37572 value-semantic checks over 3000 generated que
 ## Limitations
 
 - Reproduced on MariaDB 10.11.14 only. In CI (`data/mariadb/having-count-in.sql`) MariaDB
-  11.8.9, MySQL 8.4.13 and 9.7.4 return the expected `1`, `2`, `1`: fixed in newer MariaDB
-  releases (the fixing commit was not searched for), and absent from MySQL.
+  11.4.13 and 11.8.9, MySQL 8.4.13 and 9.7.4 return the expected `1`, `2`, `1`: the 11.4
+  series already has the fix and the 10.11 series (10.11.14) does not, so the fix was made
+  in an 11.x release and not backported (the commit was not searched for). Absent from MySQL.
 - The cause inside the server was not analysed. The variants suggest a type or item-reference problem in the lookup key of the materialized subquery, but that is a guess.
 - It was not checked whether this is already known upstream.
 

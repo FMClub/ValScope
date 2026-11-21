@@ -1105,6 +1105,12 @@ class Translation:
                             raise Unsupported('%s on a UNION of value queries' % key)
                     flatten(n.this)
                     flatten(n.expression)
+                elif isinstance(n, exp.Select) and isinstance(n.args.get('distinct'), exp.Distinct) \
+                        and not n.args['distinct'].args.get('on'):
+                    # DISTINCT of an arm is redundant under UNION: dedup(dedup(a) ++ b) = dedup(a ++ b)
+                    n = n.copy()
+                    n.set('distinct', None)
+                    arms.append(n)
                 else:
                     arms.append(n)
             flatten(node)
@@ -1216,6 +1222,14 @@ class Translation:
             why = None if key_texts is None else 'window function in a grouped value query'
             for w in windows:
                 why = why or _window_undetermined(w)
+                # MariaDB / MySQL resolve an unqualified name in PARTITION BY / ORDER BY of a
+                # window to a select alias first: the window would read a (mutated) item
+                spec = w.args.get('partition_by') or []
+                order = w.args.get('order')
+                names = [c for e in list(spec) + ([order] if order is not None else [])
+                         for c in e.find_all(exp.Column) if not c.table]
+                if names:
+                    why = why or 'unqualified column %s in a window (it can name a select alias)' % names[0].name
             if why:
                 raise Unsupported(why)
             self.opaque_items.append(self._text(node))

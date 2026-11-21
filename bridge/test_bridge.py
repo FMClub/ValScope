@@ -511,6 +511,10 @@ _, mutants, _, _, _ = mutate_value("SELECT t.a AS a, MAX(t.x) AS m FROM t GROUP 
                                    "SELECT u.b AS a, MIN(u.y) AS m FROM u GROUP BY u.b", translation=trs)
 report(trs[0].value_distinct and mutants and all(') UNION (' in m[3] for m in mutants),
        'UNION of value queries: DISTINCT over UNION ALL, printed as UNION')
+trs = []
+_, mutants, _, _, _ = mutate_value("SELECT DISTINCT t.a AS a, MAX(t.x) AS m FROM t GROUP BY t.a UNION "
+                                   "SELECT u.b AS a, MIN(u.y) AS m FROM u GROUP BY u.b", translation=trs)
+report(trs[0].value_distinct and bool(mutants), 'UNION of value queries: a DISTINCT arm is accepted (redundant)')
 # rows merge: original (1, 2), (1, 2), (2, 3) -> DISTINCT (1, 2), (2, 3); mutant +1 in column 1
 orig = [(1, 2), (2, 3)]
 report(check_value('Le', 1, orig, [(1, 3), (2, 4)], cover=True) == 'ok', 'cover: related rows on both sides')
@@ -537,7 +541,10 @@ for sql, expect in [
         ("SELECT t.a AS a, ROW_NUMBER() OVER (ORDER BY t.b) AS r, FLOOR(t.x) AS f FROM t", False),
         ("SELECT t.a AS a, SUM(t.x) OVER (ORDER BY t.b ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS s, "
          "FLOOR(t.x) AS f FROM t", False),
-        ("SELECT t.a AS a, SUM(t.x) AS s, RANK() OVER (ORDER BY SUM(t.x)) AS r FROM t GROUP BY t.a", False)]:
+        ("SELECT t.a AS a, SUM(t.x) AS s, RANK() OVER (ORDER BY SUM(t.x)) AS r FROM t GROUP BY t.a", False),
+        # MariaDB ranks by the select alias a (the item -t.a, which a mutation changes)
+        ("SELECT -t.a AS a, RANK() OVER (ORDER BY a) AS r, FLOOR(t.x) AS f FROM t", False),
+        ("SELECT t.a + 0 AS k0, SUM(t.x) OVER (PARTITION BY k0) AS s, FLOOR(t.x) AS f FROM t", False)]:
     try:
         _, mutants, _, _, _ = mutate_value(sql)
         got = all('OVER' in m for _, _, _, m in mutants) and bool(mutants)

@@ -433,7 +433,10 @@ statements for the remaining rows, the original and the mutant.
 run reports a violation that is not listed (key: rule and a hash of the two queries); CI
 runs it after every end-to-end run. A new violation is either a DBMS bug to record in
 `issues/` (then its key goes into the baseline) or a false alarm of the tool to fix.
-`scripts/check_violations.py --keys FILE` prints the keys of a run.
+`scripts/check_violations.py --keys FILE` prints the keys of a run. The key hashes the printed
+SQL, so a change of how the bridge prints queries (or of the generator) changes the keys
+of known violations: the run then reports them as new, and the baseline is updated from
+`--keys` after checking that they are the known ones.
 
 ## 7. Test an SQLite database file
 

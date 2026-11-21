@@ -42,7 +42,7 @@ results that are consistent with the theorem.
 | Second campaign (`--focus --rich`, seeds 2001-2030, 60 queries per kind) | 3600 queries, 386891 checks passed, 17 violations = **5 new distinct pairs**, all confirmed |
 | Third run (same seeds, after the audit fixes) | 3600 queries, 328852 checks passed, 24 violations = 6 distinct pairs, all confirmed; **2 new pairs** (seed 2009) |
 | Fifth round: generator settings compared (seeds 3001-3020) | 3 x 1600 queries, 2 new confirmed pairs (seeds 3006, 3009), 1 pair outside the model (seed 3010) |
-| Total confirmed pairs | **45** (from 32 databases; 1 withdrawn) |
+| Total confirmed pairs | **42** (1 pair withdrawn in the fifth round, 3 in the sixth; 5 distinct bugs, `results/sqlite-bisect.md`) |
 | Negative control (`--flip`, 300 queries) | 1544 violations reported |
 
 The rule of the mutation that exposed each pair:

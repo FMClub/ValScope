@@ -281,6 +281,18 @@ def _value_query_base(rng):
             # SQLite before 3.39 rejects HAVING without GROUP BY; the predicate is still
             # drawn, so the queries after this one stay those of earlier runs
             having = ''
+    if shape < 0.25:
+        # 30%: a window function whose value is the same for identical rows (an opaque item
+        # of the value query); from a random stream of its own, so the main stream is unchanged
+        side = random.Random('window:%s:%s:%s' % (t, where, ','.join(items)))
+        if side.random() < 0.3:
+            p, o = side.choice(NUM[t]), side.choice(NUM[t])
+            items = items + [side.choice([
+                'RANK() OVER (PARTITION BY %s.%s ORDER BY %s.%s)' % (alias, p, alias, o),
+                'DENSE_RANK() OVER (ORDER BY %s.%s)' % (alias, o),
+                'SUM(%s.%s) OVER (PARTITION BY %s.%s)' % (alias, o, alias, p),
+                'COUNT(*) OVER (PARTITION BY %s.%s)' % (alias, p),
+                'MAX(%s.%s) OVER (PARTITION BY %s.%s ORDER BY %s.%s)' % (alias, o, alias, p, alias, o)])]
     cols = ', '.join('%s AS k%d' % (item, i) for i, item in enumerate(items))
     return 'SELECT %s FROM %s AS %s%s%s%s' % (cols, t, alias, where, group, having)
 

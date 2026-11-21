@@ -67,7 +67,11 @@ fixes of PR #1 are merged; the design problems below are still open.
    Since the sixth round, value queries with `SELECT DISTINCT` and `UNION`s of value
    queries are proved (`VDistinct.v`: a cover in both directions) and used: 280 of the 870
    Python-generator queries are translated for the value rules (136 before, 69 before the
-   fourth round). Window functions in value queries are still rejected.
+   fourth round). Window functions in value queries are accepted as opaque items when
+   identical rows get identical values and the window names qualified columns only. Top-level
+   `INTERSECT` / `EXCEPT` of value queries stay out of the model (no relation between the
+   results). Since the seventh round, a `UNION` whose arms are `SELECT DISTINCT` is accepted
+   too (the arms' DISTINCT is redundant): 314 value queries.
 3. Some set-semantic mutants cannot be printed: `DISTINCT` around a join that is an operand
    of another join, or around a join of derived tables (91 of about 9000 mutants on 200
    generated queries; 480 before the fourth round, when `DISTINCT` around any join was

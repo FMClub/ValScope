@@ -518,9 +518,15 @@ and fixed its bug (self-contained scripts in `results/sqlite-repro/`). Details a
   are supported since the sixth round with a weaker check: after DISTINCT the rows no
   longer correspond one to one, and the theorem (`VDistinct.v`) states a cover in both
   directions (every row of each result is related to a row of the other).
+- Value mutation of an arm of a top-level `INTERSECT` or `EXCEPT` of value queries is not
+  modelled (188 Python-generator queries): changing a value of one arm changes which rows
+  the operator keeps, so there is no relation between the results to check. (`UNION` is
+  supported: DISTINCT over the arms, `VDistinct.v`.)
 - Window functions are accepted only as opaque items of value queries without aggregation,
   and only those whose value is the same for identical rows (`RANK`, aggregates over the
-  default frame, ...); `IN` with a value list stays an opaque predicate.
+  default frame, ...), with qualified columns in `PARTITION BY` / `ORDER BY` (MariaDB and
+  MySQL resolve an unqualified name there to a select alias, which a mutation can change);
+  `IN` with a value list stays an opaque predicate.
 - Some set-semantic mutants cannot be printed as SQL and are dropped (84 of about 7800 on
   200 generated queries): `DISTINCT` around a join that is itself an operand of another
   join (a derived table would need renamed columns), and `DISTINCT` around a join of

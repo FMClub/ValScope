@@ -97,6 +97,12 @@ jobs:
         run: scripts/check_violations.py out/violations.jsonl data/ci-baseline/mariadb.txt
       - name: The AVG candidate of issue 009
         run: mariadb -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mariadb/avg-distinct.sql
+      - name: Reduce the pair of issue 009 (test of bridge/reduce_mysql.py)
+        run: |
+          python3 bridge/reduce_mysql.py out/violations.jsonl --key 'expr->expr+k|38b7c18e86d54299' --password 123456 --database test > /tmp/reduced-009.sql
+          cat /tmp/reduced-009.sql | grep -v '^  KEY'
+          # the reduced script keeps the violation: run it in a fresh database and compare
+          python3 scripts/check_reduced_mysql.py /tmp/reduced-009.sql 'Le col 0'
 
   mysql:
     name: MySQL 8.4, end to end

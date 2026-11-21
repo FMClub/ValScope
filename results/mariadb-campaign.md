@@ -66,21 +66,33 @@ python3 bridge/campaign_mysql.py --seeds 131-170 --queries 40 --rich --value-ext
 | --- | --- | --- | --- | --- |
 | 3 (seeds 91-130, SQLite spelling) | 3200 (2221) | 44102 | 9 | `issues/013`: 5, `issues/003`: 2, `issues/012`: 2 |
 | 4 (seeds 131-170) | 3200 (2947) | 70643 | 8 | `issues/013`: 7, **`issues/014` (new): 1** |
+| 5 (seeds 171-230, `--rich --focus`) | 4800 (4372) | 160621 | 20 | `issues/003`: 8, `issues/013`: 8, `issues/012`: 2; 2 false alarms (mixed types under a compound in a derived table, fixed) |
 
 `issues/014`: the subquery cache looks its key up under the collation of the outer column
 (`utf8mb4_general_ci`) while the subquery compares under `utf8mb4_bin`; `'A'` and `'a'` share
 one entry, so `WHERE 0 OR s IN (SELECT v FROM b)` and `WHERE s IN (SELECT v FROM b)` return
 different rows. Found by `OR-drop-operand` on seed 147. The hints of `scripts/triage_mysql.py`
-named the issue of the other sixteen pairs; each was confirmed on its reduced script.
+named the issue of the other sixteen pairs; each was confirmed on its reduced script. The
+eighteen pairs of the fifth campaign carry the issue of their hint (the reduced scripts of
+four of them were read).
 
-## MySQL
+## Other servers (round 10 and 11)
 
-CI runs the campaign on MySQL 8.4 (seeds 1-12, 960 queries) and prints the candidates with
-their triage. First run (8.4.13): 36003 checks passed, no violation.
+CI runs a small campaign (seeds 1-12, `--focus`) on MySQL 8.4 and 9 and on MariaDB 11.4 and
+11.8, and `.github/workflows/campaign.yml` runs any campaign on any server image by hand.
+
+| Server | Campaign | Checks passed | Pairs | Classes |
+| --- | --- | --- | --- | --- |
+| MySQL 8.4.13 | seeds 1-12, `--focus` | 36003 | 0 | |
+| MySQL 9.7.4 | seeds 1-12, `--focus` | 35882 | 0 | |
+| MariaDB 11.4.13, 11.8.9 | seeds 1-12, `--focus` | 36142 | 3 | `issues/010`: 2, `issues/003`: 1 (the form that 11.x did not fix) |
+| MariaDB 11.8.9 | seeds 131-170, `--rich` | 70641 | 11 | `issues/013`: 7, `issues/010`: 2, `issues/003`: 1, `issues/014`: 1 |
+| MySQL 9.7.4 | seeds 131-170, `--rich` | 68746 | 12 | 6 false alarms (mixed types, fixed); 6 pairs of seed 144: `issues/015` |
+
 
 ## The records
 
-`results/mariadb-campaign.jsonl` has the 172 pairs that are still violated (campaign, seed,
+`results/mariadb-campaign.jsonl` has the 190 pairs that are still violated (campaign, seed,
 rule, expected relation, verdict, original, mutant, the issue they were assigned to; for the
 campaigns after the first also the reduced pair and the verdict without secondary indexes). A pair is
 reproduced with `python3 bridge/gen_mysql_db.py SEED | mysql --force DATABASE` and its two queries.

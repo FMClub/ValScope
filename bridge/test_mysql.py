@@ -67,7 +67,9 @@ def main():
         report(target.last_arm_mix == 'types' and target.last_collations == [MariaDBColumns.COARSEST],
                'a compound in a derived table of an arm: the arms at the top are still probed')
         target.run('SELECT t.n FROM t UNION SELECT t.a FROM t')
-        report(target.last_arm_mix is None, 'one numeric type and text: the conversion does not depend on the order')
+        report(target.last_arm_mix == 'types', 'a number arm and a text arm: mixed types')
+        target.run('SELECT t.n FROM t UNION SELECT t.n + 0.5 FROM t')
+        report(target.last_arm_mix is None, 'two numeric types and no text: no mix')
         report(arm_mix_verdict('Up violated', None, 'types') == 'incomparable' and
                arm_mix_verdict('Up violated', 'collations', None) == 'collation' and
                arm_mix_verdict('Up violated', None, None) == 'Up violated' and

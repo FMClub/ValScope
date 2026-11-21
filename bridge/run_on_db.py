@@ -114,9 +114,10 @@ class MySQLTarget:
 
         Two things about the arms make a result that no fold repairs; they are left in
         self.last_arm_mix for arm_mix_verdict():
-        - 'types': a column has two numeric types (DOUBLE and DECIMAL) in two arms and text
-          or a date in a third.  The server turns the numbers into text, and how ('5' or
-          '5.00') depends on which arms it combines first, which a mutation changes;
+        - 'types': a column is a number in one arm and text or a date in another.  The
+          server turns the numbers into text, and how ('5' or '5.00', '0' or '0.00') depends
+          on which arms it combines first and on whether an arm is materialized (a
+          DISTINCT), which a mutation changes;
         - 'collations': an INTERSECT or EXCEPT compares a column that has a case-insensitive
           collation in one arm and another collation in another arm.  When the arm
           de-duplicates ('a' or 'A' is kept) and the comparison is made under the finer
@@ -175,7 +176,9 @@ class MySQLTarget:
         out = []
         for f in codes:
             numbers = f & self.NUMERIC_CODES
-            if len(numbers) > 1 and f - numbers - {6}:      # 6: the type of a bare NULL
+            # 6: the type of a bare NULL.  16: BIT, which the servers do not print as a
+            # number (issues/005 is found through such a compound and must stay visible)
+            if numbers - {16} and f - numbers - {6}:
                 self.last_arm_mix = 'types'
         for c in combined:
             insensitive = [n for n in c if n and ('_ci' in n or '_ai' in n)]

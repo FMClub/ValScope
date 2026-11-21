@@ -119,9 +119,10 @@ fixes of PR #1 are merged; the design problems below are still open.
    cover this case in the model itself.
 2c. **Arms of a compound that differ in type or collation on MySQL-protocol servers (round
    9).** Two shapes gave false alarms and are now judged `incomparable` / `collation`
-   instead of a violation (`MySQLTarget.last_arm_mix`): a column with two numeric types and
-   a non-numeric one among its arms (the text of a number depends on which arms meet
-   first), and an INTERSECT / EXCEPT over arms with a `_ci` and another collation (which
+   instead of a violation (`MySQLTarget.last_arm_mix`): a column that is a number in one arm
+   and text or a date in another (the text of a number, `'0'` or `'0.00'`, depends on which
+   arms meet first and on whether an arm is materialized; `BIT` is excepted, so that
+   issue 005 stays visible), and an INTERSECT / EXCEPT over arms with a `_ci` and another collation (which
    rows match depends on the representative a `DISTINCT` kept). The arms at the top level are probed also when one of them holds a compound in a
    derived table (six of the twelve pairs of the first MySQL 9 campaign were of that
    kind). Open: a compound that is itself inside a derived table is not probed, and a real

@@ -66,6 +66,8 @@ def hint(original, mutant, index_only):
         return '009'        # an aggregate computed at the end, under SELECT DISTINCT
     if re.search(r' GROUP BY .*%', o) and DISTINCT_AGGREGATE.search(both):
         return '013'        # GROUP BY x % n with a DISTINCT aggregate on one side
+    if ' INTERSECT ' in o and ' LEFT JOIN ' in o:
+        return '008'        # MySQL: INTERSECT and the NULL of an outer join
     if ' LEFT JOIN ' in o and 'NOT (EXISTS ' in o and o.count('EXISTS ') >= 2:
         return '015'        # MySQL: LEFT JOIN with an EXISTS, under a NOT EXISTS
     return ''

@@ -1,7 +1,7 @@
 # 008: MySQL INTERSECT matches a NOT NULL column with the NULL of an outer join
 
-Status: open, candidate (MySQL 8.4.13 and 9.7.4, CI; MariaDB 10.11.14 and 11.8.9 are
-correct). Found by `scripts/demo.sh mariadb` on MySQL with N=300 (rule `DISTINCT-add`).
+Status: open, candidate (MySQL 8.4.13: minimal case; MySQL 9.7.4: only the larger case on
+the sample database, see below; MariaDB 10.11.14 and 11.8.9 are correct). Found by `scripts/demo.sh mariadb` on MySQL with N=300 (rule `DISTINCT-add`).
 
 ## Minimal case (`data/mysql/intersect-min.sql`, variant B)
 
@@ -22,12 +22,17 @@ because of the outer join (`t1.c1` is a primary key): MySQL seems to take the co
 `NOT NULL` property, or that of the left arm, for the result of the outer join when it
 compares the rows of the two arms.
 
-| Variant (`data/mysql/intersect-min.sql`) | MySQL 8.4.13 | MariaDB 10.11.14 |
-| --- | --- | --- |
-| A: `t2.c2 INT` (nullable) | 0 | 0 |
-| B: `t2.c2 INT NOT NULL` | **1** | 0 |
-| C: B with `AUTO_INCREMENT` keys | **1** | 0 |
-| D: the column definitions of the sample tables | **1** | 0 |
+| Variant (`data/mysql/intersect-min.sql`) | MySQL 8.4.13 | MySQL 9.7.4 | MariaDB 10.11.14 |
+| --- | --- | --- | --- |
+| A: `t2.c2 INT` (nullable) | 0 | 0 | 0 |
+| B: `t2.c2 INT NOT NULL` | **1** | 0 | 0 |
+| C: B with `AUTO_INCREMENT` keys | **1** | 0 | 0 |
+| D: the column definitions of the sample tables | **1** | 0 | 0 |
+
+On MySQL 9.7.4 the minimal case is correct, but the larger case on the full sample database
+(`data/mysql/intersect-all-variants.sql`) still returns the 4 rows of `A`, now even at the
+top level: the defect is still reachable there, through another plan. Reducing it on 9.7.4
+is open (`bridge/reduce_mysql.py` works on any MySQL-protocol server).
 
 The steps that led here: `bridge/reduce_mysql.py` reduced the pair found by the demo on
 MySQL 8.4 (query 750 -> 197 characters, rows 14 / 13 -> 1 / 1, 77 secondary indexes -> 0),

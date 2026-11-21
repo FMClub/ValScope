@@ -394,8 +394,8 @@ How the audit fixes changed the numbers on the same inputs:
   FROM t GROUP BY g` returns the `AVG` of the last group on every row.
 - **Candidate MySQL bug** (`issues/008-mysql-intersect-not-null-outer-join.md`, MySQL 8.4.13, CI):
   `INTERSECT` matches a row whose first column is a `NOT NULL` integer with a row that has
-  `NULL` there (from an outer join): two one-row tables reproduce it on MySQL 8.4.13 and
-  9.7.4 (MariaDB: correct).
+  `NULL` there (from an outer join): two one-row tables reproduce it on MySQL 8.4.13; on
+  9.7.4 only the larger case on the sample database does (MariaDB: correct).
 - **SQLite compound collation** (`issues/007-sqlite-compound-collation.md`, 3.53.1 and
   3.54.1): the same `UNION ALL` de-duplicates `'a'` and `'A'` as equal in a compound
   (collation from the first arm that has one) and as different through a derived table

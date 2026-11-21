@@ -102,3 +102,24 @@ of value rules on SQLite.
 3. `results/sqlite-campaign.md` has grown by accretion (ten rounds appended): a summary
    table per round at the top would make it readable.
 4. Old open point: bug 5 may be bug 1 hidden by a plan change.
+
+## Round 5 (2026-11-21)
+
+**Milestone.** Documentation of the SQLite results brought in order:
+`results/sqlite-campaign.md` opens with a table of all campaigns (seeds, queries, checks,
+new pairs, running total: 64 pairs, 6 bugs); USAGE 8.7 describes `record_sqlite_pairs.py`
+and `replay_reduced_sqlite.py`; `--latest` documented.
+
+**Audit findings.**
+- `incomparable` on MariaDB (543 checks of the corpus run) was examined with the question
+  of round 4. All are value rules applied to items that are not numbers there (`DATE + 3`,
+  `DATE_FORMAT(...) * 2`, a BLOB key `+ 3`): the original column is text or a date and the
+  mutant a number. On a statically typed server this is legitimate (`AVG->MAX` on a text
+  column also changes the type), so `strict_types` stays off for MySQL-protocol servers.
+  Such mutants are wasted work, not wrong verdicts.
+
+**TODO for round 6.**
+1. Skip value mutants of items that the type probe shows as non-numeric (dates, text,
+   BLOB) on MySQL-protocol servers instead of running them and getting `incomparable`.
+2. Old open point: is bug 5 the defect of bug 1 hidden by a plan change?
+3. A newest-release SQLite build in CI, so the replay step can also check `--latest`.

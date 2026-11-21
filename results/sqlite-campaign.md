@@ -11,6 +11,23 @@ violation below was found by this pipeline:
 
 Every violation was then re-checked from scratch by `bridge/confirm_sqlite.py`.
 
+## Campaigns at a glance
+
+| Round | Seeds, options | Queries | Checks passed | New confirmed pairs | Running total |
+| --- | --- | --- | --- | --- | --- |
+| First campaign | about 590 seeds | 142400 | 9687625 | 37 | 37 |
+| Second (extended model) | 2001-2030, `--focus --rich`, 60 per kind | 3600 | 386891 | 5 | 42 |
+| Third (same seeds, after the audit fixes) | 2001-2030 | 3600 | 328852 | 2 | 44 |
+| Fifth (generator settings compared) | 3001-3020, three settings | 3 x 1600 | | 2, and 1 pair withdrawn | 45 |
+| Sixth (bisection, reduction) | | | | 3 pairs withdrawn | 42 |
+| Seventh | 4001-4030, `--focus` | 2400 | 262868 | 3 (bug 1) | 45 |
+| Eighth | 5001-5030, `--focus --value-ext` | 2400 | 257784 | 1 (bug 1) | 46 |
+| Ninth (value queries over numeric columns) | 6001-6030, `--focus --value-ext` | 2400 | 292896 | 5 (bug 1) | 51 |
+| Tenth (lineage; reference 3.54.1; strict types) | 7001-7030, `--focus --value-ext` | 2400 | 298823 | 13 (6 bug 1, 1 bug 3, 6 bug 6) | **64** |
+
+The 64 pairs come from 6 bugs (`results/sqlite-bisect.md`). The sections below are in the
+order the work was done; the first ones describe the state after the first campaigns.
+
 ## Result
 
 **64 distinct (original, mutant) query pairs violate the relation that the rule's theorem
@@ -25,8 +42,10 @@ and 3 in the sixth (see "Withdrawn" and the sixth round below). All 64 are confi
 - the database of the seed was rebuilt by each SQLite library and both queries were run
   again;
 - the violation reproduces on the version that reported it;
-- the relation holds on SQLite 3.53.1, the version Python ships (for one pair it holds
-  modulo the `NOCASE` collation, which is what the theorem states).
+- the relation holds on the reference release: SQLite 3.53.1, the version Python ships,
+  until the ninth round, and 3.54.1 built from source since the tenth (for one pair it
+  holds modulo the `NOCASE` collation, which is what the theorem states). All 64 pairs
+  hold on 3.54.1; the six pairs of bug 6 are still violated on 3.53.1.
 
 So the old releases return results that contradict each other, and a later release returns
 results that are consistent with the theorem.
@@ -42,7 +61,7 @@ results that are consistent with the theorem.
 | Second campaign (`--focus --rich`, seeds 2001-2030, 60 queries per kind) | 3600 queries, 386891 checks passed, 17 violations = **5 new distinct pairs**, all confirmed |
 | Third run (same seeds, after the audit fixes) | 3600 queries, 328852 checks passed, 24 violations = 6 distinct pairs, all confirmed; **2 new pairs** (seed 2009) |
 | Fifth round: generator settings compared (seeds 3001-3020) | 3 x 1600 queries, 2 new confirmed pairs (seeds 3006, 3009), 1 pair outside the model (seed 3010) |
-| Total confirmed pairs | **42** (1 pair withdrawn in the fifth round, 3 in the sixth; 5 distinct bugs, `results/sqlite-bisect.md`) |
+| Total confirmed pairs after the sixth round | **42** (1 pair withdrawn in the fifth round, 3 in the sixth); 64 after the tenth, see the table above |
 | Negative control (`--flip`, 300 queries) | 1544 violations reported |
 
 The rule of the mutation that exposed each pair:

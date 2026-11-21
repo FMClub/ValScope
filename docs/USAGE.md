@@ -525,6 +525,7 @@ L=/tmp/sqlite-libs; python3 bridge/campaign_sqlite.py --libs $L/libsqlite3-32600
 | `--focus` | more set operations, `DISTINCT`, text and `COLLATE NOCASE` columns |
 | `--rich` | opaque predicates and derived tables |
 | `--adaptive` | choose plain / `--focus` / `--rich` / both per database seed by coverage feedback (section 8.4) |
+| `--latest LIB.so` | the reference library a violation is re-checked on (default: the SQLite that Python ships). Use a build of the newest release: a bug that Python's SQLite still has is otherwise filed as "also in latest" (bug 6 of `results/sqlite-bisect.md`) |
 | `--value-ext` | the value queries of `gen_fragment.py --value-ext` (windows over groups, DISTINCT arms of a `UNION ALL`, `INTERSECT` / `EXCEPT`) |
 | `--flip` | negative control |
 
@@ -649,6 +650,28 @@ groups the pairs: **pairs with the same introducing and fixing commits are one b
 different commits are different bugs.** The fixing commit is the first commit on which the
 pair is good; when it is an optimisation that changes the plan, it ends the symptom of the
 pair rather than fixing the defect.
+
+### 8.7 Record new pairs, and replay the recorded ones
+
+`scripts/record_sqlite_pairs.py` runs sections 8.3, 8.6 and 8.5 for the pairs of a campaign
+file that `results/` does not have yet, and then appends them to the result files and
+regenerates the reports:
+
+```bash
+scripts/record_sqlite_pairs.py violations.jsonl --lib 3.26.0=$L/libsqlite3-3260000.so --lib 3.30.1=$L/libsqlite3-3300100.so --lib 3.31.1=$L/libsqlite3-3310100.so --lib 3.34.0=$L/libsqlite3-3340000.so --latest sqlite-src/../bisect-cache/libsqlite3-NEWEST.so --src sqlite-src --work record-work
+```
+
+`--latest` is a library of the newest release (bisect_sqlite.py builds one into its cache).
+The script stops, without touching `results/`, when a pair is not confirmed (reproduced
+on its release, consistent on the newest), cannot be reduced or bisected; run again with
+the same `--work`, it reuses the steps that are done. It prints a note when a pair has
+commits that no recorded bug has: the entry in "The bugs" of `results/sqlite-bisect.md`
+is then written by hand.
+
+`scripts/replay_reduced_sqlite.py --lib 3.26.0=... [--latest ...]` replays every reduced
+pair of `results/` on the release that reported it, where it must still be violated (and
+on `--latest`, where it must hold). CI runs it: a change of the checker or of the
+execution layer that hides a known bug fails there.
 
 ## 9. Test any other database
 

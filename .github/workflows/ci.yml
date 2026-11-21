@@ -210,9 +210,9 @@ jobs:
           if [ -s /tmp/campaign.jsonl ]; then python3 scripts/triage_mysql.py /tmp/campaign.jsonl --password 123456 --out-dir /tmp/triage --timeout 120; cat /tmp/triage/pair-*.sql 2>/dev/null | head -n 400; fi
 
   candidates-newer-servers:
-    name: Candidate bugs on newer servers (${{ matrix.image }})
+    name: Candidate bugs and a campaign on newer servers (${{ matrix.image }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -269,3 +269,13 @@ jobs:
         run: mysql -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mariadb/in-date-index-null.sql || true
       - name: "issue 013: DECIMAL -0.00 in GROUP BY (expected 1 group everywhere, equal 1)"
         run: mysql -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mariadb/decimal-negative-zero.sql || true
+      - name: Build the mutator (for the campaign below)
+        if: always()
+        run: |
+          sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends coq ocaml ocaml-findlib make gcc
+          make && make cli
+      - name: Campaign over random databases on this server (the candidates are printed, not judged)
+        if: always()
+        run: |
+          python3 bridge/campaign_mysql.py --seeds 1-12 --queries 40 --focus --value-ext --no-value-distinct --password 123456 --out /tmp/campaign.jsonl | grep -v '^  ' | cut -c1-400
+          if [ -s /tmp/campaign.jsonl ]; then python3 scripts/triage_mysql.py /tmp/campaign.jsonl --password 123456 --out-dir /tmp/triage --timeout 120; cat /tmp/triage/pair-*.sql 2>/dev/null | head -n 400; fi

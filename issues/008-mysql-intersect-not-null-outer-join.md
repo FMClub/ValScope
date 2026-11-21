@@ -31,8 +31,11 @@ compares the rows of the two arms.
 
 On MySQL 9.7.4 the minimal case is correct, but the larger case on the full sample database
 (`data/mysql/intersect-all-variants.sql`) still returns the 4 rows of `A`, now even at the
-top level: the defect is still reachable there, through another plan. Reducing it on 9.7.4
-is open (`bridge/reduce_mysql.py` works on any MySQL-protocol server).
+top level: the defect is still reachable there, through another plan. There the original
+and the mutant are both wrong in the same way, so the pair is consistent and ValScope does
+not see it on 9.7.4 (a metamorphic relation compares two queries, not a query with the
+right answer); the parts of the query (`A`, `B UNION ALL C`) show that the result is wrong.
+It cannot be reduced by `bridge/reduce_mysql.py` there for the same reason.
 
 The steps that led here: `bridge/reduce_mysql.py` reduced the pair found by the demo on
 MySQL 8.4 (query 750 -> 197 characters, rows 14 / 13 -> 1 / 1, 77 secondary indexes -> 0),

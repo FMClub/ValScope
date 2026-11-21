@@ -44,6 +44,8 @@ def main():
     ap.add_argument('--focus', action='store_true')
     ap.add_argument('--rich', action='store_true')
     ap.add_argument('--value-ext', action='store_true')
+    ap.add_argument('--no-value-distinct', action='store_true',
+                    help='value queries without DISTINCT / UNION (MariaDB: issues/009 hides the rest)')
     ap.add_argument('--flip', action='store_true', help='negative control')
     ap.add_argument('--host', default='127.0.0.1')
     ap.add_argument('--port', type=int, default=3306)
@@ -67,7 +69,8 @@ def main():
         new = 0
         for kind in ('set', 'value'):
             qfile = os.path.join(tmp, '%s-%d.sql' % (kind, seed))
-            opts = gen_opts + (['--value'] + (['--value-ext'] if a.value_ext else []) if kind == 'value' else [])
+            opts = gen_opts + (['--value'] + (['--value-ext'] if a.value_ext else []) +
+                               (['--no-value-distinct'] if a.no_value_distinct else []) if kind == 'value' else [])
             with open(qfile, 'w') as f:
                 subprocess.run([sys.executable, os.path.join(HERE, 'gen_fragment.py')] + opts +
                                ['--mysql-seed', str(seed), str(a.queries), str(seed)], stdout=f, check=True)

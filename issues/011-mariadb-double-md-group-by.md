@@ -49,7 +49,9 @@ so this would not add coverage there.
 
 ## Limitations
 
-- MariaDB 10.11.14 only (locally); the CI log shows MySQL and the newer MariaDB releases.
+- Servers (local run and CI run 61): MariaDB 10.11.14, 11.4.13 and 11.8.9 show it
+  (`COUNT(x - 5)` and `MAX(id)` give 1 group, `COUNT(DISTINCT x - 5)` and `GROUP_CONCAT(id)`
+  give 2). MySQL 8.4.13 and 9.7.4 give 2 groups in all four queries.
 - Whether upstream considers grouping by the rounded value of a `DOUBLE(M,D)` expression
   intended was not checked; the inconsistency between two queries with the same `GROUP BY`
   is the finding.

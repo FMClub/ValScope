@@ -8,6 +8,7 @@
         an outer query over a derived value query
     add --sqlite-seed SEED (with --sqlite --value): only the numeric columns of that database
     add --mysql-seed SEED: queries for the database of gen_mysql_db.py with that seed
+    add --no-value-distinct: value queries without DISTINCT / UNION (on MariaDB, issues/009 hides the rest)
     add --schema FILE.json for another schema (see below)
 
 By default the schema is the sample schema of the Python generator (tables t1, t2, t3).
@@ -25,6 +26,7 @@ CONSTS = [1, 5, 20, 50, 100, 1000, 5000]
 SHIFTS = [5, 50, 500, 5000]
 SQLITE = False
 SMALL = False     # small values in the tables (gen_mysql_db.py): small constants
+NO_VALUE_DISTINCT = False   # no DISTINCT / UNION over value queries (MariaDB: issues/009 hides the rest)
 RICH = False      # opaque predicates and derived tables that stress the SQLite planner
 FOCUS = False     # more compound queries and more DISTINCT
 VALUE_EXT = False # value queries with windows over groups, a DISTINCT arm in a UNION ALL,
@@ -334,7 +336,7 @@ def value_query(rng):
     seeded by the query text, so the main stream (and every recorded seed) is unchanged."""
     sql = _value_query_base(rng)
     side = random.Random('value-distinct:' + sql)
-    x = side.random()
+    x = 1.0 if NO_VALUE_DISTINCT else side.random()
     if x < 0.2:
         return 'SELECT DISTINCT ' + sql[len('SELECT '):]
     if x < 0.3:
@@ -353,8 +355,10 @@ def value_query(rng):
             for _ in range(20):
                 arm = _value_query_base(ext)
                 if arm.count(' AS k') == width and ' OVER ' not in arm:
-                    if y < 0.15:
+                    if y < 0.15 and not NO_VALUE_DISTINCT:
                         return '%s UNION ALL SELECT DISTINCT %s' % (sql, arm[len('SELECT '):])
+                    if y < 0.15:
+                        return '%s UNION ALL %s' % (sql, arm)
                     return '%s %s %s' % (sql, ext.choice(['INTERSECT', 'EXCEPT']), arm)
         elif y < 0.55 and ' OVER ' not in sql:
             # 20%: the value query as a derived table under an outer query that projects,
@@ -385,6 +389,8 @@ if __name__ == '__main__':
         FOCUS = True
     if '--value-ext' in sys.argv:
         VALUE_EXT = True
+    if '--no-value-distinct' in sys.argv:
+        NO_VALUE_DISTINCT = True
     argv = sys.argv[1:]
     if '--mysql-seed' in argv:
         # the databases of gen_mysql_db.py; value queries over their exact numeric columns
@@ -410,7 +416,7 @@ if __name__ == '__main__':
         i = argv.index('--schema')
         use_schema(argv[i + 1])
         del argv[i:i + 2]
-    args = [a for a in argv if a not in ('--value', '--sqlite', '--rich', '--focus', '--value-ext')]
+    args = [a for a in argv if a not in ('--value', '--sqlite', '--rich', '--focus', '--value-ext', '--no-value-distinct')]
     n = int(args[0])
     rng = random.Random(int(args[1]) if len(args) > 1 else 0)
     for _ in range(n):

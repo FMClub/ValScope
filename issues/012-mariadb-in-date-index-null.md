@@ -47,7 +47,8 @@ condition and returned no row; the mutant of `cond->TRUE` (the inner `WHERE` rep
 
 ## Limitations
 
-- MariaDB 10.11.14 only (locally); the CI log shows MySQL and the newer MariaDB releases.
+- Servers (local run and CI run 61): MariaDB 10.11.14, 11.4.13 and 11.8.9 show it (FALSE
+  with the index, NULL without). MySQL 8.4.13 and 9.7.4 give NULL in both cases.
 - Comparing a number with a `DATE` converts one of them; which conversion the index
   lookup uses was not analysed. Whatever it is, a NULL in the subquery cannot give FALSE.
 - Not checked against the MariaDB bug tracker.

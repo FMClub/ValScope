@@ -114,9 +114,10 @@ report(tr.term.count('(Left 2 ') == 1, 'LEFT JOIN padding = width of the derived
 # round-trip validation: every printed query must parse back to its term.  Inject the
 # two printer bugs found earlier and check that the mutants they spoil are dropped.
 import sql_bridge  # noqa: E402
-_atom, _p = Translation.__dict__['_atom_text'], Translation._p_sql
+from printer import Printer  # noqa: E402
+_atom, _p = Printer.__dict__['_atom_text'], Printer._p_sql
 try:
-    Translation._atom_text = staticmethod(lambda text: text)          # parentheses lost
+    Printer._atom_text = staticmethod(lambda text: text)          # parentheses lost
     before = sql_bridge.STATS['roundtrip_rejected']
     _, mutants, _ = mutate_value_sql("SELECT SUM(t.x - 50) AS s FROM t")
     report(not any('t.x - 50 * 2' in m for _, _, _, m in mutants) and
@@ -124,15 +125,15 @@ try:
 
     def lose_not(self, p):
         return _p(self, p[1]) if p != 'True' and p != 'False' and p[0] == 'Not' else _p(self, p)
-    Translation._atom_text = _atom
-    Translation._p_sql = lose_not                                    # NOT lost
+    Printer._atom_text = _atom
+    Printer._p_sql = lose_not                                    # NOT lost
     try:
         mutate_sql("SELECT t.a FROM t WHERE NOT (t.b > 1)")
         report(False, 'round trip rejects an original whose NOT is lost')
     except Unsupported:
         report(True, 'round trip rejects an original whose NOT is lost')
 finally:
-    Translation._atom_text, Translation._p_sql = _atom, _p
+    Printer._atom_text, Printer._p_sql = _atom, _p
 
 # the collation law: an operation that tells collation-equivalent values apart must
 # not be applied to the representative chosen by a de-duplication
@@ -576,12 +577,12 @@ except Unsupported:
 
 # a mutated value followed through a derived table (VLineage.v, wmutate_sound)
 from sql_bridge import DEFAULT_CLI  # noqa: E402
-from lineage import _lineage_mutants  # noqa: E402
+from lineage import Lineage, _lineage_mutants  # noqa: E402
 inner = 'SELECT t.a AS k, MAX(t.x) AS m, SUM(t.x) AS s, COUNT(t.x) AS n FROM t GROUP BY t.a'
 lin, lm = _lineage_mutants('SELECT d.k AS k, SUM(d.s) AS total, MAX(d.m) AS top, MIN(d.n) AS low, AVG(d.n) AS mean '
                            'FROM (%s) AS d WHERE d.k > 0 GROUP BY d.k HAVING COUNT(*) > 0' % inner, DEFAULT_CLI, 'sqlite', None, None)
 cols = {c for _, _, c, _ in lm}
-report(lin.outer == '(OGroup (0)) (F 0 (0)) (H 0 ()) ((OCol 0) (OSum 2) (OMax 1) (OMin 3) (OAvg 3))' and cols == {1, 2},
+report(lin.outer == '(OGroup (0)) (F 0 (0)) (H 0 ()) ((OCol 0) (OSum 2) (OMax 1) (OMin 3) (OAvg 3))' and 'OCount' in Lineage('SELECT COUNT(d.k) AS c FROM (%s) AS d' % inner, 'sqlite').outer and cols == {1, 2},
        'lineage: the outer query is read; mutants for the columns read once (%s), none for the key, '
        'the filtered column and the column read twice' % sorted(cols))
 report(all(r in ('Le', 'Ge') for r, _, c, _ in lm), 'lineage: only order relations pass through SUM / MAX')

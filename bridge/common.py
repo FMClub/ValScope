@@ -30,3 +30,12 @@ def _strip_parens(node):
     """A copy of the expression without parentheses (they do not change its meaning
     in a syntax tree)."""
     return node.copy().transform(lambda n: n.this if isinstance(n, exp.Paren) else n)
+
+
+CMP_SQL = {'eq': '=', 'ne': '<>', 'lt': '<', 'le': '<=', 'gt': '>', 'ge': '>='}
+SET_SQL = {'UnionAll': 'UNION ALL', 'Union': 'UNION', 'Intersect': 'INTERSECT', 'Except': 'EXCEPT',
+           'IntersectAll': 'INTERSECT ALL', 'ExceptAll': 'EXCEPT ALL'}
+
+
+def _quote(text):
+    return "'%s'" % text.replace("'", "''")

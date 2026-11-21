@@ -256,7 +256,8 @@ value cannot be read off the result.
 | `theories/Extract.v` | Extraction to OCaml |
 | `cli/main.ml` | Command-line front end of the extracted core (S-expression protocol) |
 | `bridge/sql_bridge.py` | SQL text to algebra term and back (`Translation`), round-trip validation, the entry points `mutate_sql` and `mutate_value` |
-| `bridge/common.py` | The `Unsupported` exception, the S-expression reader, helpers on syntax trees |
+| `bridge/printer.py` | Term to SQL (`Printer`, a mixin of `Translation`) and the type probes |
+| `bridge/common.py` | The `Unsupported` exception, the S-expression reader, shared constants and helpers |
 | `bridge/collation_law.py` | Which queries and mutants are outside the model because of collations; storage classes of columns |
 | `bridge/determinism.py` | Constructs whose result SQL does not determine (rejected) |
 | `bridge/lineage.py` | The outer query over a derived value query (`VLineage.v`) |

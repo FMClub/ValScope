@@ -120,7 +120,7 @@ class Lineage:
                 continue
             tag = OUTER_AGGS.get(type(body))
             arg = self._plain(body.this) if tag and isinstance(body.this, exp.Expression) else None
-            if tag and arg is not None and len([v for v in body.args.values() if v]) == 1:
+            if tag and arg is not None and not [k for k, v in body.args.items() if v and k not in ('this', 'big_int')]:
                 items.append('(%s %d)' % (tag, arg))
             else:
                 items.append('(OOpaque %d (%s))' % (k, ' '.join(map(str, self._cols(body)))))

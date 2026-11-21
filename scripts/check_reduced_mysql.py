@@ -15,6 +15,7 @@ import types
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'bridge'))
 from run_on_db import MySQLTarget  # noqa: E402
 from checker import check_inclusion, check_value  # noqa: E402
+from sql_bridge import mutate_value  # noqa: E402
 
 
 def main():
@@ -57,7 +58,14 @@ def main():
         fold = target.folds(bc, target.last_collations)
         if ' col ' in a.expect:
             relation, _, column = a.expect.split()
-            v = check_value(relation, int(column), base, res, fold=fold, cover=original.upper().startswith('SELECT DISTINCT'))
+            # a cover (VDistinct.v) or a one-to-one correspondence: as the bridge decides
+            trs = []
+            try:
+                mutate_value(original, dialect='mysql', translation=trs, schema=target.schema, exact_columns=target.exact)
+                cover = bool(trs[0].cover_for(mutant))
+            except Exception:
+                cover = original.upper().startswith('SELECT DISTINCT')
+            v = check_value(relation, int(column), base, res, fold=fold, cover=cover)
         elif a.expect == 'Same':
             both = [check_inclusion(d, base, res, fold) for d in ('Up', 'Down')]
             v = 'ok' if all(x in ('ok', 'collation') for x in both) else 'translation mismatch'

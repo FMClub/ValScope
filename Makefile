@@ -26,12 +26,17 @@ check-abstract: cli
 	else echo "ok    OCaml code cannot build a rule (rule types are abstract)"; fi
 
 # End-to-end test: SQL text -> mutants -> SQL text (needs python3 with sqlglot).
-test: cli check-abstract
+test: cli check-abstract lint
 	python3 bridge/test_bridge.py
+
+# static check of the glue code (undefined names, unused imports); skipped without pyflakes
+lint:
+	@if python3 -m pyflakes --version >/dev/null 2>&1; then python3 -m pyflakes bridge/*.py scripts/*.py; \
+	 else echo "pyflakes not installed: lint skipped"; fi
 
 clean:
 	@if [ -f Makefile.coq ]; then $(MAKE) -f Makefile.coq cleanall; fi
 	rm -f Makefile.coq Makefile.coq.conf extracted/*.cm* extracted/*.o
 	rm -f cli/valscope_core.ml cli/valscope_core.mli cli/*.cm* cli/*.o cli/valscope_mutate
 
-.PHONY: all cli test clean check-abstract
+.PHONY: all cli test clean check-abstract lint

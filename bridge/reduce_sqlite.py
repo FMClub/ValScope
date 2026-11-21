@@ -40,7 +40,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from checker import check_inclusion, check_value, sqlite_fold  # noqa: E402
 from gen_sqlite_db import build as build_db  # noqa: E402
 from run_on_db import sqlite_exact_columns, sqlite_schema  # noqa: E402
-from sql_bridge import mutate_sql, mutate_value, Unsupported  # noqa: E402
+from sql_bridge import mutate_sql, mutate_value  # noqa: E402
 from sqlite_exec import SQLiteLib  # noqa: E402
 
 CLAUSES = ('where', 'group', 'having', 'order', 'limit', 'distinct')

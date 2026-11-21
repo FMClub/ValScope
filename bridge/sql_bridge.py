@@ -62,12 +62,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CLI = os.path.join(HERE, '..', 'cli', 'valscope_mutate')
 
 
-from common import CMP_SQL, SET_SQL, Unsupported, _quote, parse_sexp, _strip_parens  # noqa: F401
+from common import Unsupported, parse_sexp, _strip_parens
+from collation_law import ExactColumns, _alias_sources, _column_class, _exact_names, outside_collation_law
+from determinism import _check_deterministic, _window_undetermined
 from printer import Printer
-from collation_law import (ExactColumns, _alias_sources, _cached_parse, _column_class, _dedup_tree,  # noqa: F401
-                           _exact_names, _sensitive_tree, outside_collation_law)
-from determinism import (_bare_columns, _check_deterministic, _limit_undetermined,  # noqa: F401
-                         _order_dependent_undetermined, _window_undetermined)
+
+# the public names of the bridge (some are defined in the modules above)
+__all__ = ['DEFAULT_CLI', 'ExactColumns', 'STATS', 'Translation', 'Unsupported', 'canonical', 'mutate_sql',
+           'mutate_value', 'mutate_value_sql', 'outside_collation_law', 'parse_sexp', 'sqlite_collation_sources']
 
 
 CMP = {exp.EQ: 'eq', exp.NEQ: 'ne', exp.LT: 'lt', exp.LTE: 'le', exp.GT: 'gt', exp.GTE: 'ge'}

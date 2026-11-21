@@ -144,3 +144,31 @@ and the plan change as `plan_change`; README, `results/`, issue 004 renumbered.
    introducing commit of bug 1 (`9ed1dfa`, itself an optimisation). The introducing
    commits of all bugs could be re-checked with optimisations off.
 3. (from round 5) A newest-release SQLite build in CI for `replay --latest`.
+
+## Round 7 (2026-11-21)
+
+**Milestone.** CI checks the SQLite results against the newest release: it builds 3.54.1
+from source (`bisect_sqlite.py --build`), replays the 64 reduced pairs on their releases
+(violated) and on 3.54.1 (consistent), and the CI campaign uses it as the reference.
+
+**Done.**
+- A flaky CI step found and fixed: reducing the translation mismatch of issue 010 failed
+  once ("the pair is not violated on this server"). The pair depends on the plan, and the
+  scratch copy of the tables had no statistics until InnoDB recomputed them in the
+  background. `reduce_mysql.py` and `check_reduced_mysql.py` now run `ANALYZE TABLE` on
+  their copies.
+
+**Tried and withdrawn.** Skipping value mutants of non-numeric items on MySQL-protocol
+servers (TODO of round 5): it removed 523 `incomparable` verdicts but also 268 passed
+checks. A value mutant of a date or text item is still checked for the row count and for
+the other columns before its column is found incomparable, so running it is not wasted.
+Reverted; a comment in `checker._non_numeric` says why.
+
+**Not pursued.** Re-checking every introducing commit with optimisations off (round 6):
+the grouping into bugs does not depend on it.
+
+**TODO for round 8.**
+1. MariaDB / MySQL campaigns have only run the fixed demo seeds. A seeded campaign over
+   random databases, as on SQLite, does not exist for MySQL-protocol servers.
+2. `scripts/demo.sh` is the only end-to-end entry point and mixes build, tests and runs.
+3. Upstream reports for the MariaDB / MySQL candidates remain undone (no tracker access).

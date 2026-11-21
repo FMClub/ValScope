@@ -49,6 +49,9 @@ def main():
         if st.upper().startswith('INSERT INTO'):
             t = st.split('`')[1]
             rows[t] = rows.get(t, 0) + 1
+    for t in rows:
+        cur.execute('ANALYZE TABLE `%s`' % t)       # statistics now: the pair can depend on the plan
+        cur.fetchall()
     try:
         target = MySQLTarget(types.SimpleNamespace(host=a.host, port=a.port, user=a.user, password=a.password,
                                                    database='vs_check'))

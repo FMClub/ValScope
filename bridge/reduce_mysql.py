@@ -156,6 +156,10 @@ def main():
     for t in tables:
         cur.execute('CREATE TABLE %s.`%s` LIKE `%s`.`%s`' % (SCRATCH, t, args.database, t))
         cur.execute('INSERT INTO %s.`%s` SELECT * FROM `%s`.`%s`' % (SCRATCH, t, args.database, t))
+        # statistics now, not whenever the server recomputes them: a plan-dependent pair
+        # (issues/010) must show on the copy as it does on the database
+        cur.execute('ANALYZE TABLE %s.`%s`' % (SCRATCH, t))
+        cur.fetchall()
     try:
         target = MySQLTarget(types.SimpleNamespace(host=args.host, port=args.port, user=args.user,
                                                    password=args.password, database=SCRATCH))

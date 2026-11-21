@@ -57,3 +57,16 @@ SELECT DISTINCT (t1a.c4 + 3) AS k0, (MAX(t1a.c1) * 2) AS k1, AVG((t1a.c4 - 500))
 ```
 
 In the mutant every row has `k2 = -415`, the value of the last group.
+
+## Another query of the same shape
+
+`gen_fragment.py --value 200 2` gives a second pair: an expression over the grouping key
+(the mutant's `t3a.c7 + 3`), an expression over another aggregate (`SIGN(COUNT(...))`) and
+`AVG`, under `SELECT DISTINCT ... GROUP BY ... HAVING ...`:
+
+```sql
+SELECT DISTINCT t3a.c7 AS k0, COUNT(t3a.c2) AS k1, AVG(t3a.c2) AS k2, SIGN(COUNT((t3a.c9 % 3))) AS k3
+FROM t3 AS t3a GROUP BY t3a.c7 HAVING ...
+```
+
+`bridge/reduce_mysql.py` reduces the first pair to 2 rows of `t1`.

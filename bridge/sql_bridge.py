@@ -1982,7 +1982,7 @@ def sqlite_collation_sources(sql):
             if not all(isinstance(a, exp.Select) for a in acc):
                 out.add(('?',))
                 continue
-            width = len(acc[0].expressions)
+            width = max(len(a.expressions) for a in acc)     # an arm can be * over a derived table
             src = []
             for i in range(width):
                 pick = next((r for r in (resolve(a, i) for a in acc) if r is not None), None)

@@ -1,6 +1,6 @@
 -- pair 25, seed 240, rule UNION->UNION-ALL: the mutant must return a super-bag of the rows of the original
 -- (SQLite 3.26.0; checked modulo the collations of the columns)
-CREATE TABLE t1 (c1 TEXT COLLATE NOCASE, c4 INTEGER, rid INTEGER PRIMARY KEY) WITHOUT ROWID;
+CREATE TABLE t1 (c1 TEXT COLLATE NOCASE, c4 INTEGER, rid INTEGER PRIMARY KEY);
 INSERT INTO t1 VALUES ('a', 3, 0);
 INSERT INTO t1 VALUES ('A', 3, 8);
 CREATE TABLE t2 (c1 INTEGER, c2 INTEGER, c3 TEXT, c14 REAL, c15 INTEGER);

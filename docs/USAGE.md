@@ -414,6 +414,26 @@ for seed in $(seq 1 20); do python3 bridge/gen_fragment.py 300 $seed > q_$seed.s
 for seed in $(seq 101 120); do python3 bridge/gen_fragment.py --value 300 $seed > v_$seed.sql; python3 bridge/run_on_db.py v_$seed.sql --value --port 3306 --password 123456 --database test --out violations.jsonl | tail -n 3; done
 ```
 
+### 6.7 Reduce a violation found on a server
+
+```bash
+python3 bridge/reduce_mysql.py out/violations.jsonl --pair 1 --host 127.0.0.1 --port 3306 --user root --password 123456 --database test
+```
+
+The pair (a line of `--out`, or `--key KEY` with a key of `scripts/check_violations.py`) is
+reduced like an SQLite pair (section 8.5): the query step by step, re-running the verified
+mutator, then the data, deleting rows one by one in a copy of the tables (database
+`vs_reduce`, dropped at the end). It prints a script: `CREATE TABLE` and `INSERT`
+statements for the remaining rows, the original and the mutant.
+
+### 6.8 Known violations in CI
+
+`scripts/check_violations.py out/violations.jsonl data/ci-baseline/mariadb.txt` fails when a
+run reports a violation that is not listed (key: rule and a hash of the two queries); CI
+runs it after every end-to-end run. A new violation is either a DBMS bug to record in
+`issues/` (then its key goes into the baseline) or a false alarm of the tool to fix.
+`scripts/check_violations.py --keys FILE` prints the keys of a run.
+
 ## 7. Test an SQLite database file
 
 Any SQLite file can be tested, with the SQLite that Python ships or with any SQLite
@@ -452,7 +472,7 @@ there are any (`non_numeric_input`): SQLite's `AVG` converts text to numbers whi
 The campaign builds random databases, runs random queries and their mutants on several
 SQLite releases, and re-checks each violation on the newest SQLite. A violation on an old
 release that disappears on the newest one is a bug the newer release fixed; this is how the
-43 confirmed pairs in `results/sqlite-campaign.md` were found.
+42 confirmed pairs in `results/sqlite-campaign.md` were found.
 
 ### 8.1 Build old SQLite releases
 
@@ -564,6 +584,13 @@ original pair under `reduced_from`.
   `bisect_sqlite.py`): a step is kept only if the relation still HOLDS there. Without it,
   a reduction can drift from the bug of the pair (fixed since) to some other behaviour that
   the newest release shares; with it, the reduced pair shows the same fixed bug.
+- `--boundaries ORIGINAL.jsonl --src SQLITE_GIT_CLONE`: the bisection of the original pairs
+  (`bisect_sqlite.py --introduced --out`). A step is kept only if the pair stays violated
+  on the last bad commit and on the introducing commit, and not violated on the fixing
+  commit and on the last good commit, on the same database. So the reduced pair shows the
+  same bug, which `--latest` alone does not guarantee (the fixing commit could change).
+- Value and HAVING pairs (`kind` `value` / `having`) are reduced too, with the same
+  relation and column, and the cover check for DISTINCT value queries.
 - `--sql DIR`: the database is reduced as well (rows, indexes and `ANALYZE` are removed,
   first in chunks, then one by one, while the reduced pair stays violated), and
   `DIR/pair-N.sql` is a self-contained reproduction: the statements, then the original and
@@ -700,6 +727,11 @@ Then `ok checks per rule` and the most frequent database errors.
     trailing spaces). For an expression column, or with a library without the API, the
     coarsest collation of the database is used; that can miss a real case difference in
     such a column, but never reports a false one.
+  - compounds: a compound column gets the coarsest collation of its arms (SQLite: each arm
+    prepared on its own; MariaDB / MySQL: each arm run with `LIMIT 0`, cached), because an
+    arm can de-duplicate under a coarser collation than the one the server reports for the
+    whole compound; a compound nested in a derived table or a CTE is compared with the
+    coarsest collation of the database.
 - `violation` (set rules): the mutant misses a row the relation requires (`Up`), or
   returns a row the original does not have (`Down`), even modulo the collation.
 - Value rules: `row count a vs b`, `other columns changed`, `NULL-ness changed`, or
@@ -708,6 +740,16 @@ Then `ok checks per rule` and the most frequent database errors.
   and satisfy the relation in it. The checker searches for such a correspondence
   (bipartite matching within each group of rows that agree outside the column) and reports
   a violation only when none exists.
+- Value rules on `SELECT DISTINCT` (or a `UNION` of value queries): after DISTINCT the rows
+  no longer correspond one to one. The theorem (`VDistinct.v`, `tmutate_distinct_sound`)
+  states a cover in both directions: every row of each result agrees outside the mutated
+  column with a row of the other result and satisfies the relation with it. The checker
+  checks exactly that.
+- What is rejected before any check, and why (determinism, the collation law): README,
+  "How the bridge fails closed". The collation law looks at the data of the database
+  under test: an operation that reads only columns whose equivalent values are identical
+  (SQLite: no mix of integers and reals, no `-0.0`, text only under `BINARY`; MySQL:
+  integer columns), followed through derived tables and CTEs, is not rejected.
 
 ### 10.3 Triage a violation
 

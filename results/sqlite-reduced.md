@@ -1,19 +1,18 @@
 # Reduced SQLite violations
 
-`python3 bridge/reduce_sqlite.py results/sqlite-confirmed.jsonl --lib 3.26.0=LIB ... --latest LIB-3.54.1 --out reduced.jsonl --sql repro`
+`python3 bridge/reduce_sqlite.py results/sqlite-confirmed.jsonl --lib 3.26.0=LIB ... --latest LIB-3.54.1 --boundaries results/sqlite-bisect-original.jsonl --src sqlite-src --out reduced.jsonl --sql repro`
 
-Each confirmed pair is reduced greedily: the query (replace a compound by an arm, an AND /
-OR by an operand, drop a clause, a join or a column, replace a comparison by 1 or 0), then
-the database (rows, indexes and ANALYZE removed). After every query step the verified
-mutator runs again on the smaller query, and a step is kept only if a mutant of the same
-rule still violates the relation on the reporting release AND the relation holds on
-3.54.1 (`--latest`), so the reduced pair still shows the bug of the pair, fixed since.
-The theorem of the rule applies to every reduced pair.
+Each confirmed pair is reduced greedily, query then database. After every query step the
+verified mutator runs again, so every reduced pair is a pair the engine produced and the
+theorem of its rule applies. A step is kept only if the pair keeps its verdict on every
+witness: violated on the reporting release, on the last bad commit and on the introducing
+commit of its bug, and not violated on the fixing commit, on the last good commit and on
+3.54.1 (`--boundaries`, `--latest`). So a reduced pair shows the same bug as its pair.
 
-42 of the 43 pairs are reduced: queries from 452 to 122 characters on average (80 to 202),
-databases from 33 to 6 statements (5 to 20). Pair 40 is not reduced: the collation-law
-check rejects its query (it applies `||` to text columns above a de-duplication). Each
-reduced pair is a self-contained script in `results/sqlite-repro/pair-N.sql`.
+All 42 pairs are reduced: queries from 460 to 123 characters on average (80 to 202),
+databases from 33 to 6 statements (5 to 14); 41 of the 42 databases no longer need
+`WITHOUT ROWID`. Each reduced pair is a self-contained script in
+`results/sqlite-repro/pair-N.sql`.
 
 -- pair 1 (UNION->UNION-ALL, expected Up): 365 -> 156 characters
     original: SELECT t2b.c2 AS k0 FROM t2 AS t2a LEFT JOIN t2 AS t2b ON (0) UNION ALL SELECT DISTINCT t1a.c1 AS k0 FROM t1 AS t1a UNION SELECT t1a.c4 AS k0 FROM t1 AS t1a
@@ -152,8 +151,8 @@ reduced pair is a self-contained script in `results/sqlite-repro/pair-N.sql`.
 
 -- pair 28 (DISTINCT-add, expected Down): 158 -> 104 characters
     original: SELECT t1b.c1 AS k0 FROM t3 AS t3a INNER JOIN t1 AS t1b ON t3a.c6 IN (SELECT t2i75.c14 FROM t2 AS t2i75)
-    mutant  : SELECT DISTINCT t1b.c1 AS k0 FROM t3 AS t3a INNER JOIN t1 AS t1b ON t3a.c6 IN (SELECT t2i75.c14 FROM t2 AS t2i75)
-    rows    : 5 / 6
+    mutant  : SELECT t1b.c1 AS k0 FROM t3 AS t3a INNER JOIN t1 AS t1b ON t3a.c6 IN (SELECT t2i75.c14 FROM t2 AS t2i75) GROUP BY t3a.c1, t3a.c2, t3a.c3, t3a.c6, t3a.c7, t3a.c8, t3a.c9, t3a.rid, t1b.c1, t1b.c4
+    rows    : 5 / 40
 
 -- pair 29 (LEFT->INNER-JOIN, expected Down): 329 -> 174 characters
     original: SELECT ABS(t1a.c4) AS k1 FROM (SELECT x.c4 AS c4 FROM t1 AS x WHERE (x.c4 = 3) AND (x.c1 IS NULL)) AS t1a LEFT JOIN (SELECT x.c1 AS c1 FROM t1 AS x) AS t1b ON t1a.c4 = t1a.c4
@@ -200,27 +199,27 @@ reduced pair is a self-contained script in `results/sqlite-repro/pair-N.sql`.
     mutant  : SELECT t1a.c4 AS k0 FROM t1 AS t1a UNION ALL SELECT DISTINCT t2b.c15 AS k0 FROM t3 AS t3a INNER JOIN t2 AS t2b ON (t2b.c15 IS NOT t3a.c9)
     rows    : 7 / 9
 
--- pair 38 (DISTINCT-add, expected Down): 513 -> 163 characters
-    original: SELECT DISTINCT COALESCE(t1a.c1, 0) AS k0 FROM t1 AS t1a WHERE (0) UNION ALL SELECT DISTINCT t1a.c1 AS k0 FROM t1 AS t1a EXCEPT SELECT t2a.c15 AS k0 FROM t2 AS t2a
-    mutant  : SELECT DISTINCT * FROM (SELECT DISTINCT COALESCE(t1a.c1, 0) AS k0 FROM t1 AS t1a WHERE (0)) AS vs_d3 UNION ALL SELECT DISTINCT t1a.c1 AS k0 FROM t1 AS t1a EXCEPT SELECT t2a.c15 AS k0 FROM t2 AS t2a
-    rows    : 6 / 7
-
--- pair 39 (UNION->UNION-ALL, expected Up): 750 -> 84 characters
-    original: SELECT t1a.c4 AS k2 FROM t1 AS t1a UNION SELECT DISTINCT t3a.c7 AS k2 FROM t3 AS t3a
-    mutant  : SELECT t1a.c4 AS k2 FROM t1 AS t1a UNION ALL SELECT DISTINCT t3a.c7 AS k2 FROM t3 AS t3a
+-- pair 38 (UNION->UNION-ALL, expected Up): 750 -> 176 characters
+    original: SELECT t1a.c4 AS k2 FROM t1 AS t1a UNION SELECT DISTINCT t3a.c7 AS k2 FROM t3 AS t3a CROSS JOIN (SELECT x.c1 AS c1 FROM t2 AS x UNION ALL SELECT x.c1 AS c1 FROM t2 AS x) AS t2b
+    mutant  : SELECT t1a.c4 AS k2 FROM t1 AS t1a UNION ALL SELECT DISTINCT t3a.c7 AS k2 FROM t3 AS t3a CROSS JOIN (SELECT x.c1 AS c1 FROM t2 AS x UNION ALL SELECT x.c1 AS c1 FROM t2 AS x) AS t2b
     rows    : 14 / 15
 
--- pair 41 (EXCEPT->left, expected Up): 530 -> 202 characters
+-- pair 39 (DISTINCT-add, expected Down): 850 -> 134 characters
+    original: SELECT t3b.c3 || '' AS k1 FROM t1 AS t1a INNER JOIN (SELECT x.c3 AS c3, x.c7 AS c7 FROM t3 AS x) AS t3b ON (1) WHERE (t3b.c7 IS NOT 5)
+    mutant  : SELECT t3b.c3 || '' AS k1 FROM t1 AS t1a INNER JOIN (SELECT x.c3 AS c3, x.c7 AS c7 FROM (SELECT DISTINCT * FROM t3 AS x) AS x) AS t3b ON (1) WHERE (t3b.c7 IS NOT 5)
+    rows    : 60 / 90
+
+-- pair 40 (EXCEPT->left, expected Up): 530 -> 202 characters
     original: SELECT t2a.c3 AS k1, t2a.c3 AS k2 FROM t2 AS t2a UNION ALL SELECT DISTINCT t1a.c4 AS k1, t1a.c4 AS k2 FROM (SELECT x.c4 AS c4 FROM t1 AS x) AS t1a EXCEPT SELECT t1a.c1 AS k1, t1a.c4 AS k2 FROM t1 AS t1a
     mutant  : SELECT t2a.c3 AS k1, t2a.c3 AS k2 FROM t2 AS t2a UNION ALL SELECT DISTINCT t1a.c4 AS k1, t1a.c4 AS k2 FROM (SELECT x.c4 AS c4 FROM t1 AS x) AS t1a
     rows    : 12 / 17
 
--- pair 42 (UNION->UNION-ALL, expected Up): 388 -> 112 characters
+-- pair 41 (UNION->UNION-ALL, expected Up): 388 -> 112 characters
     original: SELECT t1a.c4 AS k2 FROM t1 AS t1a UNION SELECT DISTINCT t3b.c1 AS k2 FROM t1 AS t1a INNER JOIN t3 AS t3b ON (1)
     mutant  : SELECT t1a.c4 AS k2 FROM t1 AS t1a UNION ALL SELECT DISTINCT t3b.c1 AS k2 FROM t1 AS t1a INNER JOIN t3 AS t3b ON (1)
     rows    : 12 / 18
 
--- pair 43 (UNION-ALL->UNION, expected Down): 543 -> 89 characters
+-- pair 42 (UNION-ALL->UNION, expected Down): 543 -> 89 characters
     original: SELECT t2a.c2 AS k1 FROM t2 AS t2a UNION ALL SELECT DISTINCT t2a.c14 AS k1 FROM t2 AS t2a
     mutant  : SELECT t2a.c2 AS k1 FROM t2 AS t2a UNION SELECT DISTINCT t2a.c14 AS k1 FROM t2 AS t2a
     rows    : 16 / 14

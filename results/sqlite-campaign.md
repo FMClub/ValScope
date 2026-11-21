@@ -13,14 +13,14 @@ Every violation was then re-checked from scratch by `bridge/confirm_sqlite.py`.
 
 ## Result
 
-**43 distinct (original, mutant) query pairs violate the relation that the rule's theorem
-guarantees; they come from 7 distinct SQLite bugs** (`results/sqlite-bisect.md`: each pair
+**42 distinct (original, mutant) query pairs violate the relation that the rule's theorem
+guarantees; they come from 5 distinct SQLite bugs** (`results/sqlite-bisect.md`: each pair
 is mapped to the commit that introduced and the commit that fixed it, and pairs with the
 same commits are one bug). 37 pairs were found by the first campaign, 5 by a second
 campaign run after the model was extended (strings, decimals, collations, opaque atoms), 2
 by a third run after the audit fixes and 2 by the comparison of generator settings in the
-fifth round; 1 pair was withdrawn in the fifth round and 2 in the sixth (see "Withdrawn").
-All 43 are confirmed:
+fifth round; 1 pair was withdrawn in the fifth round and 3 in the sixth (see "Withdrawn"
+and the sixth round below). All 42 are confirmed:
 
 - the database of the seed was rebuilt by each SQLite library and both queries were run
   again;
@@ -203,7 +203,7 @@ L=/tmp/sqlite-libs; python3 bridge/confirm_sqlite.py results/sqlite-confirmed.js
 
 `results/sqlite-confirmed.md` is the output of the last command. For every pair it has the
 queries, the first rows of both results and the verdict on each version.
-`results/sqlite-confirmed.jsonl` holds the 43 pairs as data; `results/sqlite-withdrawn.jsonl`
+`results/sqlite-confirmed.jsonl` holds the 42 pairs as data; `results/sqlite-withdrawn.jsonl`
 the withdrawn ones with the reasons. `results/sqlite-reduced.md` has the pairs reduced by
 `bridge/reduce_sqlite.py`, and `results/sqlite-bisect.md` the commits of each bug.
 
@@ -213,24 +213,27 @@ the withdrawn ones with the reasons. `results/sqlite-reduced.md` has the pairs r
   The bisection (sixth round) builds SQLite from its git history on GitHub instead.
 - "Confirmed" means inconsistent on the old version and consistent on 3.53.1. It does not
   prove which of the two results on the old version is the wrong one.
-- The 43 pairs come from 7 bugs, identified by their introducing and fixing commits (6 if
-  the approximation for bug 1 is accepted); three fixes name an SQLite ticket. An
-  introducing commit can be a plan change that exposes older code (bug 5).
+- The 42 pairs come from 5 bugs, identified by their introducing and fixing commits; three
+  fixes name an SQLite ticket. A fixing commit can be a plan change that hides the symptom
+  (bug 5).
 
-## Sixth round: commits, reduction, two withdrawals
+## Sixth round: commits, reduction, three withdrawals
 
-- `bridge/reduce_sqlite.py` reduced 42 of the 43 pairs, query and database (452 -> 122
-  characters, 33 -> 6 statements), while the verified mutator still produces a violating
-  mutant of the same rule and the relation holds on 3.54.1 (`results/sqlite-reduced.md`,
-  scripts in `results/sqlite-repro/`).
-- `bridge/bisect_sqlite.py` built SQLite at about 200 commits of its history and mapped
-  every reduced pair to the commit that fixed it and, where an older release is good on
-  the same database, the commit that introduced it: 7 distinct bugs
-  (`results/sqlite-bisect.md`).
+- `bridge/bisect_sqlite.py` mapped every pair to the commit that fixed it and, where an
+  older release is good on the same database, the commit that introduced it.
+- `bridge/reduce_sqlite.py --boundaries` reduced all 42 pairs, query and database (460 -> 123
+  characters, 33 -> 6 statements), keeping each pair's verdicts on the commits around its
+  fix and its introduction, so a reduced pair shows the same bug (`results/sqlite-reduced.md`,
+  scripts in `results/sqlite-repro/`). Bisected again, the reduced pairs give the same
+  commits, and the introducing commits the full databases could not reach (they needed
+  `WITHOUT ROWID`): 5 distinct bugs (`results/sqlite-bisect.md`).
+- Pair 38 of the previous numbering was withdrawn: its mutant wraps the leftmost arm of a
+  compound, whose column is `COALESCE(...)` without a collation, in a derived table, which
+  changes the collation the compound compares with (issues/007).
 - Two pairs (former numbers 42 and 43, seed 2009) were withdrawn. The bisection found them
   still "violated" on every release up to 3.54.1. The difference is only which of `'A'` /
   `'a'` a `DISTINCT` over a `NOCASE` column keeps, in the third arm of a `UNION ALL`;
   SQLite's column metadata describes the leftmost arm only (`BINARY`), so the checker
   compared that column exactly. The checker now combines the collations of all arms of a
   compound and does not use the metadata when a compound is nested in a derived table; with
-  it, both pairs hold on every release and the other 43 stay confirmed.
+  it, both pairs hold on every release and the others stay confirmed.

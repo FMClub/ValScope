@@ -1,6 +1,6 @@
 -- pair 27, seed 663, rule cond->TRUE: the mutant must return a super-bag of the rows of the original
 -- (SQLite 3.34.0; checked modulo the collations of the columns)
-CREATE TABLE t1 (c1 , c4 TEXT COLLATE NOCASE, rid INTEGER PRIMARY KEY) WITHOUT ROWID;
+CREATE TABLE t1 (c1 , c4 TEXT COLLATE NOCASE, rid INTEGER PRIMARY KEY);
 CREATE TABLE t2 (c1 REAL, c2 INTEGER, c3 INTEGER, c14 , c15 );
 INSERT INTO t2 VALUES (7.5, 5, 4, 4, NULL);
 INSERT INTO t2 VALUES (NULL, 7, 5, '2', NULL);

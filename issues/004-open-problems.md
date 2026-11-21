@@ -156,25 +156,21 @@ fixes of PR #1 are merged; the design problems below are still open.
    its left operand that are not in its right operand (the same INTERSECT at the top level
    is correct).
 2. **MariaDB `GROUP BY` on DOUBLE**: plan-dependent number of groups; not analysed.
-3. **SQLite: 43 confirmed violations from 7 distinct bugs (3 withdrawn).** 37 pairs from
+3. **SQLite: 42 confirmed violations from 5 distinct bugs (4 withdrawn).** 37 pairs from
    the first campaign, 5 from a second campaign with the extended model, 2 from a third run
    after the audit fixes and 2 from the fifth round, minus 1 pair withdrawn in the fifth
-   round and 2 in the sixth (`results/sqlite-campaign.md`). Solved in the sixth round:
+   round and 3 in the sixth (`results/sqlite-campaign.md`). Solved in the sixth round:
    - every pair is mapped to the SQLite commits that introduced and fixed it
      (`bridge/bisect_sqlite.py`, `results/sqlite-bisect.md`); pairs with the same commits
      are one bug. Three of the fixing commits name an SQLite ticket
      (`1dcb4d44964846ad`, `ee51301f316c09e9`, `8025674847`);
-   - 42 pairs are reduced, query and database (`bridge/reduce_sqlite.py --latest --sql`,
-     `results/sqlite-reduced.md`, `results/sqlite-repro/`), and the bisection runs on the
-     reduced pairs, on the same database as on the reporting release.
+   - all 42 pairs are reduced, query and database, keeping their verdicts on the commits
+     around the fix and the introduction (`bridge/reduce_sqlite.py --boundaries`); the
+     reduced pairs give the same commits and every introducing commit (the reduced
+     databases no longer need `WITHOUT ROWID`).
    Open:
-   - bug 1 (22 pairs) needs `WITHOUT ROWID`, so releases before 3.8.2 cannot judge it;
-     without `WITHOUT ROWID` (an approximation) its introducing commit is that of bug 2;
-     bugs 1, 2 and 7 share one fixing commit (a rewrite of compound operators); bug 5's
-     introducing commit only changes plan weights;
-   - pair 40 is rejected by the collation-law check (`||` on text columns above a
-     de-duplication), so it cannot be reduced; the check now looks at the data (columns of
-     one storage class) and at subqueries, which made pair 37 reducible;
+   - bug 5's fixing commit is a plan change (UNION ALL flattening), which may only hide the
+     defect of bug 1, with which it shares the introducing commit;
    - the second campaign also saw 4 translation mismatches on the old releases only
      (`CROSS JOIN` versus `INNER JOIN ... ON 1 = 1`), not counted and not analysed.
 4. **Value-semantic and HAVING mutators found nothing on SQLite**; whether the value side

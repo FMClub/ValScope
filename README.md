@@ -44,7 +44,7 @@ database `test` from `data/mariadb/`. Logs and violations are written to `out/`.
 | `scripts/` | `setup_mariadb.sh` (set up the sample database), `demo.sh` (end-to-end run) |
 | `data/` | Sample MariaDB database and 870 queries produced by the original Python generator |
 | `docs/` | `USAGE.md`: the step-by-step guide |
-| `results/` | The SQLite campaign: 43 confirmed violations from 7 bugs (3 withdrawn), reduced pairs, commits |
+| `results/` | The SQLite campaign: 42 confirmed violations from 5 bugs (4 withdrawn), reduced pairs, commits |
 | `issues/` | Problem reports and candidate DBMS bugs |
 
 The idea: **a mutation rule is a theorem**. Once the theorem is proved, a generic,
@@ -353,10 +353,15 @@ all checks of the current version (round trip, collation law, per-column collati
 
 | Run | Queries | Supported | Checks passed | Violations |
 | --- | --- | --- | --- | --- |
-| Set-semantic, Python generator queries (`data/python-generator-queries.sql`) | 870 | 302 | 4110 | 2 (the `BIT` candidate, `issues/005`) |
-| Set-semantic, `gen_fragment.py 200 1` (`scripts/demo.sh mariadb`) | 200 | 200 | 7841 | 0 |
-| Value-semantic and HAVING, `gen_fragment.py --value 200 2` | 200 | 183 | 2516 | 0 |
-| Set-semantic with `INTERSECT ALL`, `EXCEPT ALL`, row `IN`, `gen_fragment.py 300 21` | 300 | 300 | 10233 | 0 |
+| Set-semantic, Python generator queries (`data/python-generator-queries.sql`) | 870 | 304 | 3863 | 2 (`BIT` candidates, `issues/005`, `issues/006`) |
+| Value-semantic and HAVING, Python generator queries | 870 | 195 | 1903 | 0 |
+| Set-semantic, `gen_fragment.py 200 1` (`scripts/demo.sh mariadb`) | 200 | 200 | 7718 | 0 |
+| Value-semantic and HAVING, `gen_fragment.py --value 200 2` (with DISTINCT / UNION value queries) | 200 | 181 | 2697 | 4 (2 pairs, the `AVG` candidate, `issues/009`) |
+| Set-semantic with `INTERSECT ALL`, `EXCEPT ALL`, row `IN`, `gen_fragment.py 300 21` | 300 | 300 | 10082 | 0 |
+
+(Measured in the sixth round; the set checks went down a little because more mutants are
+recognised as outside the model, the value checks up because of DISTINCT value queries
+and window functions.)
 
 How the audit fixes changed the numbers on the same inputs:
 
@@ -365,13 +370,13 @@ How the audit fixes changed the numbers on the same inputs:
 | Set mutants skipped because the result types differed (Python queries) | 247 | 2 |
 | Set mutants that MariaDB rejected (out-of-scope correlation, 200 generated queries) | 108 | 0 |
 | Set mutants that could not be printed (200 generated queries) | 480 | 91 |
-| Python generator queries usable by the value rules | 69 | 138 |
+| Python generator queries usable by the value rules | 69 | 280 (sixth round; 138 in the fifth) |
 | Translation mismatches (MariaDB / SQLite campaign) | 1 / 4 | 0 / 0 |
 
 - Negative controls (`--flip`) report violations by the hundred on every run (for example
-  772 on the 200 generated set queries).
+  759 on the 200 generated set queries).
 - Of the queries of the original Python generator, 307 of 870 are translated for the set
-  rules and 138 for the value rules. The rest use `LIMIT` whose kept rows are not
+  rules and 280 for the value rules. The rest use `LIMIT` whose kept rows are not
   determined (113), `SELECT DISTINCT` with aggregates, window functions and similar.
 - **Candidate MariaDB bug** (set-semantic, Python generator queries): a `BIT(8)` value
   produced by `MIN` / `MAX` without `GROUP BY`, or by a scalar subquery, is sent as decimal
@@ -384,6 +389,9 @@ How the audit fixes changed the numbers on the same inputs:
   group-by") returns `255` instead of its value when the result goes through a derived table
   and a `UNION ALL` with a string. Minimal case and plan in
   `issues/006-mariadb-bit-subquery-loose-scan.md`.
+- **Candidate MariaDB bug** (`issues/009-mariadb-distinct-avg-last-group.md`, found by the
+  DISTINCT value queries of the sixth round): `SELECT DISTINCT g + 0, MAX(x) * 2, AVG(g)
+  FROM t GROUP BY g` returns the `AVG` of the last group on every row.
 - **Candidate MySQL bug** (`issues/008-mysql-intersect-derived-table.md`, MySQL 8.4.13, CI):
   `A INTERSECT ALL (B UNION ALL C)` is empty, but as a derived table (with or without
   DISTINCT, with INTERSECT or INTERSECT ALL) it returns 4 rows of `A` that are not in
@@ -437,7 +445,9 @@ in which the term means what the SQL text means.
   are opaque predicates; select items that are not analysed are opaque items.
 - **Rejected, not approximated:** `LIMIT` at the top or without `ORDER BY` in a subquery,
   aggregates and window functions in set-semantic select lists, `HAVING` without
-  aggregation, window functions in value queries, `FULL` / `USING` / `NATURAL` joins, a
+  aggregation, window functions in set queries and in grouped value queries, window
+  functions that can tell identical rows apart (`ROW_NUMBER`, `LAG`, `NTILE`, `ROWS`
+  frames, ...), `FULL` / `USING` / `NATURAL` joins, a
   `RIGHT JOIN` after another join or with `SELECT *` (a first `RIGHT JOIN` is translated as
   the swapped `LEFT JOIN`), recursive CTEs, table functions with column
   arguments, non-aggregated select items that are not grouping keys (at every level, also
@@ -490,12 +500,12 @@ in which the term means what the SQL text means.
 ## Results on SQLite
 
 Run on four old SQLite releases (3.26.0, 3.30.1, 3.31.1, 3.34.0), the verified mutators found
-**43 distinct query pairs** whose results violate the relation guaranteed by the rule's
+**42 distinct query pairs** whose results violate the relation guaranteed by the rule's
 theorem. Each one reproduces from scratch and is consistent on SQLite 3.53.1. Bisection on
-SQLite's source history maps them to **7 distinct bugs** (pairs with the same introducing
-and fixing commits are one bug; three of the fixing commits name an SQLite ticket), and 42
-of the pairs are reduced, query and database, while the verified mutator still produces
-them (self-contained scripts in `results/sqlite-repro/`). Details and how to reproduce:
+SQLite's source history maps them to **5 distinct bugs** (pairs with the same introducing
+and fixing commits are one bug; three of the fixing commits name an SQLite ticket). Every
+pair is reduced, query and database, keeping its verdicts on the commits that introduced
+and fixed its bug (self-contained scripts in `results/sqlite-repro/`). Details and how to reproduce:
 [`results/sqlite-campaign.md`](results/sqlite-campaign.md),
 [`results/sqlite-bisect.md`](results/sqlite-bisect.md),
 [`results/sqlite-reduced.md`](results/sqlite-reduced.md).
@@ -508,8 +518,10 @@ them (self-contained scripts in `results/sqlite-repro/`). Details and how to rep
   are supported since the sixth round with a weaker check: after DISTINCT the rows no
   longer correspond one to one, and the theorem (`VDistinct.v`) states a cover in both
   directions (every row of each result is related to a row of the other).
-- Window functions are rejected, and `IN` with a value list stays an opaque predicate.
-- Some set-semantic mutants cannot be printed as SQL and are dropped (91 of about 9000 on
+- Window functions are accepted only as opaque items of value queries without aggregation,
+  and only those whose value is the same for identical rows (`RANK`, aggregates over the
+  default frame, ...); `IN` with a value list stays an opaque predicate.
+- Some set-semantic mutants cannot be printed as SQL and are dropped (84 of about 7800 on
   200 generated queries): `DISTINCT` around a join that is itself an operand of another
   join (a derived table would need renamed columns), and `DISTINCT` around a join of
   derived tables. `DISTINCT` around a join of base tables needs the schema (the runners

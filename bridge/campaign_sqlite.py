@@ -60,7 +60,9 @@ def verdict_for(kind, mutant, base, res, fold=None, cover=False):
     under DISTINCT (or a UNION), the check is a cover (VDistinct.v)."""
     if kind == 'value':
         relation, rule, column, _ = mutant
-        return check_value(relation, column, base, res, fold=fold, cover=cover), '%s col %d' % (relation, column)
+        # (the numeric probe passed: a non-number on one side only is a violation)
+        return (check_value(relation, column, base, res, fold=fold, cover=cover, strict_types=True),
+                '%s col %d' % (relation, column))
     direction = mutant[0]
     return check_inclusion(direction, base, res, fold), direction
 

@@ -405,9 +405,15 @@ def _key(row, column, fold, digits):
     return tuple(_norm(v, f, digits) for i, (v, f) in enumerate(zip(row, folds)) if i != column)
 
 
-def check_value(relation, column, original_rows, mutant_rows, single_precision=False, fold=None, cover=False):
+def check_value(relation, column, original_rows, mutant_rows, single_precision=False, fold=None, cover=False,
+                strict_types=False):
     """'ok', 'incomparable' (the mutated column is not numeric in one of the results)
     or a string describing the violation.
+
+    strict_types: the inputs of the query are known to be numeric (SQLite: the numeric
+    probe of the bridge returned 0), so the mutated column is a number in both results.
+    Text in one result only is then a violation ('type changed'), not 'incomparable':
+    SQLite converted a value on the way (results/sqlite-bisect.md, bug 6).
 
     The other columns are compared exactly, then with floats rounded to 12 and 9
     significant digits, then (with a fold) modulo the DBMS's equality: a grouping key
@@ -420,13 +426,27 @@ def check_value(relation, column, original_rows, mutant_rows, single_precision=F
     verdict = None
     check = _check_cover if cover else _check_value
     for f, digits in attempts:
-        verdict = check(relation, column, original_rows, mutant_rows, f, digits, tol)
+        verdict = check(relation, column, original_rows, mutant_rows, f, digits, tol, strict_types)
         if verdict != 'other columns changed':
             return verdict
     return verdict
 
 
-def _check_value(relation, column, original_rows, mutant_rows, fold, digits, tol):
+def _non_numeric(orig, mut, strict_types):
+    """None when the values of the mutated column are numbers (or NULL) on both sides;
+    otherwise 'incomparable', or a violation when only one side has non-numbers and the
+    inputs are known to be numeric."""
+    other = [[v for v in values if v is not None and (isinstance(v, bool) or not isinstance(v, NUMERIC))]
+             for values in (orig, mut)]
+    if not other[0] and not other[1]:
+        return None
+    if strict_types and bool(other[0]) != bool(other[1]):
+        return 'type changed: the mutated column holds a non-number in the %s only (%r)' % (
+            'original' if other[0] else 'mutant', (other[0] or other[1])[0])
+    return 'incomparable'
+
+
+def _check_value(relation, column, original_rows, mutant_rows, fold, digits, tol, strict_types=False):
     """The theorem (vmut_sound) says: the rows of the original and of the mutant can be
     put in one-to-one correspondence so that corresponding rows agree outside the
     mutated column and their values in it satisfy the relation (NULL only with NULL).
@@ -449,9 +469,9 @@ def _check_value(relation, column, original_rows, mutant_rows, fold, digits, tol
     for key, (orig, mut) in groups.items():
         if len(orig) != len(mut):
             return 'other columns changed'
-        for values in (orig, mut):
-            if any(v is not None and (isinstance(v, bool) or not isinstance(v, NUMERIC)) for v in values):
-                return 'incomparable'
+        typed = _non_numeric(orig, mut, strict_types)
+        if typed:
+            return typed
         nulls_o, nulls_m = orig.count(None), mut.count(None)
         if nulls_o != nulls_m:
             return 'NULL-ness changed (%d NULLs vs %d)' % (nulls_o, nulls_m)
@@ -464,7 +484,7 @@ def _check_value(relation, column, original_rows, mutant_rows, fold, digits, tol
     return 'ok'
 
 
-def _check_cover(relation, column, original_rows, mutant_rows, fold, digits, tol):
+def _check_cover(relation, column, original_rows, mutant_rows, fold, digits, tol, strict_types=False):
     """Under DISTINCT (VDistinct.v, tmutate_distinct_sound) the rows no longer correspond
     one to one; the theorem says every row of each result is related to some row of the
     other: it agrees outside the mutated column, and the values in it satisfy the
@@ -477,9 +497,9 @@ def _check_cover(relation, column, original_rows, mutant_rows, fold, digits, tol
     for key, (orig, mut) in groups.items():
         if not orig or not mut:
             return 'other columns changed'
-        for values in (orig, mut):
-            if any(v is not None and (isinstance(v, bool) or not isinstance(v, NUMERIC)) for v in values):
-                return 'incomparable'
+        typed = _non_numeric(orig, mut, strict_types)
+        if typed:
+            return typed
         related = lambda x, y: (x is None and y is None) or (
             x is not None and y is not None and relation_holds(relation, x, y, tol))
         for y in mut:

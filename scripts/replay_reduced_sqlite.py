@@ -35,7 +35,8 @@ def verdict(lib, rec, path):
     fold = db.folds(coll, db.last_collations, fallback)
     if ' col ' in rec['expect']:
         relation, _, column = rec['expect'].split()
-        return check_value(relation, int(column), base, res, fold=fold, cover=bool(rec.get('distinct')))
+        return check_value(relation, int(column), base, res, fold=fold, cover=bool(rec.get('distinct')),
+                           strict_types=True)
     return check_inclusion(rec['expect'], base, res, fold)
 
 

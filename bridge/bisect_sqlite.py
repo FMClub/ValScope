@@ -108,7 +108,7 @@ def verdict(builder, sha, rec, tmp):
     fold = db.folds(base_coll, db.last_collations, fallback)
     if rec['kind'] == 'value':
         relation, _, column = rec['expect'].split()
-        v = check_value(relation, int(column), base, res, fold=fold, cover=rec.get('distinct', False))
+        v = check_value(relation, int(column), base, res, fold=fold, cover=rec.get('distinct', False), strict_types=True)
     else:
         v = check_inclusion(rec['expect'], base, res, fold)
     if v in ('ok', 'collation'):

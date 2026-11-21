@@ -373,6 +373,11 @@ report(check_value('AwayOne', 1, rows(0.5, 2), rows(0.25, 4)) == 'ok', 'AwayOne 
 report(check_value('Le', 1, rows(None,), rows(3,)) != 'ok', 'NULL-ness must not change')
 report(check_value('Le', 1, rows(1,), rows(1, 2)) != 'ok', 'row count must not change')
 report(check_value('Le', 1, [(1, 'a')], [(1, 'b')]) == 'incomparable', 'non-numeric column is incomparable')
+report(check_value('Le', 1, [(1, '2')], [(1, 5)]) == 'incomparable' and
+       check_value('Le', 1, [(1, '2')], [(1, 5)], strict_types=True).startswith('type changed') and
+       check_value('Le', 1, [(1, '2')], [(1, '5')], strict_types=True) == 'incomparable' and
+       check_value('Le', 1, [(1, 2)], [(1, '5'), (1, 2)], cover=True, strict_types=True).startswith('type changed'),
+       'strict types: text on one side only is a violation when the inputs are numeric')
 report(check_value('Le', 0, [(1, 0.30000000000000004)], [(2, 0.3)]) == 'ok',
        'floating-point noise in another column does not break the row matching')
 report(check_value('Le', 0, [(1, 0.31)], [(2, 0.3)]) != 'ok', 'a real change in another column is reported')

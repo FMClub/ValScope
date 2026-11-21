@@ -33,7 +33,8 @@ def recheck(rec, db, fallback):
     fold = db.folds(base_collations, db.last_collations, fallback)
     if rec['kind'] == 'value':
         relation, _, column = rec['expect'].split()
-        return check_value(relation, int(column), base, res, fold=fold, cover=rec.get('distinct', False)), base, res
+        return check_value(relation, int(column), base, res, fold=fold, cover=rec.get('distinct', False),
+                           strict_types=True), base, res
     return check_inclusion(rec['expect'], base, res, fold), base, res
 
 

@@ -145,7 +145,7 @@ class Judge:
         fold = db.folds(coll, db.last_collations, fallback)
         if self.kind == 'value':
             relation, column = relation
-            v = check_value(relation, column, base, res, fold=fold, cover=self.cover)
+            v = check_value(relation, column, base, res, fold=fold, cover=self.cover, strict_types=True)
         else:
             v = check_inclusion(self.expect if self.kind == 'set' else self.expect, base, res, fold)
         if v == 'incomparable':

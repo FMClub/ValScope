@@ -355,7 +355,8 @@ def main():
                     relation = FLIP_VALUE[relation]
                 loose = single or (types is not None and target.SINGLE in (base_types[column], types[column]))
                 verdict = check_value(relation, column, base, res, single_precision=loose, fold=fold,
-                                      cover=bool(trs) and trs[0].cover_for(text))
+                                      cover=bool(trs) and trs[0].cover_for(text),
+                                      strict_types=target.dialect == 'sqlite')    # the numeric probe passed
                 label = '%s col %d' % (relation, column)
             else:
                 # set-semantic mutant, or a mutant of the HAVING predicate

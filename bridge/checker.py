@@ -440,6 +440,8 @@ def _non_numeric(orig, mut, strict_types):
              for values in (orig, mut)]
     if not other[0] and not other[1]:
         return None
+    # (reached only after the row counts and the other columns were found to agree: a value
+    # rule on a date or text item still checks those, so such mutants are worth running)
     if strict_types and bool(other[0]) != bool(other[1]):
         return 'type changed: the mutated column holds a non-number in the %s only (%r)' % (
             'original' if other[0] else 'mutant', (other[0] or other[1])[0])

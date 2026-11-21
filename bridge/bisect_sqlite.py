@@ -268,7 +268,7 @@ def version_tags_sorted(tags):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('files', nargs='+', help='JSON lines of recorded violations')
+    ap.add_argument('files', nargs='*', help='JSON lines of recorded violations')
     ap.add_argument('--src', required=True, help='git clone of https://github.com/sqlite/sqlite')
     ap.add_argument('--cache', default=None, help='directory for built libraries (default: SRC/../bisect-cache)')
     ap.add_argument('--old', default=None, help='a release tag where the pair is bad (default: the reporting version)')
@@ -281,7 +281,18 @@ def main():
                     help='disable optimisations of every build (sqlite3_test_control; 0x1 = the query '
                          'flattener): the fixing commit of a defect, not of a plan change that hides it')
     ap.add_argument('--out', default=None, help='write the per-pair results as JSON lines')
+    ap.add_argument('--build', default=None, metavar='REV',
+                    help='only build the library of this tag or commit and print its path (a reference '
+                         'library for --latest of the other tools)')
     args = ap.parse_args()
+    if args.build:
+        src = os.path.abspath(args.src)
+        lib = Builder(src, args.cache or os.path.join(os.path.dirname(src), 'bisect-cache')).lib(
+            git(src, 'rev-parse', args.build + '^{commit}').strip())
+        print(lib or 'build failed')
+        return 0 if lib else 1
+    if not args.files:
+        ap.error('a file of recorded violations is required')
     sqlite_exec.OPTIMIZATIONS_OFF = int(args.optimizations_off, 0)
     src = os.path.abspath(args.src)
     builder = Builder(src, args.cache or os.path.join(os.path.dirname(src), 'bisect-cache'))
@@ -393,4 +404,4 @@ def report(results):
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())

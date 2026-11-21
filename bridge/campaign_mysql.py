@@ -64,7 +64,7 @@ def main():
     conn = ['--host', a.host, '--port', str(a.port), '--user', a.user, '--password', a.password,
             '--database', a.database]
     gen_opts = [o for o, on in (('--focus', a.focus), ('--rich', a.rich)) if on]
-    total, pairs = collections.Counter(), set()
+    total, pairs, errors = collections.Counter(), set(), collections.Counter()
     for seed in parse_range(a.seeds):
         used = gen_mysql_db.build(cur, a.database, seed)
         new = 0
@@ -79,10 +79,15 @@ def main():
             r = subprocess.run([sys.executable, os.path.join(HERE, 'run_on_db.py'), qfile] + conn +
                                (['--value'] if kind == 'value' else []) + (['--flip'] if a.flip else []) +
                                ['--out', vfile], capture_output=True, text=True)
+            in_errors = False
             for line in r.stdout.splitlines():
                 if line.startswith('{'):
                     for k, v in ast.literal_eval(line).items():
                         total[k] += v
+                elif in_errors and line.startswith('  '):       # '  COUNT  MESSAGE'
+                    count, _, message = line.strip().partition('  ')
+                    errors[message] += int(count)
+                in_errors = in_errors or line.startswith('most frequent errors:')
             if r.returncode != 0:
                 total['runs_failed'] += 1
                 print('seed %d, %s queries: run_on_db failed: %s' % (seed, kind, r.stderr.strip()[-200:]), file=sys.stderr)
@@ -104,6 +109,10 @@ def main():
     total['violating_pairs'] = len(pairs)
     print('server: %s' % version)
     print(dict(total))
+    if errors:      # queries the server refused (mutant_failed, original_failed)
+        print('most frequent errors:')
+        for message, count in errors.most_common(10):
+            print('  %6d  %s' % (count, message))
     return 0
 
 

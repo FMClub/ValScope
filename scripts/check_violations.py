@@ -45,7 +45,18 @@ def _issue_010(rec):
             and re.search(r'\b(COUNT|SUM|AVG|MIN|MAX)\s*\(\s*DISTINCT\b', sql) is not None)
 
 
-SIGNATURES = {'mariadb-distinct-avg': _issue_009, 'mariadb-window-distinct-agg': _issue_010}
+def _issue_003(rec):
+    """issues/003 (MariaDB): `HAVING <aggregate> IN (subquery)` finds no match, or finds it,
+    depending on the aggregates of the select list and on the plan (it shows on one machine
+    and not on another).  Seen as rows that appear or disappear."""
+    sql = rec['original'].upper()
+    having = sql.rfind(' HAVING ')
+    return (having >= 0 and ' IN (SELECT ' in sql[having:]
+            and ('row count' in rec.get('verdict', '') or ' col ' not in rec.get('expect', '')))
+
+
+SIGNATURES = {'mariadb-distinct-avg': _issue_009, 'mariadb-window-distinct-agg': _issue_010,
+              'mariadb-having-in-subquery': _issue_003}
 
 
 def read(path):

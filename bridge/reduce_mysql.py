@@ -25,8 +25,8 @@ import sys
 import types
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from checker import check_inclusion, check_value  # noqa: E402
 from reduce_sqlite import variants  # noqa: E402
+import recheck_mysql  # noqa: E402
 from run_on_db import MySQLTarget  # noqa: E402
 from sql_bridge import mutate_sql, mutate_value  # noqa: E402
 
@@ -50,22 +50,10 @@ class Judge:
             except Exception:
                 rec['distinct'] = rec['original'].upper().startswith('SELECT DISTINCT')
 
-    def violated(self, original, mutant, rel=None):
-        base, _ = self.t.run(original)
-        bc = self.t.last_collations
-        res, _ = self.t.run(mutant)
-        if base is None or res is None:
-            return False
-        fold = self.t.folds(bc, self.t.last_collations)
-        if self.translation:
-            return check_inclusion('Up', base, res, fold) not in ('ok', 'collation') or \
-                check_inclusion('Down', base, res, fold) not in ('ok', 'collation')
-        if self.value:
-            relation, _, column = self.rec['expect'].split()
-            v = check_value(relation, int(column), base, res, fold=fold, cover=self.rec.get('distinct', False))
-        else:
-            v = check_inclusion(self.rec['expect'], base, res, fold)
-        return v not in ('ok', 'collation', 'incomparable')
+    def violated(self, original, mutant):
+        """The pair, judged as recheck_mysql.py judges a recorded one."""
+        v = recheck_mysql.judge(self.t, dict(self.rec, original=original, mutant=mutant))
+        return v not in ('ok', 'collation', 'incomparable', 'error')
 
     def pair(self, sql):
         if self.translation:

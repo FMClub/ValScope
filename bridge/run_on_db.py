@@ -54,6 +54,7 @@ class MySQLTarget:
         self.columns = MariaDBColumns(self.conn, mariadb_fold(self.conn, args.database))
         self.name = 'per result column (server metadata)'
         self.last_collations = []
+        self.last_arm_mix = None
         # table -> columns, for printing DISTINCT around a join (sql_bridge._join_columns)
         with self.conn.cursor() as cur:
             cur.execute('SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS '
@@ -90,6 +91,7 @@ class MySQLTarget:
                 self.last_collations = [self.columns.name(f.charsetnr) for f in cur._result.fields]
                 types = [d[1] for d in cur.description]
                 self.last_scales = [d[5] for d in cur.description]
+            self.last_arm_mix = None
             if any(w in sql.upper() for w in ('UNION', 'INTERSECT', 'EXCEPT')):
                 self.last_collations = self._compound_collations(sql, self.last_collations)
             return rows, types
@@ -100,6 +102,7 @@ class MySQLTarget:
             ERRORS['%s %s' % (code, str(e.args[1] if len(e.args) > 1 else e)[:70])] += 1
             return None, None
 
+    NUMERIC_CODES = {0, 1, 2, 3, 4, 5, 8, 9, 13, 16, 246}     # pymysql FIELD_TYPE: integers, DECIMAL, FLOAT, DOUBLE, YEAR, BIT
 
     def _compound_collations(self, sql, names):
         """The server reports for a compound column the collation it derives from all
@@ -107,7 +110,17 @@ class MySQLTarget:
         under a coarser collation (DISTINCT over a _ci column) and keep either of two
         equivalent strings.  Per column the coarsest of the arms' collations is used;
         for a compound nested in a derived table or a CTE, the coarsest collation of the
-        database (MariaDBColumns.COARSEST)."""
+        database (MariaDBColumns.COARSEST).
+
+        Two things about the arms make a result that no fold repairs; they are left in
+        self.last_arm_mix for arm_mix_verdict():
+        - 'types': a column has two numeric types (DOUBLE and DECIMAL) in two arms and text
+          or a date in a third.  The server turns the numbers into text, and how ('5' or
+          '5.00') depends on which arms it combines first, which a mutation changes;
+        - 'collations': an INTERSECT or EXCEPT compares a column that has a case-insensitive
+          collation in one arm and another collation in another arm.  When the arm
+          de-duplicates ('a' or 'A' is kept) and the comparison is made under the finer
+          collation, WHICH rows match depends on the representative."""
         coarsest = [MariaDBColumns.COARSEST] * len(names)
         try:
             import sqlglot
@@ -119,6 +132,8 @@ class MySQLTarget:
         chain, arms = [], []
 
         def flatten(n):
+            while isinstance(n, (exp.Paren, exp.Subquery)) and not n.alias and isinstance(n.this, setops + (exp.Paren, exp.Subquery)):
+                n = n.this
             if isinstance(n, setops):
                 chain.append(id(n))
                 flatten(n.left)
@@ -128,11 +143,13 @@ class MySQLTarget:
         flatten(tree)
         if any(isinstance(n, setops) and id(n) not in chain for n in tree.walk()):
             return coarsest
+        compares = any(isinstance(n, (exp.Intersect, exp.Except)) and id(n) in chain for n in tree.walk())
         if not chain:
             return names
         with_ = tree.args.get('with')
         prefix = with_.sql(dialect='mysql') + ' ' if with_ is not None else ''
         combined = [{n} for n in names]
+        codes = [set() for _ in names]
         for arm in arms:
             while isinstance(arm, (exp.Paren, exp.Subquery)) and arm.args.get('alias') is None:
                 arm = arm.this
@@ -143,7 +160,7 @@ class MySQLTarget:
                     with self.conn.cursor() as cur:
                         cur.execute(probe)
                         cur.fetchall()
-                        cache[probe] = [self.columns.name(f.charsetnr) for f in cur._result.fields]
+                        cache[probe] = [(self.columns.name(f.charsetnr), f.type_code) for f in cur._result.fields]
                 except self.pymysql.err.MySQLError:
                     cache[probe] = None
             got = cache[probe]
@@ -151,11 +168,18 @@ class MySQLTarget:
                 return coarsest
             if len(got) != len(names):
                 return coarsest
-            for c, g in zip(combined, got):
+            for c, f, (g, code) in zip(combined, codes, got):
                 c.add(g)
+                f.add(code)
         out = []
+        for f in codes:
+            numbers = f & self.NUMERIC_CODES
+            if len(numbers) > 1 and f - numbers - {6}:      # 6: the type of a bare NULL
+                self.last_arm_mix = 'types'
         for c in combined:
             insensitive = [n for n in c if n and ('_ci' in n or '_ai' in n)]
+            if compares and insensitive and len({n for n in c if n != 'binary'}) > 1 and self.last_arm_mix is None:
+                self.last_arm_mix = 'collations'
             if len(c) == 1:
                 out.append(next(iter(c)))
             elif len(insensitive) == 1 and all(n and n.endswith('_bin') or n == 'binary' or n in insensitive
@@ -246,6 +270,15 @@ def sqlite_exact_columns(db, schema):
 
 
 FLIP_VALUE = {'Le': 'Ge', 'Ge': 'Le', 'TowardOne': 'AwayOne', 'AwayOne': 'TowardOne'}
+
+
+def arm_mix_verdict(verdict, *mixes):
+    """A violation of a compound whose arms mix type families is 'incomparable', one whose
+    INTERSECT / EXCEPT compares mixed collations is 'collation' (MySQLTarget.
+    _compound_collations); `mixes` are the last_arm_mix of the original and of the mutant."""
+    if verdict in ('ok', 'incomparable', 'collation'):
+        return verdict
+    return 'incomparable' if 'types' in mixes else 'collation' if 'collations' in mixes else verdict
 
 
 def printed_decimals(target, column, base_types, types, base_scales):
@@ -345,6 +378,7 @@ def main():
         base, base_types = target.run(original)
         base_scales = getattr(target, 'last_scales', None)
         base_collations = target.last_collations
+        base_mix = getattr(target, 'last_arm_mix', None)
         if as_written is None or base is None:
             st['original_failed'] += 1
             continue
@@ -394,6 +428,7 @@ def main():
                     direction = 'Down' if direction == 'Up' else 'Up'
                 verdict = check_inclusion(direction, base, res, fold)
                 label = direction
+            verdict = arm_mix_verdict(verdict, base_mix, getattr(target, 'last_arm_mix', None))
             if verdict == 'ok':
                 st['checked_ok'] += 1
                 by_rule[rule] += 1

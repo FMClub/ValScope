@@ -575,7 +575,8 @@ except Unsupported:
     report(True, 'INTERSECT: AVG over a REAL column rejected')
 
 # a mutated value followed through a derived table (VLineage.v, wmutate_sound)
-from sql_bridge import _lineage_mutants, DEFAULT_CLI  # noqa: E402
+from sql_bridge import DEFAULT_CLI  # noqa: E402
+from lineage import _lineage_mutants  # noqa: E402
 inner = 'SELECT t.a AS k, MAX(t.x) AS m, SUM(t.x) AS s, COUNT(t.x) AS n FROM t GROUP BY t.a'
 lin, lm = _lineage_mutants('SELECT d.k AS k, SUM(d.s) AS total, MAX(d.m) AS top, MIN(d.n) AS low, AVG(d.n) AS mean '
                            'FROM (%s) AS d WHERE d.k > 0 GROUP BY d.k HAVING COUNT(*) > 0' % inner, DEFAULT_CLI, 'sqlite', None, None)

@@ -41,9 +41,9 @@ database `test` from `data/mariadb/`. Logs and violations are written to `out/`.
 | `theories/` | The Rocq development: SQL model, rules, engine, proofs, extraction |
 | `cli/` | Command-line front end of the extracted engine (`cli/valscope_mutate`) |
 | `bridge/` | Python glue (not verified): SQL <-> terms, execution, result checks, query generators |
-| `scripts/` | `setup_mariadb.sh` (set up the sample database), `demo.sh` (end-to-end run) |
+| `scripts/` | `setup_mariadb.sh` (set up the sample database), `demo.sh` (end-to-end run), CI helpers |
 | `data/` | Sample MariaDB database and 870 queries produced by the original Python generator |
-| `docs/` | `USAGE.md`: the step-by-step guide |
+| `docs/` | `USAGE.md`: the step-by-step guide; `JOURNAL.md`: the log of work rounds |
 | `results/` | The SQLite campaign: 51 confirmed violations from 5 bugs (4 withdrawn), reduced pairs, commits |
 | `issues/` | Problem reports and candidate DBMS bugs |
 
@@ -247,11 +247,19 @@ value cannot be read off the result.
 | `theories/VEngine.v` | Plug-in interface and generic engine for value rules, `vmut_sound` |
 | `theories/VRules.v` | Rules 18 to 26, each a theorem plus a packaged plug-in |
 | `theories/VHaving.v` | Mutation of the HAVING predicate (rules 15, 16), `hmut_sound` |
-| `theories/Registry.v` | The plugged-in rules and the three mutators with their theorems: `mutate`, `vmutate`, `hmutate` |
+| `theories/VUnion.v` | `UNION ALL` of value queries: one arm is mutated (`tmut_sound`), mutants keep keys, HAVING and source (`tmut_frame`) |
+| `theories/VDistinct.v` | Value queries under `DISTINCT` / `UNION`, also on parts of a `UNION ALL`: the cover relation |
+| `theories/VSet.v` | HAVING mutation inside `INTERSECT` / `EXCEPT` of value queries (`shmut_sound`) |
+| `theories/VLineage.v` | A mutated value followed through a derived table (`wmut_sound`) |
+| `theories/Registry.v` | The plugged-in rules and the mutators with their theorems: `mutate`, `vmutate`, `hmutate`, `tmutate`, `thmutate`, `shmutate`, `wmutate` |
 | `theories/Counter.v` | A concrete lawful world; proofs that some positions must not be mutated |
 | `theories/Extract.v` | Extraction to OCaml |
 | `cli/main.ml` | Command-line front end of the extracted core (S-expression protocol) |
-| `bridge/sql_bridge.py` | SQL text to algebra term and back |
+| `bridge/sql_bridge.py` | SQL text to algebra term and back (`Translation`), round-trip validation, the entry points `mutate_sql` and `mutate_value` |
+| `bridge/common.py` | The `Unsupported` exception, the S-expression reader, helpers on syntax trees |
+| `bridge/collation_law.py` | Which queries and mutants are outside the model because of collations; storage classes of columns |
+| `bridge/determinism.py` | Constructs whose result SQL does not determine (rejected) |
+| `bridge/lineage.py` | The outer query over a derived value query (`VLineage.v`) |
 | `bridge/checker.py` | Bag inclusion modulo the DBMS's collation, and the five value relations |
 | `bridge/test_bridge.py` | Tests of the bridge and the checkers (no database needed) |
 | `bridge/gen_fragment.py` | Random queries inside the supported fragments, for any schema |
@@ -261,6 +269,12 @@ value cannot be read off the result.
 | `bridge/build_old_sqlite.sh` | Builds old SQLite releases as shared libraries |
 | `bridge/campaign_sqlite.py` | Differential campaign on several SQLite releases |
 | `bridge/confirm_sqlite.py` | Re-checks recorded violations from scratch and writes a report |
+| `bridge/bisect_sqlite.py` | Finds the SQLite commits that introduced and fixed each recorded violation |
+| `bridge/reduce_sqlite.py`, `bridge/reduce_mysql.py` | Reduce a violating pair (query, data, indexes), re-running the verified mutator at every step |
+| `bridge/test_mysql.py` | Tests that need a MySQL-protocol server |
+| `scripts/check_violations.py` | Compares the violations of a run with a baseline of known ones (keys and signatures) |
+| `scripts/check_reduced_mysql.py` | Checks that a reduced script still shows its violation |
+| `docs/JOURNAL.md` | The log of the autonomous work rounds: milestone, audit findings, what was done |
 | `docs/USAGE.md` | End-to-end usage guide |
 | `results/` | The SQLite campaign: summary, confirmed pairs (report and data) |
 

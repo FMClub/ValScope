@@ -56,7 +56,8 @@ fixes of PR #1 are merged; the design problems below are still open.
 
 ### B1. Coverage of SQL
 
-1. Not modelled: window functions, `FULL` / `NATURAL` / `USING` joins, a `RIGHT JOIN` that
+1. Not modelled: window functions (except, since the sixth round, as opaque items of value
+   queries without aggregation, when identical rows get identical values), `FULL` / `NATURAL` / `USING` joins, a `RIGHT JOIN` that
    is not the first join, `LIMIT` at the top, recursive CTEs. (Since the fourth round:
    `INTERSECT ALL` / `EXCEPT ALL` and `IN` with a row constructor are modelled and proved,
    and a first `RIGHT JOIN` is translated as the swapped `LEFT JOIN`.) Unanalysed predicates
@@ -138,6 +139,10 @@ fixes of PR #1 are merged; the design problems below are still open.
    verified mutator after every step (so the reduced pair is still covered by the theorem
    of its rule), and `bridge/bisect_sqlite.py` finds the fixing and introducing commits in
    the SQLite history. CI also runs MySQL 8.4.
+4. Later in the sixth round: the reducer keeps the bisection boundaries of a pair
+   (`--boundaries`), reduces databases (`--sql`), value and HAVING pairs, and MySQL pairs
+   (`bridge/reduce_mysql.py`); CI fails on any violation outside `data/ci-baseline/`, and
+   runs the candidate scripts on MariaDB 11 and MySQL 9 as well.
 
 ## C. Testing real DBMSs
 
@@ -148,6 +153,9 @@ fixes of PR #1 are merged; the design problems below are still open.
    under a loose index scan returns 255). Reproduced on MariaDB 10.11.14; on MySQL 8.4.13
    (CI) the minimal cases of 005 and 006 give the correct results, so both are specific to
    MariaDB. Percona, TiDB, OceanBase and PolarDB were not tested; causes not analysed.
+1a. **MariaDB `AVG` under `SELECT DISTINCT`** (`issues/009`, sixth round, found by the DISTINCT
+   value queries): the `AVG` of the last group on every row; still present in MariaDB
+   11.8.9, not in MySQL. Issues 005 and 006 are also still present in MariaDB 11.8.9.
 1b. **MySQL 8.4.13 (CI, sixth round)**: the Python-generator run reports one `DISTINCT-add`
    violation on the `MIN(BIT)` query that also shows issue 005 on MariaDB: the original
    returns the decimal text `'14'`, the mutant the bit value `0x0E` (`issues/005`, section

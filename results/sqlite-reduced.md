@@ -9,8 +9,8 @@ witness: violated on the reporting release, on the last bad commit and on the in
 commit of its bug, and not violated on the fixing commit, on the last good commit and on
 3.54.1 (`--boundaries`, `--latest`). So a reduced pair shows the same bug as its pair.
 
-All 46 pairs are reduced: queries from 471 to 122 characters on average (80 to 202),
-databases to 6 statements on average (5 to 14); 45 of the 46 databases no longer need
+All 51 pairs are reduced: queries from 465 to 121 characters on average (80 to 202),
+databases to 6 statements on average (5 to 14); 50 of the 51 databases no longer need
 `WITHOUT ROWID`. Each reduced pair is a self-contained script in
 `results/sqlite-repro/pair-N.sql`.
 
@@ -243,3 +243,28 @@ databases to 6 statements on average (5 to 14); 45 of the 46 databases no longer
     original: SELECT t2c.c15 AS k2 FROM t3 AS t3a INNER JOIN t2 AS t2c ON (0) UNION SELECT DISTINCT t2a.c3 AS k2 FROM t2 AS t2a
     mutant  : SELECT t2c.c15 AS k2 FROM t3 AS t3a INNER JOIN t2 AS t2c ON (0) UNION ALL SELECT DISTINCT t2a.c3 AS k2 FROM t2 AS t2a
     rows    : 7 / 6
+
+-- pair 47 (UNION-ALL->UNION, expected Down): 365 -> 88 characters
+    original: SELECT t2a.c3 AS k0 FROM t2 AS t2a UNION ALL SELECT DISTINCT t1a.c4 AS k0 FROM t1 AS t1a
+    mutant  : SELECT t2a.c3 AS k0 FROM t2 AS t2a UNION SELECT DISTINCT t1a.c4 AS k0 FROM t1 AS t1a
+    rows    : 14 / 13
+
+-- pair 48 (EXCEPT->left, expected Up): 480 -> 158 characters
+    original: SELECT t3c.c3 AS k1 FROM t2 AS t2a INNER JOIN t3 AS t3c ON (0) UNION ALL SELECT DISTINCT t3a.c1 AS k1 FROM t3 AS t3a EXCEPT SELECT t3a.c8 AS k1 FROM t3 AS t3a
+    mutant  : SELECT t3c.c3 AS k1 FROM t2 AS t2a INNER JOIN t3 AS t3c ON (0) UNION ALL SELECT DISTINCT t3a.c1 AS k1 FROM t3 AS t3a
+    rows    : 5 / 4
+
+-- pair 49 (UNION->UNION-ALL, expected Up): 412 -> 119 characters
+    original: SELECT t2a.c15 AS k1 FROM t2 AS t2a UNION SELECT DISTINCT t2b.c1 AS k1 FROM t1 AS t1a INNER JOIN t2 AS t2b ON NOT ((0))
+    mutant  : SELECT t2a.c15 AS k1 FROM t2 AS t2a UNION ALL SELECT DISTINCT t2b.c1 AS k1 FROM t1 AS t1a INNER JOIN t2 AS t2b ON NOT ((0))
+    rows    : 14 / 16
+
+-- pair 50 (UNION->UNION-ALL, expected Up): 418 -> 84 characters
+    original: SELECT t3a.c9 AS k0 FROM t3 AS t3a UNION SELECT DISTINCT t3a.c8 AS k0 FROM t3 AS t3a
+    mutant  : SELECT t3a.c9 AS k0 FROM t3 AS t3a UNION ALL SELECT DISTINCT t3a.c8 AS k0 FROM t3 AS t3a
+    rows    : 13 / 16
+
+-- pair 51 (UNION-ALL->UNION, expected Down): 378 -> 89 characters
+    original: SELECT t2a.c14 AS k0 FROM t2 AS t2a UNION ALL SELECT DISTINCT t1a.c4 AS k0 FROM t1 AS t1a
+    mutant  : SELECT t2a.c14 AS k0 FROM t2 AS t2a UNION SELECT DISTINCT t1a.c4 AS k0 FROM t1 AS t1a
+    rows    : 15 / 13

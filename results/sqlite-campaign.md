@@ -13,14 +13,14 @@ Every violation was then re-checked from scratch by `bridge/confirm_sqlite.py`.
 
 ## Result
 
-**46 distinct (original, mutant) query pairs violate the relation that the rule's theorem
+**51 distinct (original, mutant) query pairs violate the relation that the rule's theorem
 guarantees; they come from 5 distinct SQLite bugs** (`results/sqlite-bisect.md`: each pair
 is mapped to the commit that introduced and the commit that fixed it, and pairs with the
 same commits are one bug). 37 pairs were found by the first campaign, 5 by a second
 campaign run after the model was extended (strings, decimals, collations, opaque atoms), 2
 by a third run after the audit fixes and 2 by the comparison of generator settings in the
-fifth round, 3 by the seventh-round campaign and 1 by the eighth; 1 pair was withdrawn in the fifth round
-and 3 in the sixth (see "Withdrawn" and the sixth round below). All 46 are confirmed:
+fifth round, 3 by the seventh-round campaign, 1 by the eighth and 5 by the ninth; 1 pair was withdrawn in the fifth round
+and 3 in the sixth (see "Withdrawn" and the sixth round below). All 51 are confirmed:
 
 - the database of the seed was rebuilt by each SQLite library and both queries were run
   again;
@@ -203,7 +203,7 @@ L=/tmp/sqlite-libs; python3 bridge/confirm_sqlite.py results/sqlite-confirmed.js
 
 `results/sqlite-confirmed.md` is the output of the last command. For every pair it has the
 queries, the first rows of both results and the verdict on each version.
-`results/sqlite-confirmed.jsonl` holds the 46 pairs as data; `results/sqlite-withdrawn.jsonl`
+`results/sqlite-confirmed.jsonl` holds the 51 pairs as data; `results/sqlite-withdrawn.jsonl`
 the withdrawn ones with the reasons. `results/sqlite-reduced.md` has the pairs reduced by
 `bridge/reduce_sqlite.py`, and `results/sqlite-bisect.md` the commits of each bug.
 
@@ -213,7 +213,7 @@ the withdrawn ones with the reasons. `results/sqlite-reduced.md` has the pairs r
   The bisection (sixth round) builds SQLite from its git history on GitHub instead.
 - "Confirmed" means inconsistent on the old version and consistent on 3.53.1. It does not
   prove which of the two results on the old version is the wrong one.
-- The 46 pairs come from 5 bugs, identified by their introducing and fixing commits; three
+- The 51 pairs come from 5 bugs, identified by their introducing and fixing commits; three
   fixes name an SQLite ticket. A fixing commit can be a plan change that hides the symptom
   (bug 5).
 
@@ -274,4 +274,25 @@ L=/tmp/sqlite-libs; python3 bridge/campaign_sqlite.py --focus --value-ext --libs
 - The value and HAVING rules, with the new shapes, found nothing on SQLite. On MariaDB
   10.11.14, 1200 `--value-ext` value queries found 20 violations, all of the shape of
   `issues/009` (now also with `STDDEV_SAMP`).
+
+## Ninth round: value queries over numeric columns (seeds 6001-6030)
+
+In the eighth round 2208 of the 4800 value-query runs (46%) were skipped as
+`non_numeric_input`: the generator drew aggregated columns from all columns, and many of
+them hold text. The campaign now draws them from the columns declared `INTEGER` or `REAL`
+in the seed's schema (`--any-column` restores the old queries).
+
+```bash
+L=/tmp/sqlite-libs; python3 bridge/campaign_sqlite.py --focus --value-ext --libs $L/libsqlite3-3260000.so $L/libsqlite3-3300100.so $L/libsqlite3-3310100.so $L/libsqlite3-3340000.so --seeds 6001-6030 --queries 40 --out violations.jsonl
+```
+
+- 2400 queries, 292896 checks passed, no run skipped as non-numeric: 44836 value checks
+  (19636 in the eighth round) and 11888 HAVING checks (5556).
+- 20 violations = 5 new distinct pairs (seeds 6004, 6009, 6026, 6027), all set rules
+  (`UNION-ALL->UNION`, `UNION->UNION-ALL`, `EXCEPT->left`), all consistent on 3.53.1: pairs
+  47 to 51. Bisected, reduced with `--boundaries` (5 of 5) and bisected again: introduced by
+  `9ed1dfa`, fixed by `9b7005f`, so all are bug 1. No new SQLite bug.
+- The value and HAVING rules found nothing on SQLite, now with more than twice the checks
+  and no skipped queries: the earlier explanation "half of the value queries were not
+  checked" is ruled out.
 

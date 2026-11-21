@@ -1,6 +1,6 @@
 # Candidate MariaDB bug: the subquery cache matches its key under the collation of the outer column, not the one the subquery compares with
 
-Status: open, candidate (MariaDB 10.11.14; found by `bridge/campaign_mysql.py --rich`, seed
+Status: open, candidate (MariaDB 10.11.14, 11.4.13, 11.8.9; found by `bridge/campaign_mysql.py --rich`, seed
 147, rule `OR-drop-operand`: `WHERE (0) OR p` and `WHERE p` returned different rows). Not
 reported upstream. CI runs the reproducer on every server.
 
@@ -75,7 +75,9 @@ reaches two rows of `t2` and one of `t3`. That the cache is the cause was seen b
 
 ## Limitations
 
-- MariaDB 10.11.14 only (locally); the CI log shows MySQL and the newer MariaDB releases.
+- Servers (local run and CI): MariaDB 10.11.14, 11.4.13 and 11.8.9 show it, in every line
+  of the table. MySQL 8.4.13 and 9.7.4 give the expected results (MySQL has no subquery
+  cache; the `SET optimizer_switch` line fails there and the script goes on).
 - Upstream: a web search for the subquery cache with collations found no matching report
   (MDEV-12429 and MDEV-3113 are about the cache, MDEV-24319 and MDEV-21265 about
   materialization with two collations; none describes this). The tracker itself was not

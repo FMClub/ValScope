@@ -1,7 +1,7 @@
 # Candidate MariaDB bug: `HAVING <aggregate> IN (subquery)` finds no match in a grouped query
 
 > This repository has no issue tracker, so this document (submitted through a PR) records the finding.
-> Status: **candidate, not yet reported upstream.** It was reproduced on one version only (see "Limitations").
+> Status: **candidate, not yet reported upstream.** MariaDB 10.11.14; the minimal case is fixed in 11.4.13 and 11.8.9, a nested form is not (see "Limitations").
 
 ## Summary
 
@@ -100,6 +100,19 @@ It was the only violation in 37572 value-semantic checks over 3000 generated que
   11.4.13 and 11.8.9, MySQL 8.4.13 and 9.7.4 return the expected `1`, `2`, `1`: the 11.4
   series already has the fix and the 10.11 series (10.11.14) does not, so the fix was made
   in an 11.x release and not backported (the commit was not searched for). Absent from MySQL.
+- **The fix of 11.x is partial (round 10).** The campaign that CI runs on MariaDB 11.4.13
+  and 11.8.9 found a pair of this shape still violated there. Reduced
+  (`data/mariadb/having-in-nested.sql`): when the subquery of `HAVING ... IN` has an `IN`
+  subquery in its own `WHERE`, the groups are still lost.
+
+  | `SELECT ... FROM h3 AS a GROUP BY a.c3, a.c7 HAVING COUNT(a.c1) IN (...)`; expected 2 groups | 10.11.14 | 11.4.13, 11.8.9 | MySQL 8.4.13, 9.7.4 |
+  | --- | --- | --- | --- |
+  | `(SELECT s.c1 FROM h3 AS s WHERE s.c2 = 2)`, `COUNT(a.c3)` in the select list | **0** | 2 | 2 |
+  | `(SELECT s.c1 FROM h3 AS s WHERE s.c2 IN (SELECT u.c1 FROM h1 AS u))`, `COUNT(a.c3)` | **0** | **0** | 2 |
+  | either subquery, `COUNT(DISTINCT a.c3)` in the select list | 2 | 2 | 2 |
+
+  Whether the nested form is the same defect, fixed for one case only, or a second one, is
+  not known. It is a wrong result in the current MariaDB releases.
 - The cause inside the server was not analysed. The variants suggest a type or item-reference problem in the lookup key of the materialized subquery, but that is a guess.
 - It was not checked whether this is already known upstream.
 

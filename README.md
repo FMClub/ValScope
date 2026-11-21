@@ -422,8 +422,8 @@ SELECT (c15 % 2) AS k0, COUNT((c15 - 5))          FROM t2 GROUP BY (c15 % 2);   
 
 `c15` is `DOUBLE(12,4)`; two rows have `c15 % 2` printed as `1.8700` but different as
 doubles. One plan groups them together, the other does not. This may be a known
-consequence of grouping by approximate values; it was not checked against the
-documentation or other versions. The model groups by exact values, so the bridge rejects
+consequence of grouping by approximate values. (Analysed since: `issues/011`. It needs a
+column with display decimals, `DOUBLE(M,D)` or `FLOAT(M,D)`; four rows reproduce it.) The model groups by exact values, so the bridge rejects
 value queries whose grouping keys are FLOAT or DOUBLE.
 
 ## How the bridge fails closed

@@ -183,8 +183,10 @@ L=/tmp/sqlite-libs; python3 bridge/campaign_sqlite.py --focus --rich --libs $L/l
 - 17 violations, 5 distinct pairs (seeds 2004, 2011, 2022), all fixed in 3.53.1.
 - 4 translation mismatches, all on seed 2010 and only on the old releases: the query as
   written (with `CROSS JOIN`) and the re-printed query (then with `INNER JOIN ... ON 1 = 1`)
-  returned different rows on 3.26.0 to 3.34.0. These are inconsistencies of the old releases
-  too, but are not counted. The bridge now prints `CROSS JOIN` again.
+  returned different rows on 3.26.0 to 3.34.0. The bridge now prints `CROSS JOIN` again.
+  (Analysed in the ninth round: the rows differ only in `'B'` / `'b'`, the representative of
+  a `DISTINCT` over a `NOCASE` column, which depends on the join order; `CROSS JOIN` fixes
+  the join order in SQLite. Not an inconsistency modulo the collation.)
 - 2964 value queries skipped because an aggregated input held text (`non_numeric_input`).
 
 ## Reproduce

@@ -103,6 +103,8 @@ jobs:
           mariadb -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mariadb/having-count-in.sql
       - name: "The candidate of issue 010: window and SUM(DISTINCT) in a grouped join (expected 2 rows, except where noted)"
         run: mariadb -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mariadb/window-sum-distinct-having.sql
+      - name: "The candidate of issue 011: GROUP BY on a DOUBLE(M,D) expression (expected the same count in each block)"
+        run: mariadb -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mariadb/double-md-group.sql
       - name: Reduce the pair of issue 009 (test of bridge/reduce_mysql.py)
         run: |
           python3 bridge/reduce_mysql.py out/violations.jsonl --key 'expr->expr+k|38b7c18e86d54299' --password 123456 --database test > /tmp/reduced-009.sql
@@ -176,6 +178,8 @@ jobs:
         run: mysql -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mariadb/having-count-in.sql || true
       - name: "issue 010: window and SUM(DISTINCT) in a grouped join (expected 2 in every line but the last)"
         run: mysql -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mariadb/window-sum-distinct-having.sql || true
+      - name: "issue 011: GROUP BY on a DOUBLE(M,D) expression (expected the same count in each block)"
+        run: mysql -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mariadb/double-md-group.sql || true
       - name: No violation outside the baseline (issues 005, 008 are known)
         run: scripts/check_violations.py out/violations.jsonl data/ci-baseline/mysql.txt
       - name: Reduce the pair of issue 008 (query and data)
@@ -236,3 +240,5 @@ jobs:
         run: mysql -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mariadb/having-count-in.sql || true
       - name: "issue 010: window and SUM(DISTINCT) in a grouped join (expected 2 in every line but the last)"
         run: mysql -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mariadb/window-sum-distinct-having.sql || true
+      - name: "issue 011: GROUP BY on a DOUBLE(M,D) expression (expected the same count in each block)"
+        run: mysql -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mariadb/double-md-group.sql || true

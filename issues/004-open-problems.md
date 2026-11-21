@@ -173,7 +173,10 @@ fixes of PR #1 are merged; the design problems below are still open.
    MySQL also shows `issues/008`: INTERSECT matches a `NOT NULL` column with the `NULL` of an
    outer join (reduced to two one-row tables on MySQL 8.4.13; on 9.7.4 only the larger case
    reproduces).
-2. **MariaDB `GROUP BY` on DOUBLE**: plan-dependent number of groups; not analysed.
+2. **MariaDB `GROUP BY` on DOUBLE (analysed in the ninth round, `issues/011`).** Only columns
+   with display decimals (`DOUBLE(M,D)`, `FLOAT(M,D)`) are affected: a plain `GROUP BY` groups by
+   the value rounded to the declared decimals, the same `GROUP BY` with `COUNT(DISTINCT)` or
+   `GROUP_CONCAT` by the unrounded double. Reproduced with four rows.
 3. **SQLite: 51 confirmed violations from 5 distinct bugs (4 withdrawn).** 37 pairs from
    the first campaign, 5 from a second campaign with the extended model, 2 from a third run
    after the audit fixes, 2 from the fifth round, 3 from the seventh-round campaign, 1 from
@@ -190,8 +193,13 @@ fixes of PR #1 are merged; the design problems below are still open.
    Open:
    - bug 5's fixing commit is a plan change (UNION ALL flattening), which may only hide the
      defect of bug 1, with which it shares the introducing commit;
-   - the second campaign also saw 4 translation mismatches on the old releases only
-     (`CROSS JOIN` versus `INNER JOIN ... ON 1 = 1`), not counted and not analysed.
+   - (closed in the ninth round) the 4 translation mismatches of the second campaign
+     (`CROSS JOIN` versus `INNER JOIN ... ON 1 = 1`, seed 2010) were reproduced: the results
+     differ only in `'B'` versus `'b'`, the representative a `SELECT DISTINCT` over a
+     `NOCASE` column keeps in one arm of a compound. SQLite does not reorder a `CROSS JOIN`,
+     so the two spellings get different join orders on 3.26.0 to 3.34.0. Not a bug: the
+     comparison of that time was exact for compounds; the present one (collations of all
+     arms combined) accepts the pair.
 4. **Value-semantic and HAVING mutators found nothing on SQLite**, also in the seventh-round
    campaign with `DISTINCT` / `UNION` value queries (seeds 4001-4030, 2400 queries) and in the
    eighth with windows over groups, DISTINCT arms and `INTERSECT` / `EXCEPT` (seeds

@@ -783,5 +783,23 @@ report(max(range(4), key=lambda i: bandit.n[i]) == 2, 'adaptive: the best settin
 shape = campaign_sqlite.term_shape("SELECT t.a FROM t WHERE t.a IN (SELECT u.c FROM u) UNION SELECT t.b FROM t", 'set')
 report({'Union', 'In', 'Where'} <= shape, 'adaptive: coverage features of a term (%s)' % sorted(shape))
 
+# the hints of scripts/triage_mysql.py agree with the pairs classified by hand
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'scripts'))
+import json  # noqa: E402
+from triage_mysql import hint, shape as query_shape  # noqa: E402
+recorded = [json.loads(line) for line in open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..',
+                                                           'results', 'mariadb-campaign.jsonl'))]
+reduced = [r for r in recorded if 'reduced_original' in r]
+wrong = [(r['issue'], hint(r['reduced_original'], r['reduced_mutant'], r['without_indexes'] == 'ok'))
+         for r in reduced]
+report(len(reduced) >= 32 and all(a == b for a, b in wrong),
+       'triage: the hint is the recorded issue for all %d reduced pairs (%s)'
+       % (len(reduced), sorted({w for w in wrong if w[0] != w[1]})))
+report(hint('SELECT t.a AS k0 FROM t AS t WHERE t.a > 1', 'SELECT t.a AS k0 FROM t AS t', False) == '',
+       'triage: no hint for a pair that looks like no known issue')
+report(query_shape("SELECT t3a.c9 AS k0 FROM t3 AS t3a WHERE t3a.c1 > (-3) AND t3a.c2 = 'x'") ==
+       query_shape("SELECT t1b.c4 AS k1 FROM t1 AS t1b WHERE t1b.c1 > 7 AND t1b.c4 = 'yy'"),
+       'triage: queries that differ in names and constants have one shape')
+
 print('%d failures' % failures)
 sys.exit(1 if failures else 0)

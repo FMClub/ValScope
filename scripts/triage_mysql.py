@@ -10,10 +10,11 @@ person classifies.  This script does the mechanical part for every pair:
    false alarm that has been fixed, or depends on something that changed);
 2. the pair without the secondary indexes (violated with them only: the access path);
 3. the reduction (bridge/reduce_mysql.py --build-seed) to a short query and few rows;
-4. the shape of the reduced original: its text with names and constants removed.
+4. the shape of the reduced original: its text with names and constants removed;
+5. a hint: the known issue whose look the reduced pair has (hint()).
 
 It writes DIR/pair-N.sql (the reduced scripts), DIR/triage.jsonl (the records with the
-fields `recheck`, `no_indexes`, `reduced_original`, `reduced_mutant`, `shape`) and prints a
+fields `recheck`, `no_indexes`, `reduced_original`, `reduced_mutant`, `shape`, `hint`) and prints a
 table of the shapes, largest first.  Pairs of one shape are very likely one defect; which
 defect, and whether two shapes are the same one, is for the reader to decide.
 """
@@ -44,6 +45,28 @@ def shape(sql):
     s = re.sub(r'-?\b\d+(\.\d+)?\b', 'N', s)
     s = re.sub(r'\(N\)', 'N', s)
     return re.sub(r'\s+', ' ', s).strip()
+
+
+DISTINCT_AGGREGATE = re.compile(r'\b(COUNT|SUM|AVG|MIN|MAX)\s*\(\s*DISTINCT\b')
+
+
+def hint(original, mutant, index_only):
+    """The known MariaDB issue that a reduced pair looks like, or ''.  A hint, not a
+    verdict: it is checked against the classified pairs of results/mariadb-campaign.jsonl
+    (bridge/test_bridge.py), and a new defect can have the look of a known one."""
+    o, both = original.upper(), (original + ' ' + mutant).upper()
+    having = o.rfind(' HAVING ')
+    if ' OVER ' in both and DISTINCT_AGGREGATE.search(both) and (' JOIN ' in o or ' IN (SELECT ' in o):
+        return '010'        # a window, a DISTINCT aggregate, a (semi-)join
+    if having >= 0 and ' IN (SELECT ' in o[having:]:
+        return '003'        # HAVING <aggregate> IN (subquery)
+    if index_only and ' IN (SELECT ' in o:
+        return '012'        # IN (subquery) that needs an index to go wrong
+    if o.startswith('SELECT DISTINCT') and ' GROUP BY ' in o and re.search(r'\b(AVG|STD\w*|VAR\w*)\s*\(', o):
+        return '009'        # an aggregate computed at the end, under SELECT DISTINCT
+    if re.search(r' GROUP BY .*%', o) and DISTINCT_AGGREGATE.search(both):
+        return '013'        # GROUP BY x % n with a DISTINCT aggregate on one side
+    return ''
 
 
 def reduced_pair(script):
@@ -88,11 +111,13 @@ def main():
         if pair is None:
             r['reduced_original'], r['reduced_mutant'] = r['original'], r['mutant']
             r['shape'] = 'not reduced: ' + shape(r['original'])
+            r['hint'] = ''
             print('pair %d (seed %d): not reduced (%s)'
                   % (n, r['seed'], 'timeout' if p is None else p.stderr.strip()[-120:]), flush=True)
         else:
             r['reduced_original'], r['reduced_mutant'] = pair
             r['shape'] = shape(pair[0])
+            r['hint'] = hint(pair[0], pair[1], not violated(r['no_indexes']))
             with open(os.path.join(a.out_dir, 'pair-%d.sql' % n), 'w') as f:
                 f.write(p.stdout)
             print('pair %d (seed %d): %s' % (n, r['seed'], pair[0][:150]), flush=True)
@@ -103,11 +128,14 @@ def main():
     groups = collections.defaultdict(list)
     for r in live:
         groups[(r['rule'], r['shape'])].append(r)
-    print('\n| Pairs | Rule | Without indexes | Seeds | Reduced original (first pair) |\n| --- | --- | --- | --- | --- |')
+    print('\n| Pairs | Rule | Looks like | Without indexes | Seeds | Reduced original (first pair) |\n'
+          '| --- | --- | --- | --- | --- | --- |')
     for (rule, _), rs in sorted(groups.items(), key=lambda kv: -len(kv[1])):
         still = sum(violated(r['no_indexes']) for r in rs)
-        print('| %s | `%s` | %d of %d violated | %s | `%s` |'
-              % (', '.join(str(r['pair']) for r in rs), rule, still, len(rs),
+        hints = sorted({r['hint'] for r in rs})
+        print('| %s | `%s` | %s | %d of %d violated | %s | `%s` |'
+              % (', '.join(str(r['pair']) for r in rs), rule,
+                 ', '.join('issue ' + h if h else 'nothing known' for h in hints), still, len(rs),
                  ', '.join(sorted({str(r['seed']) for r in rs}, key=int)), rs[0]['reduced_original']))
     gone = [r for r in recs if not violated(r['recheck'])]
     if gone:

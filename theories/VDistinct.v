@@ -154,3 +154,49 @@ Proof.
         assert (n = na) by congruence. subst n.
         apply covers_refl. intros row Hr. rewrite (teval_length env db a na row Ea (meval_in _ _ _ _ _ Hr)). exact Hj.
 Qed.
+
+(** When the mutation lies outside the DISTINCT parts (the parts under [MOne true] are the
+    same term), the rows still correspond one to one: the stronger relation of
+    [tmut_sound], which the checker then uses instead of the cover. *)
+Fixpoint same_under (m : mask) (t t' : vtop) : Prop :=
+  match m, t, t' with
+  | MOne true, _, _ => t = t'
+  | MUnion ma mb, VUnionAll a b, VUnionAll a' b' => same_under ma a a' /\ same_under mb b b'
+  | _, _, _ => True
+  end.
+
+Lemma forall2_refl_meval : forall env db m t n r j, tarity t = Some n -> j < n ->
+  Forall2 (row_rel r j) (meval env db m t) (meval env db m t).
+Proof.
+  intros env db m t n r j Ht Hj. apply forall2_refl_rows. intros row Hr.
+  rewrite (teval_length env db t n row Ht (meval_in _ _ _ _ _ Hr)). exact Hj.
+Qed.
+
+Theorem tmut_mask_plain_sound : forall rs t m name r j t',
+  In (name, (r, (j, t'))) (tmut rs t) -> same_under m t t' ->
+  forall env db, Forall2 (row_rel r j) (meval env db m t) (meval env db m t').
+Proof.
+  intros rs t. induction t as [v|a IHa b IHb]; intros m name r j t' H S env db.
+  - pose proof (tmut_sound rs _ _ _ _ _ H env db) as F.
+    destruct (tmut_shape rs _ _ _ _ _ H) as [n [Ht [_ Hj]]].
+    simpl in H. apply in_map_iff in H as [[n0 [r0 [j0 v']]] [E Hin]]. simpl in E. inversion E; subst.
+    destruct m as [[|]|ma mb]; try exact F.
+    simpl in S. rewrite <- S. exact (forall2_refl_meval env db (MOne true) (VOne v) n r j Ht Hj).
+  - pose proof (tmut_sound rs _ _ _ _ _ H env db) as F.
+    destruct (tmut_shape rs _ _ _ _ _ H) as [n [Ht [_ Hj]]].
+    destruct m as [[|]|ma mb].
+    + simpl in S. rewrite <- S. exact (forall2_refl_meval env db (MOne true) _ n r j Ht Hj).
+    + exact F.
+    + simpl in H.
+      destruct (tarity a) as [na|] eqn:Ea; destruct (tarity b) as [nb|] eqn:Eb; simpl in H;
+        rewrite ?Ea, ?Eb in H; try contradiction.
+      destruct (Nat.eqb na nb) eqn:Enb; [|contradiction]. apply Nat.eqb_eq in Enb. subst nb.
+      apply in_app_or in H as [H|H]; unfold tmap in H; apply in_map_iff in H as [[n0 [r0 [j0 x]]] [Em Hin]];
+        simpl in Em; inversion Em; subst; simpl in S |- *; destruct S as [Sa Sb]; apply Forall2_app.
+      * exact (IHa ma _ _ _ _ Hin Sa env db).
+      * destruct (tmut_shape rs a _ _ _ _ Hin) as [k [Ha [_ Hk]]]. assert (k = na) by congruence. subst k.
+        exact (forall2_refl_meval env db mb b na r j Eb Hk).
+      * destruct (tmut_shape rs b _ _ _ _ Hin) as [k [Hb [_ Hk]]]. assert (k = na) by congruence. subst k.
+        exact (forall2_refl_meval env db ma a na r j Ea Hk).
+      * exact (IHb mb _ _ _ _ Hin Sb env db).
+Qed.

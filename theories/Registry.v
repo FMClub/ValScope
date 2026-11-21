@@ -150,3 +150,11 @@ Theorem shmutate_sound : forall d s name s', In (name, s') (shmutate d s) -> dle
 Proof. intros d s name s'. apply shmut_sound. Qed.
 
 Print Assumptions shmutate_sound.
+
+(** A mutation outside the DISTINCT parts keeps the one-to-one correspondence of rows. *)
+Theorem tmutate_mask_plain_sound : forall t m name r j t',
+  In (name, (r, (j, t'))) (tmutate t) -> same_under m t t' ->
+  forall env db, Forall2 (row_rel r j) (meval env db m t) (meval env db m t').
+Proof. intros t m name r j t'. apply tmut_mask_plain_sound. Qed.
+
+Print Assumptions tmutate_mask_plain_sound.

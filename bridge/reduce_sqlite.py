@@ -185,11 +185,10 @@ class Judge:
                 trs = []
                 original, vm, _, _, hm = mutate_value(sql, dialect='sqlite', translation=trs, schema=self.schema,
                                                       exact_columns=self.exact)
-                if bool(trs[0].value_cover) != self.cover:
-                    return None
                 if self.kind == 'value':
                     rel = self._relation(self.expect)
-                    cands = [(m, (r0, c)) for r0, r, c, m in vm if r == self.rule and (r0, c) == rel]
+                    cands = [(m, (r0, c)) for r0, r, c, m in vm if r == self.rule and (r0, c) == rel
+                             and bool(trs[0].cover_for(m)) == self.cover]
                 else:
                     cands = [(m, None) for d, r, m in hm if 'HAVING ' + r == self.rule and d == self.expect]
         except Exception:

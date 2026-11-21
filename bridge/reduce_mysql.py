@@ -35,6 +35,15 @@ class Judge:
         self.rule = rec['rule']
         self.value = ' col ' in rec['expect']
         self.having = self.rule.startswith('HAVING ')
+        if self.value and 'distinct' not in rec:
+            # a record of an older run: is the pair checked by a cover (VDistinct.v)?
+            trs = []
+            try:
+                mutate_value(rec.get('query') or rec['original'], dialect='mysql', translation=trs,
+                             schema=target.schema, exact_columns=target.exact)
+                rec['distinct'] = bool(trs[0].cover_for(rec['mutant']))
+            except Exception:
+                rec['distinct'] = rec['original'].upper().startswith('SELECT DISTINCT')
 
     def violated(self, original, mutant, rel=None):
         base, _ = self.t.run(original)
@@ -56,10 +65,10 @@ class Judge:
                 trs = []
                 original, vm, _, _, hm = mutate_value(sql, dialect='mysql', translation=trs, schema=self.t.schema,
                                                       exact_columns=self.t.exact)
-                self.rec['distinct'] = trs[0].value_cover
                 if self.value:
                     relation, _, column = self.rec['expect'].split()
-                    cands = [m for r0, r, c, m in vm if r == self.rule and r0 == relation and c == int(column)]
+                    cands = [m for r0, r, c, m in vm if r == self.rule and r0 == relation and c == int(column)
+                             and bool(trs[0].cover_for(m)) == bool(self.rec.get('distinct', False))]
                 else:
                     cands = [m for d, r, m in hm if 'HAVING ' + r == self.rule and d == self.rec['expect']]
             else:

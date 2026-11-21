@@ -172,7 +172,7 @@ def main():
         shapes = {}
         for kind, sql in queries:
             st['queries'] += 1
-            numeric_probe, distinct = None, False
+            numeric_probe, value_tr = None, None
             try:
                 if kind == 'set':
                     original, mutants, skipped = mutate_sql(sql, dialect='sqlite', schema=schema, exact_columns=exact)
@@ -183,7 +183,7 @@ def main():
                                                                          schema=schema, exact_columns=exact)
                     work = [('value', m) for m in mutants] + [('having', m) for m in having]
                     numeric_probe = trs[0].numeric_probe()
-                    distinct = trs[0].value_cover
+                    value_tr = trs[0]
             except Unsupported:
                 st['unsupported'] += 1
                 continue
@@ -225,6 +225,8 @@ def main():
                         else:
                             m = ('Down' if m[0] == 'Up' else 'Up',) + tuple(m[1:])
                     fold = db.folds(base_collations, db.last_collations, db.fallback)
+                    # a cover only when the mutation is in a part under DISTINCT (VDistinct.v)
+                    distinct = bool(mk == 'value' and value_tr.cover_for(mutant[-1]))
                     verdict, label = verdict_for(mk, m, base, res, fold, distinct)
                     rule = ('HAVING ' if mk == 'having' else '') + m[1]
                     if verdict not in ('incomparable',):

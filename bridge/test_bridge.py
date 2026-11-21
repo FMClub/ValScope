@@ -538,6 +538,42 @@ report(len(base) == 5 and mutants and all(check_value(r0, c, base, con2.execute(
                                           for r0, _, c, m in mutants),
        'DISTINCT arm of a UNION ALL on SQLite: every mutant covers (%d mutants)' % len(mutants))
 
+# a mutation outside the DISTINCT part keeps the one-to-one check (tmutate_mask_plain_sound)
+trs = []
+_, mutants, _, _, _ = mutate_value('SELECT t.a AS a, t.x AS m FROM t UNION ALL SELECT DISTINCT u.b AS a, u.y AS m FROM u',
+                                   translation=trs)
+plain = [m for m in mutants if 'SELECT DISTINCT u.b AS a, u.y AS m FROM u' in m[3]]
+inside = [m for m in mutants if m not in plain]
+report(plain and inside and not any(trs[0].cover_for(m[3]) for m in plain) and all(trs[0].cover_for(m[3]) for m in inside),
+       'DISTINCT arm: exact check for mutants of the plain arm (%d), cover for the DISTINCT arm (%d)' % (len(plain), len(inside)))
+# a mutant of a window item parses back; named windows and FILTER are rejected cleanly
+_, mutants, _, _, _ = mutate_value('SELECT t.a AS a, RANK() OVER (ORDER BY t.x) AS r FROM t')
+report(any(c == 1 for _, _, c, _ in mutants), 'window item: its own mutants (window + k) survive the round trip')
+for sql in ['SELECT t.a AS a, SUM(t.x) OVER w AS r FROM t WINDOW w AS (ORDER BY t.x)',
+            'SELECT t.a AS a, SUM(t.x) FILTER (WHERE t.x > 1) OVER (ORDER BY t.a) AS s FROM t']:
+    try:
+        mutate_value(sql, dialect='sqlite')
+        report(False, 'named window / FILTER must be rejected')
+    except Unsupported as e:
+        report(True, 'named window / FILTER rejected: %s' % e)
+    except Exception as e:
+        report(False, 'named window / FILTER: %s' % type(e).__name__)
+# SUM / AVG of integer columns are exact: allowed in operands of INTERSECT / EXCEPT
+from sql_bridge import ExactColumns  # noqa: E402
+ex = ExactColumns({'a': 'integer', 'x': 'integer'})
+ex.by_table = {('t', 'a'): 'integer', ('t', 'x'): 'integer', ('u', 'a'): 'integer', ('u', 'x'): 'real'}
+sch = {'t': ['a', 'x'], 'u': ['a', 'x']}
+q_int = ('SELECT t.a AS a, SUM(t.x - 5) AS s FROM t GROUP BY t.a HAVING COUNT(*) > 1 INTERSECT '
+         'SELECT t.a AS a, AVG(t.x % 3) AS s FROM t GROUP BY t.a')
+_, _, _, _, hm = mutate_value(q_int, dialect='sqlite', schema=sch, exact_columns=ex)
+report(bool(hm), 'INTERSECT: SUM / AVG over integer columns accepted')
+try:
+    mutate_value(q_int.replace('AVG(t.x % 3) AS s FROM t GROUP BY t.a', 'AVG(u.x) AS s FROM u GROUP BY u.a').replace(
+        'SELECT t.a AS a, AVG', 'SELECT u.a AS a, AVG'), dialect='sqlite', schema=sch, exact_columns=ex)
+    report(False, 'INTERSECT: AVG over a REAL column must be rejected')
+except Unsupported:
+    report(True, 'INTERSECT: AVG over a REAL column rejected')
+
 # INTERSECT / EXCEPT of value queries (VSet.v, shmutate_sound): HAVING mutants only, the
 # direction flipped in the right operand of EXCEPT
 q_ex = ("SELECT t.a AS a, COUNT(*) AS c FROM t GROUP BY t.a EXCEPT "

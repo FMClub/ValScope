@@ -347,7 +347,7 @@ def main():
                     relation = FLIP_VALUE[relation]
                 loose = single or (types is not None and target.SINGLE in (base_types[column], types[column]))
                 verdict = check_value(relation, column, base, res, single_precision=loose, fold=fold,
-                                      cover=bool(trs) and trs[0].value_cover)
+                                      cover=bool(trs) and trs[0].cover_for(text))
                 label = '%s col %d' % (relation, column)
             else:
                 # set-semantic mutant, or a mutant of the HAVING predicate
@@ -372,7 +372,8 @@ def main():
                     print('VIOLATION %s %s (%s)\n  original: %s\n  mutant  : %s'
                           % (label, rule, verdict, original, text))
                     if out:
-                        out.write(json.dumps({'rule': rule, 'expect': label, 'verdict': verdict,
+                        cover = bool(args.value and len(mutant) == 4 and trs and trs[0].cover_for(text))
+                        out.write(json.dumps({'rule': rule, 'expect': label, 'verdict': verdict, 'distinct': cover,
                                               'query': sql, 'original': original, 'mutant': text,
                                               'original_rows': len(base), 'mutant_rows': len(res)}) + '\n')
                         out.flush()

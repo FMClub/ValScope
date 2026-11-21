@@ -620,6 +620,15 @@ def _bare_columns(select):
     return bare
 
 
+def _same_under(mask, t, u):
+    """VDistinct.v, same_under: the terms t and u are equal in the parts under DISTINCT."""
+    if mask == ('one', True):
+        return t == u
+    if mask[0] == 'union' and t[0] == 'VUnionAll' and u[0] == 'VUnionAll':
+        return _same_under(mask[1], t[1], u[1]) and _same_under(mask[2], t[2], u[2])
+    return True
+
+
 def _mask_any(mask):
     """Is some part of the value query under DISTINCT?"""
     return mask[1] is True if mask[0] == 'one' else _mask_any(mask[1]) or _mask_any(mask[2])
@@ -632,6 +641,10 @@ DETERMINED_WINDOWS = {'RANK', 'DENSE_RANK', 'PERCENT_RANK', 'CUME_DIST', 'COUNT'
 
 def _window_undetermined(w):
     f = w.this
+    if not isinstance(f, (exp.Func, exp.Anonymous)) or w.args.get('alias'):
+        # WINDOW w AS (...), OVER w, or SUM(...) FILTER (...) OVER (...): the frame is not
+        # in this node
+        return 'a named window or FILTER (not modelled)'
     name = (f.name if isinstance(f, exp.Anonymous) else f.sql_name()).upper()
     if name not in DETERMINED_WINDOWS:
         return 'window function %s (its value can differ between identical rows)' % name
@@ -765,10 +778,16 @@ class Translation:
         # a value query under DISTINCT, or a UNION of value queries (VDistinct.v): the
         # mutants are those of the query without it, and the check is a cover
         self.value_distinct, self.value_cover, self.value_mask = False, False, ('one', False)
+        self.cover_by_text = {}             # value mutant SQL -> is its check a cover?
         self.term = self._query(tree) if kind == 'set' else self._value_top(tree, top=True)
         why = outside_collation_law(self, self.term)
         if why:
             raise Unsupported('outside the model: ' + why)
+
+    def cover_for(self, mutant_sql):
+        """Is the value mutant checked by a cover (VDistinct.v) rather than a one-to-one
+        correspondence?  Only when the mutation lies in a part under DISTINCT."""
+        return self.cover_by_text.get(mutant_sql, self.value_cover)
 
     # ------------------------------------------------------------ SQL -> term
     def _text(self, node):
@@ -1133,9 +1152,23 @@ class Translation:
             # make a row enter or leave the result without a bug
             # (a function of one row is computed the same way in every plan; an aggregate
             # that adds floats is not)
-            for tag in ('ASum', 'AAvg', 'AVar', 'AStd'):
-                if '(%s ' % tag in term:
-                    raise Unsupported('%s in an operand of INTERSECT / EXCEPT (rounding)' % tag)
+            # A SUM or AVG of integers is exact: its argument reads only columns that hold
+            # integers on this database and uses + - * % only.
+            def rounding(t):
+                if not isinstance(t, list) or not t:
+                    return None
+                if isinstance(t[0], str) and t[0] in ('AVar', 'AStd'):
+                    return t[0]
+                if isinstance(t[0], str) and t[0] in ('ASum', 'AAvg') and not self._integer_expr(t[1]):
+                    return t[0]
+                for x in t:
+                    r = rounding(x)
+                    if r:
+                        return r
+                return None
+            tag = rounding(parse_sexp(term))
+            if tag:
+                raise Unsupported('%s in an operand of INTERSECT / EXCEPT (rounding)' % tag)
             for text in self.opaque_items:
                 if re.search(r'\b(SUM|AVG|VAR\w*|VARIANCE|STD\w*)\s*\(', text, re.I):
                     raise Unsupported('an opaque sum in an operand of INTERSECT / EXCEPT (rounding)')
@@ -1147,6 +1180,26 @@ class Translation:
             self.value_distinct = mask == ('one', True)          # the whole result
             self.value_cover = _mask_any(mask)                   # a cover check, not Forall2
         return term
+
+    def _integer_expr(self, e):
+        """Is the expression term e integer arithmetic over columns that hold only integers
+        (or NULL) on the database under test?"""
+        by_table = getattr(self.exact_columns, 'by_table', None) or {}
+        try:
+            tree = sqlglot.parse_one(self._e_sql(e), read=self.dialect)
+        except Exception:
+            return False
+        for n in tree.walk():
+            if isinstance(n, exp.Column):
+                if _column_class(n, self._sources, by_table, self.schema) != 'integer':
+                    return False
+            elif isinstance(n, exp.Literal):
+                if not n.is_int:
+                    return False
+            elif not isinstance(n, (exp.Add, exp.Sub, exp.Mul, exp.Mod, exp.Neg, exp.Paren, exp.Identifier,
+                                    exp.TableAlias)):
+                return False
+        return True
 
     def _set_part(self, node):
         node = self._unwrap(node)
@@ -1282,7 +1335,9 @@ class Translation:
         if isinstance(node, exp.Paren):
             return self._item(node.this, key_texts)
         windows = [inner for inner in node.walk() if isinstance(inner, exp.Window)]
-        if windows:
+        if windows and not isinstance(node, (exp.Add, exp.Mul)):
+            # (a sum or product is split first, so that a mutant `window + k` of the engine
+            # parses back to its term; the window is then the opaque operand)
             # In a query without aggregation (each row its own group) a window function
             # whose value is the same for identical rows is, for the given database and
             # the unchanged input of the query, a function of the row: an opaque item
@@ -2207,6 +2262,9 @@ def mutate_value(sql, cli=DEFAULT_CLI, dialect='mysql', translation=None, schema
             continue
         if len(fields) == 4:
             relation, rule, column, _ = fields
+            # outside the DISTINCT parts the rows correspond one to one (tmutate_mask_plain_sound)
+            tr.cover_by_text[text] = tr.value_cover and not _same_under(
+                tr.value_mask, parse_sexp(tr.term), parse_sexp(fields[-1]))
             mutants.append((relation, rule, int(column), text))
         else:
             direction, rule, _ = fields

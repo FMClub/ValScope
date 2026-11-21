@@ -30,6 +30,11 @@ jobs:
         run: bridge/build_old_sqlite.sh /tmp/sqlite-libs
       - name: Tests (proof assumptions, abstract rules, bridge, checker)
         run: SQLITE_LIBS=/tmp/sqlite-libs make test
+      - name: Replay the recorded, reduced SQLite pairs on the releases that reported them
+        # every known bug must still be detected (a change of the checker that hides one fails here)
+        run: |
+          L=/tmp/sqlite-libs
+          scripts/replay_reduced_sqlite.py --lib 3.26.0=$L/libsqlite3-3260000.so --lib 3.30.1=$L/libsqlite3-3300100.so --lib 3.31.1=$L/libsqlite3-3310100.so --lib 3.34.0=$L/libsqlite3-3340000.so
       - name: End to end on SQLite
         # the SQLite of ubuntu-24.04 (3.45.1); the old releases above are tested by the campaign
         run: N=60 scripts/demo.sh sqlite

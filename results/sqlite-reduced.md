@@ -274,13 +274,13 @@ databases to 6 statements on average (5 to 14); 59 of the 60 databases no longer
     mutant  : SELECT t1a.c4 AS k1 FROM t1 AS t1a CROSS JOIN t1 AS t1b INNER JOIN t1 AS t1c ON t1b.c4 IN (SELECT t3i93.c7 FROM t3 AS t3i93)
     rows    : 36 / 6
 
--- pair 53 (HAVING cond->TRUE, expected Up): 316 -> 138 characters
-    original: SELECT COUNT(t2a.c1) AS k2 FROM t2 AS t2a GROUP BY (t2a.c1 % 5) HAVING ((((((((COUNT(t2a.c1))))))))) IN (SELECT t1h40.c4 FROM t1 AS t1h40)
+-- pair 53 (HAVING cond->TRUE, expected Up): 316 -> 124 characters
+    original: SELECT COUNT(t2a.c1) AS k2 FROM t2 AS t2a GROUP BY (t2a.c1 % 5) HAVING (COUNT(t2a.c1)) IN (SELECT t1h40.c4 FROM t1 AS t1h40)
     mutant  : SELECT COUNT(t2a.c1) AS k2 FROM t2 AS t2a GROUP BY (t2a.c1 % 5)
     rows    : 2 / 4
 
--- pair 54 (HAVING cond->TRUE, expected Up): 316 -> 138 characters
-    original: SELECT COUNT(t2a.c1) AS k2 FROM t2 AS t2a GROUP BY (t2a.c1 % 5) HAVING ((((((((COUNT(t2a.c1))))))))) IN (SELECT t1h40.c4 FROM t1 AS t1h40)
+-- pair 54 (HAVING cond->TRUE, expected Up): 316 -> 124 characters
+    original: SELECT COUNT(t2a.c1) AS k2 FROM t2 AS t2a GROUP BY (t2a.c1 % 5) HAVING (COUNT(t2a.c1)) IN (SELECT t1h40.c4 FROM t1 AS t1h40)
     mutant  : SELECT COUNT(t2a.c1) AS k2 FROM t2 AS t2a GROUP BY (t2a.c1 % 5)
     rows    : 2 / 4
 

@@ -549,6 +549,32 @@ and fixed its bug (self-contained scripts in `results/sqlite-repro/`). Details a
 [`results/sqlite-bisect.md`](results/sqlite-bisect.md),
 [`results/sqlite-reduced.md`](results/sqlite-reduced.md).
 
+## Results on MariaDB and MySQL
+
+There is no reference release for these servers, so each finding is a candidate, reduced by
+hand or by `bridge/reduce_mysql.py` to a short script in `data/mariadb/` that CI runs on
+MariaDB 10.11, 11.4 and 11.8 and on MySQL 8.4 and 9. None was reported upstream (no access
+to the trackers from the environment this was written in). The columns say where the
+script gives a wrong result.
+
+| Issue | What | MariaDB 10.11.14 | MariaDB 11.4.13 / 11.8.9 | MySQL 8.4.13 / 9.7.4 |
+| --- | --- | --- | --- | --- |
+| [003](issues/003-mariadb-having-count-in-subquery.md) | `HAVING <aggregate> IN (subquery)` finds no match | wrong | fixed for the minimal case; wrong when the subquery has an `IN` subquery | correct |
+| [005](issues/005-mariadb-bit-min-max-text.md) | `MIN` / `MAX` of a `BIT` column return decimal text | wrong | wrong | correct in the minimal case |
+| [006](issues/006-mariadb-bit-subquery-loose-scan.md) | a `BIT(8)` scalar subquery under a loose index scan returns 255 | wrong | wrong | correct |
+| [008](issues/008-mysql-intersect-not-null-outer-join.md) | `INTERSECT` matches a `NOT NULL` column with the `NULL` of an outer join | correct | correct | wrong (9.7.4: the larger case only) |
+| [009](issues/009-mariadb-distinct-avg-last-group.md) | `SELECT DISTINCT` over a grouped query: `AVG`, `STDDEV`, `VAR` of another group, NULLs, missing rows | wrong | wrong | correct |
+| [010](issues/010-mariadb-window-distinct-aggregate-having.md) | a window function with a `DISTINCT` aggregate in a grouped join: `HAVING` applied wrongly, `RANK() + 3` is 0 | wrong | wrong | correct |
+| [011](issues/011-mariadb-double-md-group-by.md) | `GROUP BY` on a `DOUBLE(M,D)` expression groups by the rounded or the exact value depending on the aggregates | wrong | wrong | correct |
+| [012](issues/012-mariadb-in-date-index-null.md) | `x IN (SELECT date_column ...)` is FALSE instead of NULL when the column is indexed and `x` is not a date | wrong | wrong | correct |
+| [013](issues/013-mariadb-decimal-negative-zero-group.md) | the DECIMAL `-0.00` (from `-3.00 % 3`) is grouped with `0.00` or apart depending on an unrelated aggregate | wrong | wrong | correct |
+| [014](issues/014-mariadb-subquery-cache-collation.md) | the subquery cache matches `'A'` and `'a'` of a `_ci` outer column although the subquery compares under `_bin`: the result depends on the order of the rows | wrong | wrong | correct |
+
+Not counted: [002](issues/002-mariadb-enum-max-having.md) (probably intended behaviour) and
+[007](issues/007-sqlite-compound-collation.md) (SQLite, perhaps intended). The campaigns over
+random databases that found 012, 013 and 014 and re-found the others on 172 pairs are in
+[`results/mariadb-campaign.md`](results/mariadb-campaign.md).
+
 ## Not done yet
 
 - Value mutation applies to the select items of a `SELECT` or of the arms of a `UNION ALL`.

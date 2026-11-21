@@ -189,7 +189,11 @@ fixes of PR #1 are merged; the design problems below are still open.
    issues 003, 010, 012 and 013 again, three of them in new forms, and five false alarms of
    the tool, fixed. MySQL 8.4.13 in CI (12 databases): no violation. Open: MySQL refused
    166 mutants in that run (reported from the next run on); larger MySQL campaigns need a
-   local server, which this environment does not have.
+   local server, which this environment does not have. Round 10: the rich generator, made
+   to write MySQL spelling, found `issues/014` on its first run (the subquery cache keys a
+   `_ci` outer column while the subquery compares under `_bin`; rows appear or disappear
+   with the order of the table). CI now also runs the campaign on MariaDB 11.4, 11.8 and
+   MySQL 9.
 1b. **MySQL 8.4.13 (CI, sixth round)**: the Python-generator run reports one `DISTINCT-add`
    violation on the `MIN(BIT)` query that also shows issue 005 on MariaDB: the original
    returns the decimal text `'14'`, the mutant the bit value `0x0E` (`issues/005`, section

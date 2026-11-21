@@ -169,11 +169,23 @@ def main():
                 cur.execute('SELECT * FROM %s.`%s`' % (SCRATCH, t))
                 rows = list(cur.fetchall())
                 cols = [d[0] for d in cur.description]
-                for row in rows:
-                    cond = ' AND '.join('`%s` <=> %%s' % c for c in cols)
-                    cur.execute('DELETE FROM %s.`%s` WHERE %s LIMIT 1' % (SCRATCH, t, cond), row)
-                    if not judge.violated(original, mutant):
-                        cur.execute('INSERT INTO %s.`%s` VALUES (%s)' % (SCRATCH, t, ', '.join(['%s'] * len(cols))), row)
+                insert = 'INSERT INTO %s.`%s` VALUES (%s)' % (SCRATCH, t, ', '.join(['%s'] * len(cols)))
+
+                def rewrite(content):
+                    # the rows in their order: a table without a primary key is read in the
+                    # order of insertion, and a defect can depend on it (issues/014), so a row
+                    # that must stay is not deleted and added back at the end
+                    cur.execute('DELETE FROM %s.`%s`' % (SCRATCH, t))
+                    if content:
+                        cur.executemany(insert, content)
+                kept, i = list(rows), 0
+                while i < len(kept):
+                    rewrite(kept[:i] + kept[i + 1:])
+                    if judge.violated(original, mutant):
+                        del kept[i]
+                    else:
+                        i += 1
+                rewrite(kept)
                 cur.execute('SELECT COUNT(*) FROM %s.`%s`' % (SCRATCH, t))
                 print('  %s: %d -> %d rows' % (t, len(rows), cur.fetchone()[0]), file=log)
             # then the secondary indexes: each is dropped, and added back if the pair is no

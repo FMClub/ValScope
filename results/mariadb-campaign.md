@@ -51,6 +51,28 @@ indexes, reduced it and grouped the pairs by the shape of the reduced query.
 No new defect; no pair is left unexplained. The four known defects are found again on
 fifty other databases, three of them in forms that the issues did not have yet.
 
+## Third and fourth campaign (round 10): the rich generator
+
+`--rich` adds opaque predicates, derived tables and expressions in the select list. It was
+written for SQLite; the third campaign (seeds 91-130) showed that MariaDB refused 737 of
+its 3200 queries (`GLOB`, `IS <value>`, `COLLATE NOCASE`, `||`, `likely`). The generator now
+writes the MySQL spelling for a MySQL database, and the fourth campaign used it:
+
+```bash
+python3 bridge/campaign_mysql.py --seeds 131-170 --queries 40 --rich --value-ext --no-value-distinct --port 3306 --password 123456 --out violations.jsonl
+```
+
+| Campaign | Queries (supported) | Checks passed | Pairs | Classes |
+| --- | --- | --- | --- | --- |
+| 3 (seeds 91-130, SQLite spelling) | 3200 (2221) | 44102 | 9 | `issues/013`: 5, `issues/003`: 2, `issues/012`: 2 |
+| 4 (seeds 131-170) | 3200 (2947) | 70643 | 8 | `issues/013`: 7, **`issues/014` (new): 1** |
+
+`issues/014`: the subquery cache looks its key up under the collation of the outer column
+(`utf8mb4_general_ci`) while the subquery compares under `utf8mb4_bin`; `'A'` and `'a'` share
+one entry, so `WHERE 0 OR s IN (SELECT v FROM b)` and `WHERE s IN (SELECT v FROM b)` return
+different rows. Found by `OR-drop-operand` on seed 147. The hints of `scripts/triage_mysql.py`
+named the issue of the other sixteen pairs; each was confirmed on its reduced script.
+
 ## MySQL
 
 CI runs the campaign on MySQL 8.4 (seeds 1-12, 960 queries) and prints the candidates with
@@ -58,9 +80,9 @@ their triage. First run (8.4.13): 36003 checks passed, no violation.
 
 ## The records
 
-`results/mariadb-campaign.jsonl` has the 155 pairs that are still violated (campaign, seed,
+`results/mariadb-campaign.jsonl` has the 172 pairs that are still violated (campaign, seed,
 rule, expected relation, verdict, original, mutant, the issue they were assigned to; for the
-second campaign also the reduced pair and the verdict without secondary indexes). A pair is
+campaigns after the first also the reduced pair and the verdict without secondary indexes). A pair is
 reproduced with `python3 bridge/gen_mysql_db.py SEED | mysql --force DATABASE` and its two queries.
 
 In the first campaign nearly nine pairs out of ten come from one defect family (issue 009),

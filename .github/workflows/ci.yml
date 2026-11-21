@@ -119,6 +119,8 @@ jobs:
         run: |
           mariadb -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mariadb/in-date-index-null.sql
           mariadb -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mariadb/decimal-negative-zero.sql
+      - name: "The candidate of issue 014: subquery cache and two collations (expected 0 for A, 1 for a, row 2)"
+        run: mariadb -h127.0.0.1 -uroot -p123456 --force --skip-column-names < data/mariadb/subquery-cache-collation.sql || true
       - name: Reduce the pair of issue 009 (test of bridge/reduce_mysql.py)
         run: |
           python3 bridge/reduce_mysql.py out/violations.jsonl --key 'expr->expr+k|38b7c18e86d54299' --password 123456 --database test > /tmp/reduced-009.sql
@@ -198,6 +200,8 @@ jobs:
         run: mysql -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mariadb/in-date-index-null.sql || true
       - name: "issue 013: DECIMAL -0.00 in GROUP BY (expected 1 group everywhere, equal 1)"
         run: mysql -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mariadb/decimal-negative-zero.sql || true
+      - name: "issue 014: subquery cache and two collations (expected 0 for A, 1 for a, row 2)"
+        run: mysql -h127.0.0.1 -uroot -p123456 --force --skip-column-names < data/mariadb/subquery-cache-collation.sql || true
       - name: No violation outside the baseline (issues 005, 008 are known)
         run: scripts/check_violations.py out/violations.jsonl data/ci-baseline/mysql.txt
       - name: Reduce the pair of issue 008 (query and data)
@@ -269,6 +273,8 @@ jobs:
         run: mysql -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mariadb/in-date-index-null.sql || true
       - name: "issue 013: DECIMAL -0.00 in GROUP BY (expected 1 group everywhere, equal 1)"
         run: mysql -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mariadb/decimal-negative-zero.sql || true
+      - name: "issue 014: subquery cache and two collations (expected 0 for A, 1 for a, row 2)"
+        run: mysql -h127.0.0.1 -uroot -p123456 --force --skip-column-names < data/mariadb/subquery-cache-collation.sql || true
       - name: Build the mutator (for the campaign below)
         if: always()
         run: |

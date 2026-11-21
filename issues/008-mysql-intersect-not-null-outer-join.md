@@ -1,7 +1,48 @@
-# 008: MySQL INTERSECT matches a NOT NULL column with the NULL of an outer join
+# 008: MySQL INTERSECT and EXCEPT match a NULL with a NOT NULL value of the other operand (the NULL of an outer join, or 0)
 
-Status: open, candidate (MySQL 8.4.13: minimal case; MySQL 9.7.4: only the larger case on
-the sample database, see below; MariaDB 10.11.14 and 11.8.9 are correct). Found by `scripts/demo.sh mariadb` on MySQL with N=300 (rule `DISTINCT-add`).
+Status: open, candidate (MySQL 8.0.46, 8.4.13 and 9.7.4 with the form of round 12 below;
+the first minimal case on 8.4.13 only; MariaDB 10.11.14 and 11.8.9 are correct). Found by `scripts/demo.sh mariadb` on MySQL with N=300 (rule `DISTINCT-add`).
+
+## A simpler form: NULL matches 0 (round 12, `data/mysql/intersect-null-zero.sql`)
+
+The campaign on MySQL 9.7.4 (seed 177, rule `cmp-weaken`) led to a form without an outer
+join and without a `NOT NULL` column, wrong in every MySQL release tried:
+
+```sql
+CREATE TABLE t (a INT, b INT);
+INSERT INTO t VALUES (-1, 3), (5, NULL);
+
+-- the left operand is {NULL}, the right operand {0, 0}: nothing is in both.
+SELECT COUNT(*) FROM ((SELECT t.b AS k FROM t WHERE t.a = 5) INTERSECT ALL (SELECT 0 AS k FROM t)) AS r;
+-- expected 0.  MySQL 8.0.46 and 8.4.13: 1.  MySQL 9.7.4: 0.
+
+((SELECT t.a AS k FROM t WHERE 0) UNION (SELECT t.b AS k FROM t WHERE t.a = 5)) INTERSECT ALL (SELECT 0 AS k FROM t);
+-- expected no row.  MySQL 9.7.4: one row, 0.  MySQL 8.0.46 and 8.4.13: no row.
+```
+
+| Compound (B: at the top level; W: as a derived table, `COUNT(*)`) | expected | 8.0.46 | 8.4.13 | 9.7.4 | MariaDB 10.11.14 |
+| --- | --- | --- | --- | --- | --- |
+| B1 `(empty UNION {NULL}) INTERSECT ALL {0, 0}` | no row | no row | no row | **0** | no row |
+| B2 the same with `INTERSECT` | no row | no row | no row | **0** | no row |
+| B3 `{NULL} INTERSECT ALL {0, 0}` | no row | no row | no row | no row | no row |
+| B4 B1 with 7 instead of 0 | no row | no row | no row | no row | no row |
+| B5 `{0, 0} EXCEPT ALL (empty UNION {NULL})` | 0, 0 | 0, 0 | 0, 0 | **0** | 0, 0 |
+| B6 `({NULL} UNION {NULL}) INTERSECT ALL {0, 0}` | no row | no row | no row | **0** | no row |
+| W1 | 0 | **1** | **1** | **1** | 0 |
+| W2 | 0 | **1** | **1** | **1** | 0 |
+| W3 | 0 | **1** | **1** | 0 | 0 |
+| W4 | 0 | 0 | 0 | 0 | 0 |
+| W5 | 2 | **1** | **1** | **1** | 2 |
+| W6 | 0 | **1** | **1** | **1** | 0 |
+
+What the table says: the NULL of one operand is taken for the 0 of the other (with 7 on
+the other side nothing matches: B4, W4), in `INTERSECT`, `INTERSECT ALL` and `EXCEPT ALL`.
+0 is what a `NOT NULL` integer field holds when it is given no value, and the constant 0 is
+`NOT NULL`; so this agrees with the reading of the first form below (the comparison takes
+the `NOT NULL` property of one operand for both) and makes it likely that the two forms
+are one defect. Which plans show it differs between the releases: 8.0 and 8.4 are wrong
+when the compound is a derived table, 9.7.4 also at the top level when the operand with
+the NULL is a `UNION`.
 
 ## Minimal case (`data/mysql/intersect-min.sql`, variant B)
 

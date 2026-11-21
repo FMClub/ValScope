@@ -206,6 +206,8 @@ jobs:
         run: mysql -h127.0.0.1 -uroot -p123456 --force --skip-column-names < data/mariadb/subquery-cache-collation.sql || true
       - name: "issue 003, the pair of the campaign on MariaDB 11.8 (expected 2 in every line)"
         run: mysql -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mariadb/having-in-nested.sql || true
+      - name: "issue 008 (MySQL), second form: NULL INTERSECT 0 (expected no row after B1-B4 and B6, two rows after B5; W: 0 0 0 0 2 0)"
+        run: mysql -h127.0.0.1 -uroot -p123456 --force --skip-column-names < data/mysql/intersect-null-zero.sql || true
       - name: "issue 015 (MySQL): LEFT JOIN with EXISTS under NOT EXISTS on the constant 1 (expected 55 in every line, 1 for small)"
         run: mysql -h127.0.0.1 -uroot -p123456 --force --skip-column-names < data/mysql/left-join-semijoin-antijoin.sql 2>&1 | grep -v "^-> \|EXPLAIN\|^---\|^$\|ERROR" || true
       - name: No violation outside the baseline (issues 005, 008 are known)
@@ -283,6 +285,8 @@ jobs:
         run: mysql -h127.0.0.1 -uroot -p123456 --force --skip-column-names < data/mariadb/subquery-cache-collation.sql || true
       - name: "issue 003, the pair of the campaign on MariaDB 11.8 (expected 2 in every line)"
         run: mysql -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mariadb/having-in-nested.sql || true
+      - name: "issue 008 (MySQL), second form: NULL INTERSECT 0 (expected no row after B1-B4 and B6, two rows after B5; W: 0 0 0 0 2 0)"
+        run: mysql -h127.0.0.1 -uroot -p123456 --force --skip-column-names < data/mysql/intersect-null-zero.sql || true
       - name: "issue 015 (MySQL): LEFT JOIN with EXISTS under NOT EXISTS on the constant 1 (expected 55 in every line, 1 for small)"
         run: mysql -h127.0.0.1 -uroot -p123456 --force --skip-column-names < data/mysql/left-join-semijoin-antijoin.sql 2>&1 | grep -v "^-> \|EXPLAIN\|^---\|^$\|ERROR" || true
       - name: Build the mutator (for the campaign below)

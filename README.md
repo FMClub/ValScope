@@ -564,7 +564,7 @@ script gives a wrong result.
 | [003](issues/003-mariadb-having-count-in-subquery.md) | `HAVING <aggregate> IN (subquery)` finds no match | wrong | fixed for the minimal case; wrong when the subquery has an `IN` subquery | correct |
 | [005](issues/005-mariadb-bit-min-max-text.md) | `MIN` / `MAX` of a `BIT` column return decimal text | wrong | wrong | correct in the minimal case |
 | [006](issues/006-mariadb-bit-subquery-loose-scan.md) | a `BIT(8)` scalar subquery under a loose index scan returns 255 | wrong | wrong | correct |
-| [008](issues/008-mysql-intersect-not-null-outer-join.md) | `INTERSECT` matches a `NOT NULL` column with the `NULL` of an outer join | correct | correct | wrong (9.7.4: the larger case only) |
+| [008](issues/008-mysql-intersect-not-null-outer-join.md) | `INTERSECT` and `EXCEPT` match a NULL with a `NOT NULL` value of the other operand: the `NULL` of an outer join with a column, or a NULL with the constant 0 | correct | correct | wrong (8.0.46, 8.4.13, 9.7.4; which plans show it differs) |
 | [009](issues/009-mariadb-distinct-avg-last-group.md) | `SELECT DISTINCT` over a grouped query: `AVG`, `STDDEV`, `VAR` of another group, NULLs, missing rows | wrong | wrong | correct |
 | [010](issues/010-mariadb-window-distinct-aggregate-having.md) | a window function with a `DISTINCT` aggregate in a grouped join: `HAVING` applied wrongly, `RANK() + 3` is 0 | wrong | wrong | correct |
 | [011](issues/011-mariadb-double-md-group-by.md) | `GROUP BY` on a `DOUBLE(M,D)` expression groups by the rounded or the exact value depending on the aggregates | wrong | wrong | correct |

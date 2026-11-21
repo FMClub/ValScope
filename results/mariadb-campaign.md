@@ -91,6 +91,7 @@ CI runs a small campaign (seeds 1-12, `--focus`) on MySQL 8.4 and 9 and on Maria
 | MySQL 9.7.4 | seeds 131-170, `--rich` | 68746 | 12 | 6 false alarms (mixed types, fixed); 6 pairs of seed 144: `issues/015` |
 | MariaDB 13.0.2 (`mariadb:latest`) | seeds 231-280, `--rich` | 91064 | 18 | `issues/013`: 8, `issues/010`: 4, `issues/012`: 4, `issues/003`: 2 (by their hints); 1 false alarm (a number arm and a text arm, fixed) |
 | MySQL 8.4.13 | seeds 231-280, `--rich` | 89483 | 2 | `issues/008`: 1; the same false alarm: 1 |
+| MySQL 9.7.4 | seeds 171-230, `--rich --focus` | 155729 | 3 | `issues/008` in a new, simpler form (NULL matches 0): 1; 2 false alarms (a number arm and a text arm; `CEIL(VAR_SAMP(...))` in another column, both fixed) |
 
 
 The reproducers of `data/mariadb/` on MariaDB 13.0.2 (`sql.yml` with the directory): issues

@@ -1,6 +1,7 @@
 """Reduce a violation found on a MySQL-protocol server (MariaDB, MySQL, ...).
 
     python3 bridge/reduce_mysql.py VIOLATIONS.jsonl --pair N --host H --port P --user U --password W --database D
+        [--build-seed]      # a pair of campaign_mysql.py: build D from the seed of the pair first
 
 The pair (a line of `run_on_db.py --out`) is reduced like reduce_sqlite.py does it:
 
@@ -129,6 +130,8 @@ def main():
     ap.add_argument('--user', default='root')
     ap.add_argument('--password', default='')
     ap.add_argument('--database', required=True)
+    ap.add_argument('--build-seed', action='store_true',
+                    help='a pair of campaign_mysql.py: first build --database (dropped and created) from its seed')
     ap.add_argument('--no-data', action='store_true', help='reduce the query only')
     ap.add_argument('--data-only', action='store_true',
                     help='keep the pair as it is and reduce rows and indexes only (no mutator needed)')
@@ -148,6 +151,9 @@ def main():
     import pymysql
     admin = pymysql.connect(host=args.host, port=args.port, user=args.user, password=args.password, autocommit=True)
     cur = admin.cursor()
+    if args.build_seed:
+        import gen_mysql_db
+        gen_mysql_db.build(cur, args.database, rec['seed'])
     cur.execute('DROP DATABASE IF EXISTS %s' % SCRATCH)
     cur.execute('CREATE DATABASE %s' % SCRATCH)
     cur.execute('SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = %s AND TABLE_TYPE = %s',

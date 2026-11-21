@@ -9,7 +9,7 @@ built by gen_mysql_db.py, N set-semantic and N value queries are generated for i
 then every mutant against the relation of its rule's theorem.  The violations are
 appended to --out with the seed, so a pair is reproduced from
 
-    python3 bridge/gen_mysql_db.py SEED | mysql DATABASE        # the database
+    python3 bridge/gen_mysql_db.py SEED | mysql --force DATABASE        # the database
     the `original` and `mutant` of the record
 
 One server, one version: unlike campaign_sqlite.py there is no reference release, so every

@@ -37,6 +37,7 @@ class MySQLTarget:
     """A server that speaks the MySQL protocol."""
     dialect = 'mysql'
     APPROXIMATE_TYPES = {4, 5}      # pymysql FIELD_TYPE.FLOAT, FIELD_TYPE.DOUBLE
+    DECIMAL_TYPES = {0, 246}        # pymysql FIELD_TYPE.DECIMAL, FIELD_TYPE.NEWDECIMAL
     SINGLE = 4
     # client errors that mean the server is gone, not that the query is wrong
     CONNECTION_LOST = {2003, 2006, 2013, 2055}
@@ -247,6 +248,25 @@ def sqlite_exact_columns(db, schema):
 FLIP_VALUE = {'Le': 'Ge', 'Ge': 'Le', 'TowardOne': 'AwayOne', 'AwayOne': 'TowardOne'}
 
 
+def printed_decimals(target, column, base_types, types, base_scales):
+    """The number of decimals after which the mutated column may differ by one unit, or
+    None.  The server rounds a binary float printed with a fixed number of decimals, and a
+    DECIMAL (the result of a division: AVG) to its scale; when the two results round at
+    different places the relation holds only up to one unit of the coarser one.  (Two
+    DECIMALs of one scale are rounded alike, and rounding is monotone: no tolerance.)
+    `target.last_scales` are those of the mutant, `base_scales` those of the original."""
+    scales = getattr(target, 'last_scales', None)
+    if types is None or not base_scales or not scales:
+        return None
+    pair, both = {base_types[column], types[column]}, (base_scales[column], scales[column])
+    printed = [d for d in both if d is not None and d < 31]
+    if pair & set(target.APPROXIMATE_TYPES):
+        return min(printed) if printed else None
+    if pair <= set(getattr(target, 'DECIMAL_TYPES', ())) and len(set(printed)) == 2:
+        return min(printed)
+    return None
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('queries', help='file with one SQL query per line')
@@ -356,11 +376,7 @@ def main():
                         continue
                     relation = FLIP_VALUE[relation]
                 loose = single or (types is not None and target.SINGLE in (base_types[column], types[column]))
-                decimals = None
-                if types is not None and base_scales and {base_types[column], types[column]} & set(target.APPROXIMATE_TYPES):
-                    # a binary float printed with a fixed number of decimals in either result
-                    printed = [d for d in (base_scales[column], target.last_scales[column]) if d is not None and d < 31]
-                    decimals = min(printed) if printed else None
+                decimals = printed_decimals(target, column, base_types, types, base_scales)
                 verdict = check_value(relation, column, base, res, single_precision=loose, fold=fold,
                                       output_decimals=decimals,
                                       cover=bool(trs) and trs[0].cover_for(text),

@@ -433,7 +433,7 @@ There is no reference release, so every violation is a candidate. Two tools help
 classify them: `bridge/recheck_mysql.py violations.jsonl ... [--no-indexes]` rebuilds the
 database of each pair and judges it again, optionally without the secondary indexes (a
 pair that needs an index depends on the access path), and `reduce_mysql.py` (section 6.7)
-after `python3 bridge/gen_mysql_db.py SEED | mysql DATABASE`. The first campaign is in
+after `python3 bridge/gen_mysql_db.py SEED | mysql --force DATABASE`. The first campaign is in
 `results/mariadb-campaign.md`.
 
 ### 6.7 Reduce a violation found on a server

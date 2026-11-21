@@ -370,20 +370,21 @@ class _Cmp:
 
     def le(self, a, b):
         if _exact(a) and _exact(b):
-            return Fraction(a) <= Fraction(b)
+            return Fraction(a) <= Fraction(b) + Fraction(self.abs_tol)
         a, b = float(a), float(b)
         return a <= b + self.tol * max(1.0, abs(a), abs(b)) + self.abs_tol
 
     def near(self, a, b, factor=1):
         if _exact(a) and _exact(b):
-            return Fraction(a) == Fraction(b)
+            return abs(Fraction(a) - Fraction(b)) <= Fraction(self.abs_tol)
         a, b = float(a), float(b)
         return abs(a - b) <= factor * self.tol * max(1.0, abs(a), abs(b)) + self.abs_tol
 
 
 def relation_holds(relation, a, b, tol=REL_TOL, abs_tol=0.0):
-    """The value relations of Value.v.  abs_tol: an absolute slack for binary floats that
-    the server rounded to a number of decimals on output (see check_value)."""
+    """The value relations of Value.v.  abs_tol: an absolute slack for values that the
+    server rounded to a number of decimals on output (see check_value); it applies to exact
+    values too (two DECIMALs of different scales)."""
     c = _Cmp(tol, abs_tol)
     if relation == 'Le':
         return c.le(a, b)
@@ -420,9 +421,10 @@ def check_value(relation, column, original_rows, mutant_rows, single_precision=F
     significant digits, then (with a fold) modulo the DBMS's equality: a grouping key
     with a case-insensitive collation may be returned as 'a' by one plan and 'A' by
     another."""
-    # output_decimals: the mutated column is a binary float that the server printed with
-    # that many decimals in one of the results (MariaDB: VAR_SAMP of a DECIMAL has 4, an
-    # AVG over it 8), so a value can be off by one unit of the last printed digit
+    # output_decimals: the server rounded the mutated column to that many decimals in one
+    # of the results and to more in the other (MariaDB: VAR_SAMP of a DECIMAL is a float
+    # printed with 4, an AVG over it with 8; AVG of a DECIMAL(10,2) has scale 6, an AVG
+    # over that scale 10), so a value can be off by one unit of the last digit
     tol = (REL_TOL_SINGLE if single_precision else REL_TOL,
            10.0 ** -output_decimals if output_decimals is not None else 0.0)
     attempts = [(ExactFold(), None), (ExactFold(), 12), (ExactFold(), 9)]

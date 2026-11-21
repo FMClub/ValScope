@@ -20,7 +20,7 @@ import types
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gen_mysql_db  # noqa: E402
 from checker import check_inclusion, check_value  # noqa: E402
-from run_on_db import MySQLTarget  # noqa: E402
+from run_on_db import MySQLTarget, printed_decimals  # noqa: E402
 
 DATABASE = 'vs_recheck'
 
@@ -47,10 +47,8 @@ def judge(target, rec):
         return 'ok' if all(v in ('ok', 'collation') for v in both) else 'translation mismatch'
     if ' col ' in rec['expect']:
         relation, _, column = rec['expect'].split()
-        column, decimals = int(column), None
-        if bs and {base_types[column], types_[column]} & set(target.APPROXIMATE_TYPES):
-            printed = [d for d in (bs[column], target.last_scales[column]) if d is not None and d < 31]
-            decimals = min(printed) if printed else None
+        column = int(column)
+        decimals = printed_decimals(target, column, base_types, types_, bs)
         return check_value(relation, column, base, res, fold=fold, cover=bool(rec.get('distinct')),
                            output_decimals=decimals)
     return check_inclusion(rec['expect'], base, res, fold)

@@ -377,6 +377,10 @@ report(check_value('Le', 1, [(1, 7.61111111)], [(1, 7.6111)]) != 'ok' and
        check_value('Le', 1, [(1, 7.61111111)], [(1, 7.6111)], output_decimals=4) == 'ok' and
        check_value('Le', 1, [(1, 7.62)], [(1, 7.6111)], output_decimals=4) != 'ok',
        'a float printed with 4 decimals may be off by one unit of the last digit, not more')
+report(check_value('Le', 1, [(1, Decimal('3.3333333333'))], [(1, Decimal('3.333333'))]) != 'ok' and
+       check_value('Le', 1, [(1, Decimal('3.3333333333'))], [(1, Decimal('3.333333'))], output_decimals=6) == 'ok' and
+       check_value('Le', 1, [(1, Decimal('3.3334'))], [(1, Decimal('3.333333'))], output_decimals=6) != 'ok',
+       'DECIMALs of different scales may be off by one unit of the coarser scale, not more')
 report(check_value('Le', 1, [(1, '2')], [(1, 5)]) == 'incomparable' and
        check_value('Le', 1, [(1, '2')], [(1, 5)], strict_types=True).startswith('type changed') and
        check_value('Le', 1, [(1, '2')], [(1, '5')], strict_types=True) == 'incomparable' and

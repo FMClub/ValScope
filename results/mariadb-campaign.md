@@ -28,7 +28,7 @@ MariaDB 10.11.14, 40 databases, 3200 queries, 122200 checks passed, 125 violatin
 
 `results/mariadb-campaign.jsonl` has the 123 pairs that are still violated (seed, rule,
 expected relation, verdict, original, mutant, the issue they were assigned to). A pair is
-reproduced with `python3 bridge/gen_mysql_db.py SEED | mysql DATABASE` and its two queries.
+reproduced with `python3 bridge/gen_mysql_db.py SEED | mysql --force DATABASE` and its two queries.
 
 No violation is left unexplained. Nearly nine out of ten come from one defect family
 (issue 009), which hides whatever else a `SELECT DISTINCT` over a grouped query might show.

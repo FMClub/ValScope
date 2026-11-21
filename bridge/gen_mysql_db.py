@@ -2,6 +2,10 @@
 
     python3 bridge/gen_mysql_db.py SEED > database.sql        # the statements, for any client
 
+A UNIQUE index is asked for at random and fails when its column has duplicates; build()
+skips it, and a client must go on after the error too (`mysql --force`), or the statements
+after it are lost and the database is not the one of the campaign.
+
 One seed gives one database: the tables t1, t2, t3 of gen_fragment.py with random column
 types (integers, decimals, doubles, text with a case-insensitive or a binary collation,
 dates), 5 to 30 rows with NULLs and many duplicates, an optional primary key, random

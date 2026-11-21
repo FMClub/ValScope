@@ -9,8 +9,8 @@ witness: violated on the reporting release, on the last bad commit and on the in
 commit of its bug, and not violated on the fixing commit, on the last good commit and on
 3.54.1 (`--boundaries`, `--latest`). So a reduced pair shows the same bug as its pair.
 
-All 60 pairs are reduced: queries from 448 to 120 characters on average (80 to 202),
-databases to 6 statements on average (5 to 14); 59 of the 60 databases no longer need
+All 64 pairs are reduced: queries from 440 to 124 characters on average (80 to 233),
+databases to 6 statements on average (5 to 14); 63 of the 64 databases no longer need
 `WITHOUT ROWID`. Each reduced pair is a self-contained script in
 `results/sqlite-repro/pair-N.sql`.
 
@@ -313,3 +313,23 @@ databases to 6 statements on average (5 to 14); 59 of the 60 databases no longer
     original: SELECT t3a.c2 AS k0 FROM t3 AS t3a UNION SELECT DISTINCT t1a.c1 AS k0 FROM t1 AS t1a
     mutant  : SELECT t3a.c2 AS k0 FROM t3 AS t3a UNION ALL SELECT DISTINCT t1a.c1 AS k0 FROM t1 AS t1a
     rows    : 14 / 18
+
+-- pair 61 (COUNT->COUNT-DISTINCT, expected Ge col 2): 316 -> 169 characters
+    original: SELECT (t2a.c1 % 5) AS k0, (SUM(t2a.c1) + 6) AS k1, COUNT(t2a.c1) AS k2 FROM t2 AS t2a GROUP BY (t2a.c1 % 5) HAVING (COUNT(t2a.c1)) IN (SELECT t1h40.c4 FROM t1 AS t1h40)
+    mutant  : SELECT (t2a.c1 % 5) AS k0, (SUM(t2a.c1) + 6) AS k1, COUNT(DISTINCT t2a.c1) AS k2 FROM t2 AS t2a GROUP BY (t2a.c1 % 5) HAVING (COUNT(t2a.c1)) IN (SELECT t1h40.c4 FROM t1 AS t1h40)
+    rows    : 2 / 2
+
+-- pair 62 (expr->expr+k, expected Le col 2): 316 -> 169 characters
+    original: SELECT (t2a.c1 % 5) AS k0, (SUM(t2a.c1) + 6) AS k1, COUNT(t2a.c1) AS k2 FROM t2 AS t2a GROUP BY (t2a.c1 % 5) HAVING (COUNT(t2a.c1)) IN (SELECT t1h40.c4 FROM t1 AS t1h40)
+    mutant  : SELECT (t2a.c1 % 5) AS k0, (SUM(t2a.c1) + 6) AS k1, (COUNT(t2a.c1) + 3) AS k2 FROM t2 AS t2a GROUP BY (t2a.c1 % 5) HAVING (COUNT(t2a.c1)) IN (SELECT t1h40.c4 FROM t1 AS t1h40)
+    rows    : 2 / 2
+
+-- pair 63 (expr->expr*k, expected AwayZero col 2): 316 -> 169 characters
+    original: SELECT (t2a.c1 % 5) AS k0, (SUM(t2a.c1) + 6) AS k1, COUNT(t2a.c1) AS k2 FROM t2 AS t2a GROUP BY (t2a.c1 % 5) HAVING (COUNT(t2a.c1)) IN (SELECT t1h40.c4 FROM t1 AS t1h40)
+    mutant  : SELECT (t2a.c1 % 5) AS k0, (SUM(t2a.c1) + 6) AS k1, (COUNT(t2a.c1) * 2) AS k2 FROM t2 AS t2a GROUP BY (t2a.c1 % 5) HAVING (COUNT(t2a.c1)) IN (SELECT t1h40.c4 FROM t1 AS t1h40)
+    rows    : 2 / 2
+
+-- pair 64 (COUNT-DISTINCT->COUNT, expected Le col 4): 316 -> 233 characters
+    original: SELECT (t2a.c1 % 5) AS k0, (SUM(t2a.c1) + 6) AS k1, COUNT(t2a.c1) AS k2, (ROUND(COUNT(t2a.c1 - 3))) AS k3, COUNT(DISTINCT t2a.c1) AS k4 FROM t2 AS t2a GROUP BY (t2a.c1 % 5) HAVING (COUNT(t2a.c1)) IN (SELECT t1h40.c4 FROM t1 AS t1h40)
+    mutant  : SELECT (t2a.c1 % 5) AS k0, (SUM(t2a.c1) + 6) AS k1, COUNT(t2a.c1) AS k2, (ROUND(COUNT(t2a.c1 - 3))) AS k3, COUNT(t2a.c1) AS k4 FROM t2 AS t2a GROUP BY (t2a.c1 % 5) HAVING (COUNT(t2a.c1)) IN (SELECT t1h40.c4 FROM t1 AS t1h40)
+    rows    : 2 / 2

@@ -80,3 +80,25 @@ that is the newest release: `confirm_sqlite.py` and `campaign_sqlite.py` take `-
 4. The value rules proper have found nothing on SQLite: look at what the 49596 checks
    cover (which rules, which shapes), and whether SQLite's dynamic typing of results
    (text vs integer, as in bug 6) is checked for value mutants too.
+
+## Round 4 (2026-11-21)
+
+**Milestone.** The value rules find bug 6 too: 64 confirmed pairs, 6 bugs. The mutated
+column of a value mutant held the text `'2'` on one side and a number on the other; the
+checker filed that as "incomparable". With numeric inputs (the numeric probe passed) it is
+now a violation (`check_value(strict_types=True)`); pairs 61 to 64 are the first violations
+of value rules on SQLite.
+
+**Also done.**
+- `scripts/replay_reduced_sqlite.py` and a CI step: every reduced pair of `results/` must
+  still be violated on the release that reported it (64 of 64; with `--latest` also
+  consistent on 3.54.1). A change of the checker that hides a known bug fails CI.
+- Pairs 53 and 54 reduced again after the parenthesis fix.
+
+**Audit findings / TODO for round 5.**
+1. `incomparable` on MariaDB / MySQL (543 of the corpus run): the same question there. Is a
+   non-number on one side only ever legitimate when the type probe says the item is numeric?
+2. Campaign default reference is still Python's SQLite; CI has no newest build.
+3. `results/sqlite-campaign.md` has grown by accretion (ten rounds appended): a summary
+   table per round at the top would make it readable.
+4. Old open point: bug 5 may be bug 1 hidden by a plan change.

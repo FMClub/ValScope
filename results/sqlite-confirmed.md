@@ -1,6 +1,6 @@
 # SQLite violations found by the verified mutators
 
-60 recorded, 60 confirmed (reproduced on the reporting version, relation holds on SQLite 3.54.1).
+64 recorded, 64 confirmed (reproduced on the reporting version, relation holds on SQLite 3.54.1).
 
 | # | Reported on | Seed | Rule | Expected | Rows (original / mutant) | Violated on | Confirmed |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -64,6 +64,10 @@
 | 58 | 3.26.0 | 7019 | `UNION-ALL->UNION` | Down | 10 / 11 | 3.26.0, 3.30.1, 3.31.1, 3.34.0 | yes |
 | 59 | 3.26.0 | 7019 | `UNION-ALL->UNION` | Down | 10 / 11 | 3.26.0, 3.30.1, 3.31.1, 3.34.0 | yes |
 | 60 | 3.26.0 | 7025 | `UNION->UNION-ALL` | Up | 13 / 16 | 3.26.0, 3.30.1, 3.31.1, 3.34.0 | yes |
+| 61 | 3.26.0 | 7012 | `COUNT->COUNT-DISTINCT` | Ge col 2 | 2 / 2 | 3.26.0, 3.30.1, 3.31.1, 3.34.0, 3.53.1 | yes |
+| 62 | 3.26.0 | 7012 | `expr->expr+k` | Le col 2 | 2 / 2 | 3.26.0, 3.30.1, 3.31.1, 3.34.0, 3.53.1 | yes |
+| 63 | 3.26.0 | 7012 | `expr->expr*k` | AwayZero col 2 | 2 / 2 | 3.26.0, 3.30.1, 3.31.1, 3.34.0, 3.53.1 | yes |
+| 64 | 3.26.0 | 7012 | `COUNT-DISTINCT->COUNT` | Le col 4 | 2 / 2 | 3.26.0, 3.30.1, 3.31.1, 3.34.0, 3.53.1 | yes |
 
 ## 1. `UNION->UNION-ALL` on SQLite 3.26.0 (seed 1004)
 
@@ -1084,4 +1088,72 @@ Original rows: `["(' 1',)", "('',)", "('-1',)", "('-3',)", "('0',)", "('1',)", "
 Mutant rows: `["(' 1',)", "('',)", "('-1',)", "('-3',)", "('0',)", "('1',)", "('1',)", "('1',)", "('2',)", "('7',)", "('A',)", "('A',)"]`
 
 Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
+
+## 61. `COUNT->COUNT-DISTINCT` on SQLite 3.26.0 (seed 7012)
+
+Expected relation: Ge col 2. Verdict: type changed: the mutated column holds a non-number in the original only ('2').
+
+```sql
+-- original
+SELECT (t2a.c1 % 5) AS k0, (SUM(t2a.c1) + 6) AS k1, COUNT(t2a.c1) AS k2, (ROUND(COUNT(t2a.c1 - 3))) AS k3, COUNT(DISTINCT t2a.c1) AS k4 FROM t2 AS t2a GROUP BY (t2a.c1 % 5) HAVING ((COUNT(t2a.c1)) IN (SELECT t1h40.c4 FROM t1 AS t1h40 WHERE (t1h40.c4 <= 5) AND (t1h40.c1 <> 0))) OR ((COUNT(DISTINCT t2a.c1 - 1)) >= 7);
+-- mutant
+SELECT (t2a.c1 % 5) AS k0, (SUM(t2a.c1) + 6) AS k1, COUNT(DISTINCT t2a.c1) AS k2, (ROUND(COUNT(t2a.c1 - 3))) AS k3, COUNT(DISTINCT t2a.c1) AS k4 FROM t2 AS t2a GROUP BY (t2a.c1 % 5) HAVING ((COUNT(t2a.c1)) IN (SELECT t1h40.c4 FROM t1 AS t1h40 WHERE (t1h40.c4 <= 5) AND (t1h40.c1 <> 0))) OR ((COUNT(DISTINCT t2a.c1 - 1)) >= 7);
+```
+
+Original rows: `["(0.0, 16.25, '2', 2.0, 2)", "(2.0, 10.0, '2', 2.0, 1)"]`
+
+Mutant rows: `['(0.0, 16.25, 2, 2.0, 2)', '(2.0, 10.0, 1, 2.0, 1)']`
+
+Per version: 3.26.0: type changed: the mutated column holds a non-number in the original only ('2'), 3.30.1: type changed: the mutated column holds a non-number in the original only ('2'), 3.31.1: type changed: the mutated column holds a non-number in the original only ('2'), 3.34.0: type changed: the mutated column holds a non-number in the original only ('2'), 3.53.1: type changed: the mutated column holds a non-number in the original only ('2'), 3.54.1: ok
+
+## 62. `expr->expr+k` on SQLite 3.26.0 (seed 7012)
+
+Expected relation: Le col 2. Verdict: type changed: the mutated column holds a non-number in the original only ('2').
+
+```sql
+-- original
+SELECT (t2a.c1 % 5) AS k0, (SUM(t2a.c1) + 6) AS k1, COUNT(t2a.c1) AS k2, (ROUND(COUNT(t2a.c1 - 3))) AS k3, COUNT(DISTINCT t2a.c1) AS k4 FROM t2 AS t2a GROUP BY (t2a.c1 % 5) HAVING ((COUNT(t2a.c1)) IN (SELECT t1h40.c4 FROM t1 AS t1h40 WHERE (t1h40.c4 <= 5) AND (t1h40.c1 <> 0))) OR ((COUNT(DISTINCT t2a.c1 - 1)) >= 7);
+-- mutant
+SELECT (t2a.c1 % 5) AS k0, (SUM(t2a.c1) + 6) AS k1, (COUNT(t2a.c1) + 3) AS k2, (ROUND(COUNT(t2a.c1 - 3))) AS k3, COUNT(DISTINCT t2a.c1) AS k4 FROM t2 AS t2a GROUP BY (t2a.c1 % 5) HAVING ((COUNT(t2a.c1)) IN (SELECT t1h40.c4 FROM t1 AS t1h40 WHERE (t1h40.c4 <= 5) AND (t1h40.c1 <> 0))) OR ((COUNT(DISTINCT t2a.c1 - 1)) >= 7);
+```
+
+Original rows: `["(0.0, 16.25, '2', 2.0, 2)", "(2.0, 10.0, '2', 2.0, 1)"]`
+
+Mutant rows: `['(0.0, 16.25, 5, 2.0, 2)', '(2.0, 10.0, 5, 2.0, 1)']`
+
+Per version: 3.26.0: type changed: the mutated column holds a non-number in the original only ('2'), 3.30.1: type changed: the mutated column holds a non-number in the original only ('2'), 3.31.1: type changed: the mutated column holds a non-number in the original only ('2'), 3.34.0: type changed: the mutated column holds a non-number in the original only ('2'), 3.53.1: type changed: the mutated column holds a non-number in the original only ('2'), 3.54.1: ok
+
+## 63. `expr->expr*k` on SQLite 3.26.0 (seed 7012)
+
+Expected relation: AwayZero col 2. Verdict: type changed: the mutated column holds a non-number in the original only ('2').
+
+```sql
+-- original
+SELECT (t2a.c1 % 5) AS k0, (SUM(t2a.c1) + 6) AS k1, COUNT(t2a.c1) AS k2, (ROUND(COUNT(t2a.c1 - 3))) AS k3, COUNT(DISTINCT t2a.c1) AS k4 FROM t2 AS t2a GROUP BY (t2a.c1 % 5) HAVING ((COUNT(t2a.c1)) IN (SELECT t1h40.c4 FROM t1 AS t1h40 WHERE (t1h40.c4 <= 5) AND (t1h40.c1 <> 0))) OR ((COUNT(DISTINCT t2a.c1 - 1)) >= 7);
+-- mutant
+SELECT (t2a.c1 % 5) AS k0, (SUM(t2a.c1) + 6) AS k1, (COUNT(t2a.c1) * 2) AS k2, (ROUND(COUNT(t2a.c1 - 3))) AS k3, COUNT(DISTINCT t2a.c1) AS k4 FROM t2 AS t2a GROUP BY (t2a.c1 % 5) HAVING ((COUNT(t2a.c1)) IN (SELECT t1h40.c4 FROM t1 AS t1h40 WHERE (t1h40.c4 <= 5) AND (t1h40.c1 <> 0))) OR ((COUNT(DISTINCT t2a.c1 - 1)) >= 7);
+```
+
+Original rows: `["(0.0, 16.25, '2', 2.0, 2)", "(2.0, 10.0, '2', 2.0, 1)"]`
+
+Mutant rows: `['(0.0, 16.25, 4, 2.0, 2)', '(2.0, 10.0, 4, 2.0, 1)']`
+
+Per version: 3.26.0: type changed: the mutated column holds a non-number in the original only ('2'), 3.30.1: type changed: the mutated column holds a non-number in the original only ('2'), 3.31.1: type changed: the mutated column holds a non-number in the original only ('2'), 3.34.0: type changed: the mutated column holds a non-number in the original only ('2'), 3.53.1: type changed: the mutated column holds a non-number in the original only ('2'), 3.54.1: ok
+
+## 64. `COUNT-DISTINCT->COUNT` on SQLite 3.26.0 (seed 7012)
+
+Expected relation: Le col 4. Verdict: type changed: the mutated column holds a non-number in the mutant only ('2').
+
+```sql
+-- original
+SELECT (t2a.c1 % 5) AS k0, (SUM(t2a.c1) + 6) AS k1, COUNT(t2a.c1) AS k2, (ROUND(COUNT(t2a.c1 - 3))) AS k3, COUNT(DISTINCT t2a.c1) AS k4 FROM t2 AS t2a GROUP BY (t2a.c1 % 5) HAVING ((COUNT(t2a.c1)) IN (SELECT t1h40.c4 FROM t1 AS t1h40 WHERE (t1h40.c4 <= 5) AND (t1h40.c1 <> 0))) OR ((COUNT(DISTINCT t2a.c1 - 1)) >= 7);
+-- mutant
+SELECT (t2a.c1 % 5) AS k0, (SUM(t2a.c1) + 6) AS k1, COUNT(t2a.c1) AS k2, (ROUND(COUNT(t2a.c1 - 3))) AS k3, COUNT(t2a.c1) AS k4 FROM t2 AS t2a GROUP BY (t2a.c1 % 5) HAVING ((COUNT(t2a.c1)) IN (SELECT t1h40.c4 FROM t1 AS t1h40 WHERE (t1h40.c4 <= 5) AND (t1h40.c1 <> 0))) OR ((COUNT(DISTINCT t2a.c1 - 1)) >= 7);
+```
+
+Original rows: `["(0.0, 16.25, '2', 2.0, 2)", "(2.0, 10.0, '2', 2.0, 1)"]`
+
+Mutant rows: `["(0.0, 16.25, '2', 2.0, '2')", "(2.0, 10.0, '2', 2.0, '2')"]`
+
+Per version: 3.26.0: type changed: the mutated column holds a non-number in the mutant only ('2'), 3.30.1: type changed: the mutated column holds a non-number in the mutant only ('2'), 3.31.1: type changed: the mutated column holds a non-number in the mutant only ('2'), 3.34.0: type changed: the mutated column holds a non-number in the mutant only ('2'), 3.53.1: type changed: the mutated column holds a non-number in the mutant only ('2'), 3.54.1: ok
 

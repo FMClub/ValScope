@@ -13,14 +13,14 @@ Every violation was then re-checked from scratch by `bridge/confirm_sqlite.py`.
 
 ## Result
 
-**60 distinct (original, mutant) query pairs violate the relation that the rule's theorem
+**64 distinct (original, mutant) query pairs violate the relation that the rule's theorem
 guarantees; they come from 6 distinct SQLite bugs** (`results/sqlite-bisect.md`: each pair
 is mapped to the commit that introduced and the commit that fixed it, and pairs with the
 same commits are one bug). 37 pairs were found by the first campaign, 5 by a second
 campaign run after the model was extended (strings, decimals, collations, opaque atoms), 2
 by a third run after the audit fixes and 2 by the comparison of generator settings in the
-fifth round, 3 by the seventh-round campaign, 1 by the eighth, 5 by the ninth and 9 by the tenth; 1 pair was withdrawn in the fifth round
-and 3 in the sixth (see "Withdrawn" and the sixth round below). All 60 are confirmed:
+fifth round, 3 by the seventh-round campaign, 1 by the eighth, 5 by the ninth and 13 by the tenth; 1 pair was withdrawn in the fifth round
+and 3 in the sixth (see "Withdrawn" and the sixth round below). All 64 are confirmed:
 
 - the database of the seed was rebuilt by each SQLite library and both queries were run
   again;
@@ -205,7 +205,7 @@ L=/tmp/sqlite-libs; python3 bridge/confirm_sqlite.py results/sqlite-confirmed.js
 
 `results/sqlite-confirmed.md` is the output of the last command. For every pair it has the
 queries, the first rows of both results and the verdict on each version.
-`results/sqlite-confirmed.jsonl` holds the 60 pairs as data; `results/sqlite-withdrawn.jsonl`
+`results/sqlite-confirmed.jsonl` holds the 64 pairs as data; `results/sqlite-withdrawn.jsonl`
 the withdrawn ones with the reasons. `results/sqlite-reduced.md` has the pairs reduced by
 `bridge/reduce_sqlite.py`, and `results/sqlite-bisect.md` the commits of each bug.
 
@@ -215,7 +215,7 @@ the withdrawn ones with the reasons. `results/sqlite-reduced.md` has the pairs r
   The bisection (sixth round) builds SQLite from its git history on GitHub instead.
 - "Confirmed" means inconsistent on the old version and consistent on 3.53.1. It does not
   prove which of the two results on the old version is the wrong one.
-- The 60 pairs come from 6 bugs, identified by their introducing and fixing commits; three
+- The 64 pairs come from 6 bugs, identified by their introducing and fixing commits; three
   fixes name an SQLite ticket. A fixing commit can be a plan change that hides the symptom
   (bug 5).
 
@@ -323,5 +323,11 @@ scripts/record_sqlite_pairs.py violations.jsonl --lib 3.26.0=... --latest LIB-3.
   result of a TK_AGG_COLUMN expression"). These violations were also present on the SQLite
   that Python ships (3.53.1), which the earlier rounds used as the reference: with that
   reference a pair of this bug would have been filed as "also in latest".
+- The value rules saw the same bug and filed it as "incomparable": the mutated column
+  held the text `'2'` in the original and a number in the mutant. With numeric inputs that
+  is now a violation (`check_value(strict_types=True)`); re-running seed 7012 gave four
+  more pairs of bug 6 (`COUNT->COUNT-DISTINCT`, `expr->expr+k`, `expr->expr*k`,
+  `COUNT-DISTINCT->COUNT`), recorded as pairs 61 to 64: the first violations of value rules
+  on SQLite.
 - The lineage mutants (through a derived table) found nothing on SQLite.
 

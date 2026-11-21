@@ -1,6 +1,6 @@
 # SQLite violations mapped to commits
 
-**The 60 confirmed pairs come from 6 distinct SQLite bugs.** Pairs with the same
+**The 64 confirmed pairs come from 6 distinct SQLite bugs.** Pairs with the same
 (introducing, fixing) commits are one bug; different commits, different bugs. Every
 boundary is exact (two adjacent commits of the first-parent history).
 
@@ -29,7 +29,7 @@ Three reduced pairs coincide (3 = 4, 6 = 7, 33 = 34). Pairs 43 to 45 come from t
 | 3 | #27, #28, #52 | `fad4dd0fd182` 2020-09-30 Improved query optimization for multi-column indexes where t | `16cd8b96d3e2` 2021-01-27 Fix an issue with IN operator optimization introduced by che | version-3.35.0 | DISTINCT-add, cond->TRUE |
 | 4 | #32, #33, #34, #37, #39 | `8dc570b6afac` 2016-06-08 Prefer to use partial indexes for full table scans when that | `8f2b1e4c909d` 2019-05-11 Do not assume that "x IS NOT ?" implies "x NOT NULL" when co | version-3.29.0 | DISTINCT-add, UNION->UNION-ALL |
 | 5 | #38 | `9ed1dfa802c2` 2008-01-02 Minor optimizations for sub-selects in EXISTS(...) expressio | `e69ba68363ed` 2020-12-19 Allow UNION ALL sub-queriesto be flattened even if the paren | version-3.35.0 | UNION->UNION-ALL |
-| 6 | #53, #54 | `f78dcd1b960e` 2016-09-07 Add support for row-value comparisons, including IN operator | `3bc026df6eef` 2026-07-29 Avoid apply an affinity to a register that might be the resu | version-3.54.0 | HAVING cond->TRUE |
+| 6 | #53, #54, #61, #62, #63, #64 | `f78dcd1b960e` 2016-09-07 Add support for row-value comparisons, including IN operator | `3bc026df6eef` 2026-07-29 Avoid apply an affinity to a register that might be the resu | version-3.54.0 | COUNT->COUNT-DISTINCT, COUNT-DISTINCT->COUNT, HAVING cond->TRUE, expr->expr*k, expr->expr+k |
 
 ## The bugs
 
@@ -55,8 +55,8 @@ Three reduced pairs coincide (3 = 4, 6 = 7, 33 = 34). Pairs 43 to 45 come from t
    3.35.0, "Allow UNION ALL sub-queries to be flattened even if the parent query is a
    join"), an optimisation that changes the plan: by the rule it is another bug, and it
    may be the defect of bug 1 that this plan change hides for this pair.
-6. **Affinity applied to an aggregate's register** (pairs 53, 54; found by the HAVING rule
-   `cond->TRUE`). `HAVING COUNT(x) IN (SELECT text_column ...)` converts the register that
+6. **Affinity applied to an aggregate's register** (pairs 53, 54, 61, 62, 63, 64; found by the HAVING rule
+   `cond->TRUE` and by four value rules). `HAVING COUNT(x) IN (SELECT text_column ...)` converts the register that
    holds `COUNT(x)` to text for the comparison, and the select list then returns the text:
 
    ```sql

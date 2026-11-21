@@ -181,17 +181,17 @@ fixes of PR #1 are merged; the design problems below are still open.
    with display decimals (`DOUBLE(M,D)`, `FLOAT(M,D)`) are affected: a plain `GROUP BY` groups by
    the value rounded to the declared decimals, the same `GROUP BY` with `COUNT(DISTINCT)` or
    `GROUP_CONCAT` by the unrounded double. Reproduced with four rows.
-3. **SQLite: 60 confirmed violations from 6 distinct bugs (4 withdrawn).** 37 pairs from
+3. **SQLite: 64 confirmed violations from 6 distinct bugs (4 withdrawn).** 37 pairs from
    the first campaign, 5 from a second campaign with the extended model, 2 from a third run
    after the audit fixes, 2 from the fifth round, 3 from the seventh-round campaign, 1 from
-   the eighth, 5 from the ninth (all nine bug 1) and 9 from the tenth (6 bug 1, 1 bug 3, 2 the
+   the eighth, 5 from the ninth (all nine bug 1) and 13 from the tenth (6 bug 1, 1 bug 3, 6 the
    new bug 6), minus 1 pair withdrawn in the fifth
    round and 3 in the sixth (`results/sqlite-campaign.md`). Solved in the sixth round:
    - every pair is mapped to the SQLite commits that introduced and fixed it
      (`bridge/bisect_sqlite.py`, `results/sqlite-bisect.md`); pairs with the same commits
      are one bug. Three of the fixing commits name an SQLite ticket
      (`1dcb4d44964846ad`, `ee51301f316c09e9`, `8025674847`);
-   - all 60 pairs are reduced, query and database, keeping their verdicts on the commits
+   - all 64 pairs are reduced, query and database, keeping their verdicts on the commits
      around the fix and the introduction (`bridge/reduce_sqlite.py --boundaries`); the
      reduced pairs give the same commits and every introducing commit (the reduced
      databases no longer need `WITHOUT ROWID`).
@@ -211,9 +211,10 @@ fixes of PR #1 are merged; the design problems below are still open.
    the reference was the SQLite that Python ships (3.53.1), so a bug that it still has was
    filed as "also in latest". In the tenth round (numeric columns, 3.54.1 as the reference)
    the HAVING rule `cond->TRUE` found bug 6: `HAVING COUNT(x) IN (SELECT text_column ...)`
-   turns the `COUNT(x)` of the select list into text (3.15.0 to 3.53.x). Open: the value
-   rules proper (`expr->expr+k`, `SUM(c)->SUM(c*k)`, ...) have still found nothing on SQLite
-   (49596 checks in the tenth round).
+   turns the `COUNT(x)` of the select list into text (3.15.0 to 3.53.x). The value rules proper saw the
+   same bug but filed it as "incomparable" (text in the mutated column on one side); with
+   `strict_types` they report it (pairs 61 to 64). Open: no SQLite bug so far is visible
+   ONLY to a value rule.
 5. **Generator tuning (partly solved).** `--adaptive` chooses the generator settings per
    database seed by coverage features and violations (UCB1). The arms are only the four
    existing settings; the generator's probabilities themselves are not learned, and a

@@ -233,3 +233,37 @@ reduced, grouped by the shape of the reduced query).
 3. The MariaDB campaign with other generator settings (`--rich`, set queries only) and on
    the Python-generator queries over random databases.
 
+
+## Round 10 (2026-11-21)
+
+**Milestone.** A new candidate bug, `issues/014`: MariaDB's subquery cache looks its key up
+under the collation of the outer column (`utf8mb4_general_ci`) while the subquery compares
+under `utf8mb4_bin`, so `'A'` and `'a'` share an entry and the result of a correlated
+subquery depends on the order of the rows. Found by the first campaign of the rich
+generator once it wrote MySQL spelling (seed 147, rule `OR-drop-operand`).
+
+- `--rich` was SQLite-only: MariaDB refused 737 of 3200 queries of the third campaign. With
+  `--mysql-seed` the opaque predicates are now `<=>`, `CAST AS CHAR / SIGNED`, `CONCAT`; the
+  SQLite stream of random choices is unchanged (checked by hash).
+- Campaigns 3 and 4 recorded (17 pairs: issue 013 twelve times, 003 and 012 twice each,
+  014 once). `results/mariadb-campaign.jsonl` has 172 pairs.
+- `scripts/triage_mysql.py` gives a hint of the known issue per reduced pair; a test checks
+  the hints against all recorded pairs.
+- CI runs the campaign on MySQL 8.4, MySQL 9, MariaDB 11.4 and 11.8. First results: no
+  violation on MySQL 8.4.13 and 9.7.4; three pairs on MariaDB 11.4.13 and 11.8.9, two of
+  issue 010 and one with the look of issue 003, which was recorded as fixed in 11.4.13.
+  `data/mariadb/having-in-nested.sql` is that pair, run on every server.
+
+**Audit findings.**
+- `reduce_mysql.py` put a row it could not delete back at the end of the table. A table
+  without a primary key is read in insertion order, and issue 014 depends on that order:
+  twelve rows were left where two suffice. The table is now rewritten in order.
+- The MySQL jobs refuse 122 to 166 mutants with error 1055 (ONLY_FULL_GROUP_BY). The
+  campaign now prints examples (`run_on_db.py --show-failed`).
+- The baseline signature of issue 003 from round 9 is needed in CI too (plan-dependent).
+
+**TODO for round 11.**
+1. Read the CI results: issue 014 on the other servers, the pair of issue 003 on 11.x,
+   the mutants MySQL refuses.
+2. Update issue 003 with what 11.x shows; decide whether it is one defect or two.
+3. Fifth campaign (`--rich --focus`, seeds 171-230): triage and record.

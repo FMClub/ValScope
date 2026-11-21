@@ -148,6 +148,13 @@ fixes of PR #1 are merged; the design problems below are still open.
    abstract in the interface the front end is compiled against, and a test checks that a
    forged rule does not compile; the extracted code and the extraction stay trusted.)
 5. Only the `mysql` and `sqlite` dialects of sqlglot were tested.
+6. **MySQL refuses value mutants of a grouping expression (round 10).** For
+   `SELECT (t.c % 2) AS k0, ... GROUP BY (t.c % 2)` the rule `expr->expr+k` gives
+   `((t.c % 2) + 3) AS k0`. MariaDB accepts it; MySQL 8.4 and 9.7 answer error 1055
+   (ONLY_FULL_GROUP_BY does not see that the item is a function of the grouping
+   expression). These mutants are counted as `mutant_failed` and not checked on MySQL: 166
+   of about 36000 in the campaign of CI. Printing them as a query over a derived table
+   would make MySQL accept them, but it would also change the plan under test.
 
 ### B4. Tooling
 

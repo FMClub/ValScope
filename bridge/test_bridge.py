@@ -801,5 +801,17 @@ report(query_shape("SELECT t3a.c9 AS k0 FROM t3 AS t3a WHERE t3a.c1 > (-3) AND t
        query_shape("SELECT t1b.c4 AS k1 FROM t1 AS t1b WHERE t1b.c1 > 7 AND t1b.c4 = 'yy'"),
        'triage: queries that differ in names and constants have one shape')
 
+# the rich generator writes the dialect of its database
+import subprocess  # noqa: E402
+gen = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'gen_fragment.py')
+rich_mysql = subprocess.run([sys.executable, gen, '--rich', '--mysql-seed', '3', '300', '3'],
+                            capture_output=True, text=True, check=True).stdout
+sqlite_only = [w for w in (' GLOB ', 'likely(', 'NOCASE', '||', 'AS TEXT', 'AS INTEGER') if w in rich_mysql]
+report(not sqlite_only and '<=>' in rich_mysql and 'CONCAT(' in rich_mysql,
+       'generator: --rich for a MySQL database has no SQLite spelling (%s)' % sqlite_only)
+rich_sqlite = subprocess.run([sys.executable, gen, '--rich', '--sqlite-seed', '3', '300', '3'],
+                             capture_output=True, text=True, check=True).stdout
+report(' GLOB ' in rich_sqlite and '<=>' not in rich_sqlite, 'generator: --rich for SQLite keeps its spelling')
+
 print('%d failures' % failures)
 sys.exit(1 if failures else 0)

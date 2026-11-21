@@ -105,7 +105,26 @@ def opaque_pred(rng, aliases):
     theorems allow because they hold for any deterministic predicate."""
     c = col_of(rng, aliases)
     k = rng.choice(CONSTS)
-    forms = [
+    if SMALL:       # a MySQL-protocol server: its spelling of these predicates
+        other = col_of(rng, aliases)
+        forms = [
+            "%s LIKE '%s%%'" % (c, rng.choice(['1', 'a', 'A', '0', ''])),
+            '%s BETWEEN %d AND %d' % (c, k, k + rng.choice([0, 1, 3])),
+            '%s IN (%s)' % (c, ', '.join(str(rng.choice(CONSTS)) for _ in range(rng.randint(1, 3)))),
+            "%s IN ('%d', %d)" % (c, k, rng.choice(CONSTS)),
+            '%s <=> %s' % (c, rng.choice([str(k), 'NULL', other])),
+            'NOT (%s <=> %s)' % (c, rng.choice([str(k), 'NULL', other])),
+            "CAST(%s AS CHAR) = '%d'" % (c, k),
+            'CAST(%s AS SIGNED) = %d' % (c, k),
+            "%s = '%d'" % (c, k),
+            'abs(%s) > %d' % (c, abs(k)),
+            '%s + 0 = %d' % (c, k),
+            "CONCAT(%s, '') = '%d'" % (c, k),
+            'coalesce(%s, %d) > %d' % (c, k, rng.choice(CONSTS)),
+            '(%s > %d) = 1' % (c, k),
+        ]
+        return rng.choice(forms)
+    forms = [       # the order is part of the seed: recorded campaigns regenerate their queries
         "%s LIKE '%s%%'" % (c, rng.choice(['1', 'a', 'A', '0', ''])),
         "%s GLOB '%s*'" % (c, rng.choice(['1', 'a', '0'])),
         '%s BETWEEN %d AND %d' % (c, k, k + rng.choice([0, 1, 3])),
@@ -195,7 +214,8 @@ def select(rng, ncols):
         a = rng.choice(aliases)
         c = '%s.%s' % (a, rng.choice(TABLES[tab(a)]))
         if RICH and rng.random() < 0.2:
-            c = rng.choice(['%s + 0', 'CAST(%s AS INTEGER)', "%s || ''", 'abs(%s)', 'coalesce(%s, 0)']) % c
+            c = rng.choice(['%s + 0', 'CAST(%s AS SIGNED)', "CONCAT(%s, '')", 'abs(%s)', 'coalesce(%s, 0)'] if SMALL else
+                           ['%s + 0', 'CAST(%s AS INTEGER)', "%s || ''", 'abs(%s)', 'coalesce(%s, 0)']) % c
         items.append('%s AS k%d' % (c, i))
     sql = 'SELECT %s%s FROM %s' % ('DISTINCT ' if rng.random() < (0.5 if FOCUS else 0.3) else '',
                                    ', '.join(items), sql_from)

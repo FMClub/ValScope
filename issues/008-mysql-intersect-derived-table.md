@@ -50,3 +50,24 @@ evaluated as a derived table, the 4 rows of `A` with `k0 = 8811` are returned al
 row of the right operand has `k0 = 8811`. At the top level the result is empty, as it
 should be. The database is the sample database of `scripts/setup_mariadb.sh` (on
 MySQL 8.4, 165 index statements of `data/mariadb/indexes.sql` are skipped).
+
+## MySQL 9.7.4 (CI job `candidates-newer-servers`)
+
+On MySQL 9.7.4 the **top-level** `A INTERSECT ALL (B UNION ALL C)` also returns the 4 rows of
+`A` (variant 1), as do variants 2 to 4; only variant 5 (a derived right arm) returns 0. So
+on 9.7.4 the intersection is wrong without any derived table: rows of the left operand
+that do not occur in the right operand are returned. MariaDB 11.8.9: 0 everywhere.
+
+## Reduced (bridge/reduce_mysql.py on MySQL 8.4.13, CI)
+
+The query reduces to two `LEFT JOIN`s of one row each; the right arm has `NULL` in two of
+its three columns, so the intersection is empty:
+
+```sql
+(SELECT t2a.c2 AS k0, t1b.c4 AS k1, t2a.c1 AS k2 FROM t2 AS t2a LEFT JOIN t1 AS t1b ON (1))
+INTERSECT ALL
+(SELECT t1b.c1 AS k0, t1a.c4 AS k1, t1b.c4 AS k2 FROM t1 AS t1a LEFT JOIN t1 AS t1b ON (0))
+```
+
+`data/mysql/intersect-min.sql` runs it on two plain tables with one row each (CI: MySQL 8.4
+and 9). MariaDB 10.11.14 returns no row for every form.

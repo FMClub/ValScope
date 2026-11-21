@@ -150,6 +150,8 @@ jobs:
           mysql_ --skip-column-names < data/mysql/bit-variants.sql || true
       - name: The INTERSECT ALL candidate of issue 008 on MySQL
         run: mysql -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mysql/intersect-all-variants.sql || true
+      - name: The reduced case of issue 008 on MySQL (plain tables)
+        run: mysql -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mysql/intersect-min.sql || true
       - name: The AVG candidate of issue 009 on MySQL
         run: mysql -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mariadb/avg-distinct.sql || true
       - name: No violation outside the baseline (issues 005, 008 are known)
@@ -199,5 +201,7 @@ jobs:
         run: sed -n '/^DROP DATABASE IF EXISTS/,/^```/p' issues/006-mariadb-bit-subquery-loose-scan.md | grep -v '^```' | mysql -h127.0.0.1 -uroot -p123456 --skip-column-names || true
       - name: "issue 008: INTERSECT in a derived table (expected 0 everywhere)"
         run: mysql -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mysql/intersect-all-variants.sql || true
+      - name: "issue 008, reduced (expected 0 rows for every INTERSECT)"
+        run: mysql -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mysql/intersect-min.sql || true
       - name: "issue 009: AVG under SELECT DISTINCT (expected 1, 2, 3)"
         run: mysql -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mariadb/avg-distinct.sql || true

@@ -101,3 +101,8 @@ returns `col_1` = `'14'` (bytes `31 34`, decimal text), the mutant, which reads 
 `MIN` through `SELECT DISTINCT * FROM (...)`, returns `0x0E` (the bit value). So MySQL also
 converts the same `BIT` value to two different strings when the set operation unifies the
 column type, depending on whether it comes from a derived table.
+
+## Newer versions (CI job `candidates-newer-servers`, sixth round)
+
+MariaDB 11.8.9: `MIN(x)` of the `BIT(8)` column still returns the text `2` (`HEX` `2`): the
+problem is still present. MySQL 9.7.4 returns the bit value `0x02`, as MySQL 8.4.

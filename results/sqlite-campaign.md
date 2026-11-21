@@ -23,15 +23,16 @@ Every violation was then re-checked from scratch by `bridge/confirm_sqlite.py`.
 | Seventh | 4001-4030, `--focus` | 2400 | 262868 | 3 (bug 1) | 45 |
 | Eighth | 5001-5030, `--focus --value-ext` | 2400 | 257784 | 1 (bug 1) | 46 |
 | Ninth (value queries over numeric columns) | 6001-6030, `--focus --value-ext` | 2400 | 292896 | 5 (bug 1) | 51 |
-| Tenth (lineage; reference 3.54.1; strict types) | 7001-7030, `--focus --value-ext` | 2400 | 298823 | 13 (6 bug 1, 1 bug 3, 6 bug 6) | **64** |
+| Tenth (lineage; reference 3.54.1; strict types) | 7001-7030, `--focus --value-ext` | 2400 | 298823 | 13 (6 bug 1, 1 bug 3, 6 bug 5) | **64** |
 
-The 64 pairs come from 6 bugs (`results/sqlite-bisect.md`). The sections below are in the
+The 64 pairs come from 5 bugs (`results/sqlite-bisect.md`; six groups of commits until the
+tenth round, when pair 38 turned out to be bug 1 hidden by a plan change). The sections below are in the
 order the work was done; the first ones describe the state after the first campaigns.
 
 ## Result
 
 **64 distinct (original, mutant) query pairs violate the relation that the rule's theorem
-guarantees; they come from 6 distinct SQLite bugs** (`results/sqlite-bisect.md`: each pair
+guarantees; they come from 5 distinct SQLite bugs** (`results/sqlite-bisect.md`: each pair
 is mapped to the commit that introduced and the commit that fixed it, and pairs with the
 same commits are one bug). 37 pairs were found by the first campaign, 5 by a second
 campaign run after the model was extended (strings, decimals, collations, opaque atoms), 2
@@ -45,7 +46,7 @@ and 3 in the sixth (see "Withdrawn" and the sixth round below). All 64 are confi
 - the relation holds on the reference release: SQLite 3.53.1, the version Python ships,
   until the ninth round, and 3.54.1 built from source since the tenth (for one pair it
   holds modulo the `NOCASE` collation, which is what the theorem states). All 64 pairs
-  hold on 3.54.1; the six pairs of bug 6 are still violated on 3.53.1.
+  hold on 3.54.1; the six pairs of bug 5 are still violated on 3.53.1.
 
 So the old releases return results that contradict each other, and a later release returns
 results that are consistent with the theorem.
@@ -232,11 +233,13 @@ the withdrawn ones with the reasons. `results/sqlite-reduced.md` has the pairs r
 
 - The campaign ran on four old releases (from npm packages: `sqlite.org` is not reachable).
   The bisection (sixth round) builds SQLite from its git history on GitHub instead.
-- "Confirmed" means inconsistent on the old version and consistent on 3.53.1. It does not
+- "Confirmed" means inconsistent on the old version and consistent on the reference
+  release (3.53.1, since the tenth round 3.54.1). It does not
   prove which of the two results on the old version is the wrong one.
-- The 64 pairs come from 6 bugs, identified by their introducing and fixing commits; three
-  fixes name an SQLite ticket. A fixing commit can be a plan change that hides the symptom
-  (bug 5).
+- The 64 pairs come from 5 bugs, identified by their introducing and fixing commits; three
+  fixes name an SQLite ticket. A fixing commit can be a plan change that hides the symptom:
+  pair 38 looked like a bug of its own for that reason, until it was bisected with the
+  query flattener switched off (`results/sqlite-bisect.md`, bug 1).
 
 ## Sixth round: commits, reduction, three withdrawals
 
@@ -333,7 +336,7 @@ scripts/record_sqlite_pairs.py violations.jsonl --lib 3.26.0=... --latest LIB-3.
   `scripts/record_sqlite_pairs.py` (confirm, bisect, reduce, bisect again).
 - Six pairs (seeds 7017, 7019, 7025; `UNION-ALL->UNION`, `UNION->UNION-ALL`) are bug 1; one
   (seed 7006, `cond->TRUE`, on 3.34.0 only) is bug 3.
-- **Two pairs (seed 7012, `HAVING cond->TRUE`) are a sixth bug, the first one found by the
+- **Two pairs (seed 7012, `HAVING cond->TRUE`) are a new bug (bug 5 of `results/sqlite-bisect.md`), the first one found by the
   value side.** The original has `HAVING COUNT(t2a.c1) IN (SELECT t1.c4 ...)` with a `TEXT`
   column `c4`; its `COUNT(t2a.c1)` in the select list comes back as the text `'2'`, the
   mutant (HAVING removed) returns the integer `2`, so the original's rows are not among the
@@ -345,7 +348,7 @@ scripts/record_sqlite_pairs.py violations.jsonl --lib 3.26.0=... --latest LIB-3.
 - The value rules saw the same bug and filed it as "incomparable": the mutated column
   held the text `'2'` in the original and a number in the mutant. With numeric inputs that
   is now a violation (`check_value(strict_types=True)`); re-running seed 7012 gave four
-  more pairs of bug 6 (`COUNT->COUNT-DISTINCT`, `expr->expr+k`, `expr->expr*k`,
+  more pairs of this bug (`COUNT->COUNT-DISTINCT`, `expr->expr+k`, `expr->expr*k`,
   `COUNT-DISTINCT->COUNT`), recorded as pairs 61 to 64: the first violations of value rules
   on SQLite.
 - The lineage mutants (through a derived table) found nothing on SQLite.

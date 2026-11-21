@@ -525,7 +525,7 @@ L=/tmp/sqlite-libs; python3 bridge/campaign_sqlite.py --libs $L/libsqlite3-32600
 | `--focus` | more set operations, `DISTINCT`, text and `COLLATE NOCASE` columns |
 | `--rich` | opaque predicates and derived tables |
 | `--adaptive` | choose plain / `--focus` / `--rich` / both per database seed by coverage feedback (section 8.4) |
-| `--latest LIB.so` | the reference library a violation is re-checked on (default: the SQLite that Python ships). Use a build of the newest release: a bug that Python's SQLite still has is otherwise filed as "also in latest" (bug 6 of `results/sqlite-bisect.md`) |
+| `--latest LIB.so` | the reference library a violation is re-checked on (default: the SQLite that Python ships). Use a build of the newest release: a bug that Python's SQLite still has is otherwise filed as "also in latest" (bug 5 of `results/sqlite-bisect.md`) |
 | `--value-ext` | the value queries of `gen_fragment.py --value-ext` (windows over groups, DISTINCT arms of a `UNION ALL`, `INTERSECT` / `EXCEPT`) |
 | `--flip` | negative control |
 

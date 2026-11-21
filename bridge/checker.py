@@ -413,7 +413,7 @@ def check_value(relation, column, original_rows, mutant_rows, single_precision=F
     strict_types: the inputs of the query are known to be numeric (SQLite: the numeric
     probe of the bridge returned 0), so the mutated column is a number in both results.
     Text in one result only is then a violation ('type changed'), not 'incomparable':
-    SQLite converted a value on the way (results/sqlite-bisect.md, bug 6).
+    SQLite converted a value on the way (results/sqlite-bisect.md, bug 5).
 
     The other columns are compared exactly, then with floats rounded to 12 and 9
     significant digits, then (with a fold) modulo the DBMS's equality: a grouping key

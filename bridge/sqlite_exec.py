@@ -12,6 +12,9 @@ SQLITE_INTEGER, SQLITE_FLOAT, SQLITE_TEXT, SQLITE_BLOB, SQLITE_NULL = 1, 2, 3, 4
 PROGRESS = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p)
 
 
+# bit mask of optimisations to disable in every connection (0x1: the query flattener)
+OPTIMIZATIONS_OFF = 0
+
 class SQLiteLib:
     """One SQLite version loaded from a shared library, with one open database."""
 
@@ -63,6 +66,10 @@ class SQLiteLib:
         self.db = ctypes.c_void_p()
         if lib.sqlite3_open(db_path.encode(), ctypes.byref(self.db)) != 0:
             raise RuntimeError('cannot open %s' % db_path)
+        if OPTIMIZATIONS_OFF:
+            # sqlite3_test_control(SQLITE_TESTCTRL_OPTIMIZATIONS, db, mask): switch optimisations
+            # off, to see a defect that a plan change hides (bisect_sqlite.py --optimizations-off)
+            lib.sqlite3_test_control(ctypes.c_int(15), self.db, ctypes.c_int(OPTIMIZATIONS_OFF))
         # abort runaway queries: the callback is called every 1000 VM steps
         self._budget = [0]
         limit = step_limit // 1000

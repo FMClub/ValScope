@@ -123,3 +123,24 @@ and `replay_reduced_sqlite.py`; `--latest` documented.
    BLOB) on MySQL-protocol servers instead of running them and getting `incomparable`.
 2. Old open point: is bug 5 the defect of bug 1 hidden by a plan change?
 3. A newest-release SQLite build in CI, so the replay step can also check `--latest`.
+
+## Round 6 (2026-11-21)
+
+**Milestone.** An open point since the sixth campaign round is closed: the former bug 5
+(pair 38) is bug 1. Its first good commit with SQLite's default settings is the UNION ALL
+flattening of 3.35.0, a plan change. With the query flattener switched off
+(`bisect_sqlite.py --optimizations-off 0x1`, via `sqlite3_test_control`) the pair stays
+violated on that commit, on 3.40.0 and on 3.51.0, and its first good commit is `9b7005f`,
+the fix of bug 1. **64 pairs, 5 bugs**; the affinity bug found by the HAVING and value
+rules (called bug 6 in rounds 3 to 5 above) is now bug 5.
+
+**Done.** `sqlite_exec.OPTIMIZATIONS_OFF`, `bisect_sqlite.py --optimizations-off MASK`; the
+record of pair 38 in `results/sqlite-bisect.jsonl` carries the fixing commit found that way
+and the plan change as `plan_change`; README, `results/`, issue 004 renumbered.
+
+**Audit findings / TODO for round 7.**
+1. (from round 5) Skip value mutants of non-numeric items on MySQL-protocol servers.
+2. With the flattener off, pair 38 is bad on every release back to 3.5.7, i.e. before the
+   introducing commit of bug 1 (`9ed1dfa`, itself an optimisation). The introducing
+   commits of all bugs could be re-checked with optimisations off.
+3. (from round 5) A newest-release SQLite build in CI for `replay --latest`.

@@ -1,6 +1,6 @@
 # SQLite violations mapped to commits
 
-**The 64 confirmed pairs come from 6 distinct SQLite bugs.** Pairs with the same
+**The 64 confirmed pairs come from 5 distinct SQLite bugs.** Pairs with the same
 (introducing, fixing) commits are one bug; different commits, different bugs. Every
 boundary is exact (two adjacent commits of the first-parent history).
 
@@ -24,22 +24,30 @@ Three reduced pairs coincide (3 = 4, 6 = 7, 33 = 34). Pairs 43 to 45 come from t
 
 | Bug | Pairs | Introduced by | Fixed by | Fix first released in | Rules |
 | --- | --- | --- | --- | --- | --- |
-| 1 | #1, #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, #12, #13, #14, #15, #16, #17, #18, #19, #20, #21, #22, #23, #24, #25, #30, #31, #35, #36, #40, #41, #42, #43, #44, #45, #46, #47, #48, #49, #50, #51, #55, #56, #57, #58, #59, #60 | `9ed1dfa802c2` 2008-01-02 Minor optimizations for sub-selects in EXISTS(...) expressio | `9b7005feeae1` 2026-01-25 Always use the sort-and-merge algorithm for EXCEPT, INTERSEC | version-3.52.0 | EXCEPT->left, UNION->UNION-ALL, UNION-ALL->UNION |
+| 1 | #1, #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, #12, #13, #14, #15, #16, #17, #18, #19, #20, #21, #22, #23, #24, #25, #30, #31, #35, #36, #38, #40, #41, #42, #43, #44, #45, #46, #47, #48, #49, #50, #51, #55, #56, #57, #58, #59, #60 | `9ed1dfa802c2` 2008-01-02 Minor optimizations for sub-selects in EXISTS(...) expressio | `9b7005feeae1` 2026-01-25 Always use the sort-and-merge algorithm for EXCEPT, INTERSEC | version-3.52.0 | EXCEPT->left, UNION->UNION-ALL, UNION-ALL->UNION |
 | 2 | #26, #29 | `f8f76d672b78` 2020-01-08 Simplification of the logic in the constant-propagation opti | `fdfd45aef3c8` 2020-02-13 Fix problems in the constant propagation optimization that w | version-3.32.0 | LEFT->INNER-JOIN, cond->TRUE |
 | 3 | #27, #28, #52 | `fad4dd0fd182` 2020-09-30 Improved query optimization for multi-column indexes where t | `16cd8b96d3e2` 2021-01-27 Fix an issue with IN operator optimization introduced by che | version-3.35.0 | DISTINCT-add, cond->TRUE |
 | 4 | #32, #33, #34, #37, #39 | `8dc570b6afac` 2016-06-08 Prefer to use partial indexes for full table scans when that | `8f2b1e4c909d` 2019-05-11 Do not assume that "x IS NOT ?" implies "x NOT NULL" when co | version-3.29.0 | DISTINCT-add, UNION->UNION-ALL |
-| 5 | #38 | `9ed1dfa802c2` 2008-01-02 Minor optimizations for sub-selects in EXISTS(...) expressio | `e69ba68363ed` 2020-12-19 Allow UNION ALL sub-queriesto be flattened even if the paren | version-3.35.0 | UNION->UNION-ALL |
-| 6 | #53, #54, #61, #62, #63, #64 | `f78dcd1b960e` 2016-09-07 Add support for row-value comparisons, including IN operator | `3bc026df6eef` 2026-07-29 Avoid apply an affinity to a register that might be the resu | version-3.54.0 | COUNT->COUNT-DISTINCT, COUNT-DISTINCT->COUNT, HAVING cond->TRUE, expr->expr*k, expr->expr+k |
+| 5 | #53, #54, #61, #62, #63, #64 | `f78dcd1b960e` 2016-09-07 Add support for row-value comparisons, including IN operator | `3bc026df6eef` 2026-07-29 Avoid apply an affinity to a register that might be the resu | version-3.54.0 | COUNT->COUNT-DISTINCT, COUNT-DISTINCT->COUNT, HAVING cond->TRUE, expr->expr*k, expr->expr+k |
 
 ## The bugs
 
-1. **`EXISTS` subqueries drop `DISTINCT`, shown by compound operators** (47 pairs; `UNION`,
+1. **`EXISTS` subqueries drop `DISTINCT`, shown by compound operators** (48 pairs; `UNION`,
    `UNION ALL`, `EXCEPT`, `DISTINCT`). Introduced by `9ed1dfa802c24fc678f6ca11e4616b4edc414fed`
    (2008-01-02, 3.5.5, "Minor optimizations for sub-selects in EXISTS(...) expressions:
    Discard any DISTINCT or ORDER BY clauses and do not calculate any column values"), fixed
    by `9b7005feeae1fd6267f0b52161998ce2d75335e2` (2026-01-25, 3.52.0, "Always use the
    sort-and-merge algorithm for EXCEPT, INTERSECT, and UNION, even if there is no ORDER BY
    clause").
+   Pair 38 was a bug of its own (number 5) until the tenth round: bisected with SQLite's
+   default settings, its first good commit is `e69ba68363ed3802881a9b09c4a3661fc9368756`
+   (2020-12-19, 3.35.0, "Allow UNION ALL sub-queries to be flattened even if the parent query
+   is a join"), an optimisation that changes the plan. With the query flattener switched
+   off (`bisect_sqlite.py --optimizations-off 0x1`, `sqlite3_test_control`) the pair is
+   violated on that commit and on every release up to 3.51.0, and its first good commit
+   is `9b7005feeae1`: the defect of bug 1, which the flattening only hid. Its record in
+   `results/sqlite-bisect.jsonl` has that fixing commit, and the plan change as
+   `plan_change`.
 2. **Constant propagation** (pairs 26, 29). Introduced by
    `f8f76d672b78b77e7d79ebaf0e9ab55c8bb0b14d` (2020-01-08, 3.31.0), fixed by
    `fdfd45aef3c8ed91278f4bddff6b421472e49f10` (2020-02-13, 3.32.0, SQLite ticket
@@ -50,12 +58,7 @@ Three reduced pairs coincide (3 = 4, 6 = 7, 33 = 34). Pairs 43 to 45 come from t
 4. **Partial indexes and `x IS NOT ?`** (pairs 32, 33, 34, 37, 39). Introduced by
    `8dc570b6afac593f029a67640ab916278af1ca65` (2016-06-08, 3.14.0), fixed by
    `8f2b1e4c909df912209c34816ae33bf31cbb20b8` (2019-05-11, 3.29.0, ticket `8025674847`).
-5. **`UNION ALL` subquery in a join** (pair 38). Introduced by `9ed1dfa802c2` like bug 1,
-   but its first good commit is `e69ba68363ed3802881a9b09c4a3661fc9368756` (2020-12-19,
-   3.35.0, "Allow UNION ALL sub-queries to be flattened even if the parent query is a
-   join"), an optimisation that changes the plan: by the rule it is another bug, and it
-   may be the defect of bug 1 that this plan change hides for this pair.
-6. **Affinity applied to an aggregate's register** (pairs 53, 54, 61, 62, 63, 64; found by the HAVING rule
+5. **Affinity applied to an aggregate's register** (pairs 53, 54, 61, 62, 63, 64; found by the HAVING rule
    `cond->TRUE` and by four value rules). `HAVING COUNT(x) IN (SELECT text_column ...)` converts the register that
    holds `COUNT(x)` to text for the comparison, and the select list then returns the text:
 
@@ -84,8 +87,10 @@ Three reduced pairs coincide (3 = 4, 6 = 7, 33 = 34). Pairs 43 to 45 come from t
 ## Caveats
 
 - A fixing commit is the first commit on which the pair is good; a plan change can end the
-  symptom without fixing the defect (bug 5). An introducing commit can expose older code.
-- Several bugs can share a commit (bugs 1 and 5 share the introducing commit).
+  symptom without fixing the defect. That happened for pair 38 (see bug 1): when a pair's
+  fixing commit is an optimisation, bisect again with `--optimizations-off`. An introducing
+  commit can expose older code in the same way: with the flattener off, pair 38 is bad on
+  every release back to 3.5.7, before the introducing commit of bug 1.
 
 ## Reproduce
 

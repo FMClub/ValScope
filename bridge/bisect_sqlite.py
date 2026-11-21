@@ -40,6 +40,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from checker import check_inclusion, check_value, sqlite_fold  # noqa: E402
 from gen_sqlite_db import build as build_db  # noqa: E402
+import sqlite_exec  # noqa: E402
 from sqlite_exec import SQLiteLib  # noqa: E402
 
 CFLAGS = ['-O1', '-shared', '-fPIC', '-DSQLITE_THREADSAFE=0', '-DSQLITE_ENABLE_STAT4',
@@ -276,8 +277,12 @@ def main():
     ap.add_argument('--compat', action='store_true',
                     help='for a pair whose introduction is not found, try again on the database '
                          'without WITHOUT ROWID (an approximation, reported separately)')
+    ap.add_argument('--optimizations-off', default='0', metavar='MASK',
+                    help='disable optimisations of every build (sqlite3_test_control; 0x1 = the query '
+                         'flattener): the fixing commit of a defect, not of a plan change that hides it')
     ap.add_argument('--out', default=None, help='write the per-pair results as JSON lines')
     args = ap.parse_args()
+    sqlite_exec.OPTIMIZATIONS_OFF = int(args.optimizations_off, 0)
     src = os.path.abspath(args.src)
     builder = Builder(src, args.cache or os.path.join(os.path.dirname(src), 'bisect-cache'))
     tmp = os.path.join(builder.cache, 'db')

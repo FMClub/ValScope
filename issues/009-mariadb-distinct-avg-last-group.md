@@ -102,3 +102,26 @@ returns one row on MariaDB 10.11.14 (checked here; three groups with counts 2, 1
 the single row 3 instead of 3, 2, 4). In both cases an expression over an aggregate, or an
 aggregate computed at the end, is evaluated once for the last group under `SELECT DISTINCT`.
 The ticket was found by a web search and not read in full; nothing was reported upstream.
+
+## A family, not one symptom (round 8)
+
+The campaign over random databases (`results/mariadb-campaign.md`) hit this shape 110 times
+in 3200 queries. Besides "the aggregate of the last group on every row" it shows:
+
+- `VAR_SAMP` affected like `AVG` and `STDDEV_SAMP`;
+- NULL in place of the aggregate;
+- other rows: the mutated key expression changes which rows come back.
+
+Three pairs that held when the secondary indexes were dropped (`recheck_mysql.py
+--no-indexes`) were reduced by `reduce_mysql.py` to two rows, no index, and this query:
+
+```sql
+CREATE TABLE t1 (c1 INT, c4 BIGINT);
+INSERT INTO t1 VALUES (10, 7), (-3, 10);
+SELECT DISTINCT c1 AS k0,     c4 AS k1, AVG(c4 + c1) AS k3, SIGN(AVG(c4)) AS k4 FROM t1 GROUP BY c1, c4;
+SELECT DISTINCT c1 + 3 AS k0, c4 AS k1, AVG(c4 + c1) AS k3, SIGN(AVG(c4)) AS k4 FROM t1 GROUP BY c1, c4;
+-- k3 must be the same in both; the second query returns the k3 of the last group twice
+```
+
+The baseline signature `mariadb-distinct-avg` therefore accepts every value-rule violation
+on a `SELECT DISTINCT` over a grouped query with `AVG`, `STD*` or `VAR*`.

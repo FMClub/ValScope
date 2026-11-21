@@ -170,6 +170,14 @@ fixes of PR #1 are merged; the design problems below are still open.
 1a. **MariaDB `AVG` under `SELECT DISTINCT`** (`issues/009`, sixth round, found by the DISTINCT
    value queries): the `AVG` of the last group on every row; still present in MariaDB
    11.8.9, not in MySQL. Issues 005 and 006 are also still present in MariaDB 11.8.9.
+1c. **MariaDB over random databases (round 8 of `docs/JOURNAL.md`).** `bridge/campaign_mysql.py`
+   (40 databases, 3200 queries) gave 123 violating pairs on 10.11.14, all classified
+   (`results/mariadb-campaign.md`): 110 are issue 009, which turns out to be a family
+   (`SELECT DISTINCT` over a grouped query: wrong aggregate values, NULLs, missing rows),
+   and two are new candidates: `issues/012` (`number IN (SELECT date ...)` FALSE instead of
+   NULL with an index) and `issues/013` (DECIMAL `-0.00` in `GROUP BY`). Open: issue 009
+   hides whatever else such queries might show; a campaign without `SELECT DISTINCT` over
+   grouped queries, and the same campaign on MySQL, were not run.
 1b. **MySQL 8.4.13 (CI, sixth round)**: the Python-generator run reports one `DISTINCT-add`
    violation on the `MIN(BIT)` query that also shows issue 005 on MariaDB: the original
    returns the decimal text `'14'`, the mutant the bit value `0x0E` (`issues/005`, section

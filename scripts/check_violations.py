@@ -27,13 +27,13 @@ def key(rec):
 
 
 def _issue_009(rec):
-    """issues/009 (MariaDB): under SELECT DISTINCT in a grouped query, AVG / STDDEV of the
-    last group is copied into every row.  Seen by a value rule as a change in a column
-    that the mutation does not touch."""
+    """issues/009 (MariaDB): under SELECT DISTINCT in a grouped query, an aggregate computed
+    at the end (AVG, STDDEV, VAR) takes the value of another group, or NULL.  Seen by a
+    value rule as a change in a column that the mutation does not touch, as a NULL, or as
+    missing rows (results/mariadb-campaign.md)."""
     sql = rec['original'].upper()
-    return (' col ' in rec.get('expect', '') and rec.get('verdict') == 'other columns changed'
-            and 'SELECT DISTINCT' in sql and ' GROUP BY ' in sql
-            and re.search(r'\b(AVG|STDDEV\w*|STD)\s*\(', sql) is not None)
+    return (' col ' in rec.get('expect', '') and 'SELECT DISTINCT' in sql and ' GROUP BY ' in sql
+            and re.search(r'\b(AVG|STD\w*|VAR\w*)\s*\(', sql) is not None)
 
 
 def _issue_010(rec):

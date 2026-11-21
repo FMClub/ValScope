@@ -88,6 +88,7 @@ class MySQLTarget:
                 rows = list(cur.fetchall())
                 self.last_collations = [self.columns.name(f.charsetnr) for f in cur._result.fields]
                 types = [d[1] for d in cur.description]
+                self.last_scales = [d[5] for d in cur.description]
             if any(w in sql.upper() for w in ('UNION', 'INTERSECT', 'EXCEPT')):
                 self.last_collations = self._compound_collations(sql, self.last_collations)
             return rows, types
@@ -322,6 +323,7 @@ def main():
                     continue
         as_written, _ = target.run(sql)
         base, base_types = target.run(original)
+        base_scales = getattr(target, 'last_scales', None)
         base_collations = target.last_collations
         if as_written is None or base is None:
             st['original_failed'] += 1
@@ -354,7 +356,13 @@ def main():
                         continue
                     relation = FLIP_VALUE[relation]
                 loose = single or (types is not None and target.SINGLE in (base_types[column], types[column]))
+                decimals = None
+                if types is not None and base_scales and {base_types[column], types[column]} & set(target.APPROXIMATE_TYPES):
+                    # a binary float printed with a fixed number of decimals in either result
+                    printed = [d for d in (base_scales[column], target.last_scales[column]) if d is not None and d < 31]
+                    decimals = min(printed) if printed else None
                 verdict = check_value(relation, column, base, res, single_precision=loose, fold=fold,
+                                      output_decimals=decimals,
                                       cover=bool(trs) and trs[0].cover_for(text),
                                       strict_types=target.dialect == 'sqlite')    # the numeric probe passed
                 label = '%s col %d' % (relation, column)

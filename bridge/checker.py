@@ -365,25 +365,26 @@ def _exact(v):
 
 
 class _Cmp:
-    def __init__(self, tol):
-        self.tol = tol
+    def __init__(self, tol, abs_tol=0.0):
+        self.tol, self.abs_tol = tol, abs_tol
 
     def le(self, a, b):
         if _exact(a) and _exact(b):
             return Fraction(a) <= Fraction(b)
         a, b = float(a), float(b)
-        return a <= b + self.tol * max(1.0, abs(a), abs(b))
+        return a <= b + self.tol * max(1.0, abs(a), abs(b)) + self.abs_tol
 
     def near(self, a, b, factor=1):
         if _exact(a) and _exact(b):
             return Fraction(a) == Fraction(b)
         a, b = float(a), float(b)
-        return abs(a - b) <= factor * self.tol * max(1.0, abs(a), abs(b))
+        return abs(a - b) <= factor * self.tol * max(1.0, abs(a), abs(b)) + self.abs_tol
 
 
-def relation_holds(relation, a, b, tol=REL_TOL):
-    """The value relations of Value.v."""
-    c = _Cmp(tol)
+def relation_holds(relation, a, b, tol=REL_TOL, abs_tol=0.0):
+    """The value relations of Value.v.  abs_tol: an absolute slack for binary floats that
+    the server rounded to a number of decimals on output (see check_value)."""
+    c = _Cmp(tol, abs_tol)
     if relation == 'Le':
         return c.le(a, b)
     if relation == 'Ge':
@@ -406,7 +407,7 @@ def _key(row, column, fold, digits):
 
 
 def check_value(relation, column, original_rows, mutant_rows, single_precision=False, fold=None, cover=False,
-                strict_types=False):
+                strict_types=False, output_decimals=None):
     """'ok', 'incomparable' (the mutated column is not numeric in one of the results)
     or a string describing the violation.
 
@@ -419,7 +420,11 @@ def check_value(relation, column, original_rows, mutant_rows, single_precision=F
     significant digits, then (with a fold) modulo the DBMS's equality: a grouping key
     with a case-insensitive collation may be returned as 'a' by one plan and 'A' by
     another."""
-    tol = REL_TOL_SINGLE if single_precision else REL_TOL
+    # output_decimals: the mutated column is a binary float that the server printed with
+    # that many decimals in one of the results (MariaDB: VAR_SAMP of a DECIMAL has 4, an
+    # AVG over it 8), so a value can be off by one unit of the last printed digit
+    tol = (REL_TOL_SINGLE if single_precision else REL_TOL,
+           10.0 ** -output_decimals if output_decimals is not None else 0.0)
     attempts = [(ExactFold(), None), (ExactFold(), 12), (ExactFold(), 9)]
     if nontrivial(fold):
         attempts += [(fold, None), (fold, 9)]
@@ -479,7 +484,7 @@ def _check_value(relation, column, original_rows, mutant_rows, fold, digits, tol
             return 'NULL-ness changed (%d NULLs vs %d)' % (nulls_o, nulls_m)
         a = [v for v in orig if v is not None]
         b = [v for v in mut if v is not None]
-        unmatched = _perfect_matching(a, b, lambda x, y: relation_holds(relation, x, y, tol))
+        unmatched = _perfect_matching(a, b, lambda x, y: relation_holds(relation, x, y, *tol))
         if unmatched is not None:
             return '%s violated: no mutant value corresponds to %r (mutant values %r)' % (
                 relation, unmatched, sorted(b, key=float)[:8])
@@ -503,7 +508,7 @@ def _check_cover(relation, column, original_rows, mutant_rows, fold, digits, tol
         if typed:
             return typed
         related = lambda x, y: (x is None and y is None) or (
-            x is not None and y is not None and relation_holds(relation, x, y, tol))
+            x is not None and y is not None and relation_holds(relation, x, y, *tol))
         for y in mut:
             if not any(related(x, y) for x in orig):
                 return '%s violated: no original value is related to the mutant value %r (original values %r)' % (

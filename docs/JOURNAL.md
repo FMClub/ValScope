@@ -172,3 +172,25 @@ the grouping into bugs does not depend on it.
    random databases, as on SQLite, does not exist for MySQL-protocol servers.
 2. `scripts/demo.sh` is the only end-to-end entry point and mixes build, tests and runs.
 3. Upstream reports for the MariaDB / MySQL candidates remain undone (no tracker access).
+
+## Round 8 (2026-11-21)
+
+**Milestone.** Campaigns on MySQL-protocol servers over random databases:
+`bridge/gen_mysql_db.py`, `bridge/campaign_mysql.py`, `bridge/recheck_mysql.py`. First
+campaign on MariaDB 10.11.14 (40 databases, 3200 queries, 122200 checks): 125 violating
+pairs, all classified (`results/mariadb-campaign.md`).
+
+- Two new candidate bugs: `issues/012` (`number IN (SELECT date_column ...)` is FALSE
+  instead of NULL when the subquery has a NULL and the column is indexed) and `issues/013`
+  (the DECIMAL `-0.00` from `-3.00 % 3` is grouped with `0.00` or apart depending on an
+  unrelated aggregate, and `-0.00 = 0.00` is false).
+- Issue 009 is a family: 110 pairs, with wrong values, NULLs and missing rows.
+- One false alarm of the tool, fixed: a DOUBLE printed with a fixed number of decimals can
+  be off by one unit of its last digit (`check_value(output_decimals=...)`).
+
+**TODO for round 9.**
+1. CI results of issues 012 and 013 on MySQL and newer MariaDB: read them, update the issues.
+2. A MariaDB campaign that avoids `SELECT DISTINCT` over grouped queries (issue 009 hides
+   the rest), and the same campaign on MySQL (CI only: no local MySQL server).
+3. `campaign_mysql.py` runs `run_on_db.py` twice per seed as a subprocess: fine, but the
+   records get their seed after the fact; a shared function would be cleaner.

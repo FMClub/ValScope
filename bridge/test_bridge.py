@@ -373,6 +373,10 @@ report(check_value('AwayOne', 1, rows(0.5, 2), rows(0.25, 4)) == 'ok', 'AwayOne 
 report(check_value('Le', 1, rows(None,), rows(3,)) != 'ok', 'NULL-ness must not change')
 report(check_value('Le', 1, rows(1,), rows(1, 2)) != 'ok', 'row count must not change')
 report(check_value('Le', 1, [(1, 'a')], [(1, 'b')]) == 'incomparable', 'non-numeric column is incomparable')
+report(check_value('Le', 1, [(1, 7.61111111)], [(1, 7.6111)]) != 'ok' and
+       check_value('Le', 1, [(1, 7.61111111)], [(1, 7.6111)], output_decimals=4) == 'ok' and
+       check_value('Le', 1, [(1, 7.62)], [(1, 7.6111)], output_decimals=4) != 'ok',
+       'a float printed with 4 decimals may be off by one unit of the last digit, not more')
 report(check_value('Le', 1, [(1, '2')], [(1, 5)]) == 'incomparable' and
        check_value('Le', 1, [(1, '2')], [(1, 5)], strict_types=True).startswith('type changed') and
        check_value('Le', 1, [(1, '2')], [(1, '5')], strict_types=True) == 'incomparable' and

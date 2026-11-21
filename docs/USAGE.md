@@ -418,6 +418,24 @@ for seed in $(seq 1 20); do python3 bridge/gen_fragment.py 300 $seed > q_$seed.s
 for seed in $(seq 101 120); do python3 bridge/gen_fragment.py --value 300 $seed > v_$seed.sql; python3 bridge/run_on_db.py v_$seed.sql --value --port 3306 --password 123456 --database test --out violations.jsonl | tail -n 3; done
 ```
 
+### 6.6b A campaign over random databases
+
+`scripts/demo.sh` and section 6.6 test one database. `bridge/campaign_mysql.py` builds a
+random database per seed (`bridge/gen_mysql_db.py`: random column types, NULLs,
+duplicates, a primary key, random indexes; the database `vs_campaign` is dropped and
+created for every seed), generates queries for it and checks them with `run_on_db.py`:
+
+```bash
+python3 bridge/campaign_mysql.py --seeds 1-40 --queries 40 --focus --value-ext --host 127.0.0.1 --port 3306 --user root --password 123456 --out violations.jsonl
+```
+
+There is no reference release, so every violation is a candidate. Two tools help to
+classify them: `bridge/recheck_mysql.py violations.jsonl ... [--no-indexes]` rebuilds the
+database of each pair and judges it again, optionally without the secondary indexes (a
+pair that needs an index depends on the access path), and `reduce_mysql.py` (section 6.7)
+after `python3 bridge/gen_mysql_db.py SEED | mysql DATABASE`. The first campaign is in
+`results/mariadb-campaign.md`.
+
 ### 6.7 Reduce a violation found on a server
 
 ```bash

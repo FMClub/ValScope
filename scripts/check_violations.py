@@ -8,16 +8,35 @@ A violation is identified by its rule and a hash of the original and the mutant 
 baseline lists the known ones (each with a comment: the issue or bug it shows).  A new key
 means a new violation, which is either a DBMS bug to record or a false alarm of the tool:
 CI fails so that it is looked at.  Known keys that do not appear are reported, not failed.
+
+A known bug that many generated queries hit is listed by its signature instead, a line
+`sig:NAME` of the baseline: a predicate on the record (SIGNATURES below), narrow enough
+that another bug is unlikely to satisfy it.  The number of violations each signature
+matched is printed.
 """
 import hashlib
 import json
 import os
+import re
 import sys
 
 
 def key(rec):
     h = hashlib.sha1((rec['original'] + '\n' + rec['mutant']).encode()).hexdigest()[:16]
     return '%s|%s' % (rec['rule'].replace(' ', '_'), h)
+
+
+def _issue_009(rec):
+    """issues/009 (MariaDB): under SELECT DISTINCT in a grouped query, AVG / STDDEV of the
+    last group is copied into every row.  Seen by a value rule as a change in a column
+    that the mutation does not touch."""
+    sql = rec['original'].upper()
+    return (' col ' in rec.get('expect', '') and rec.get('verdict') == 'other columns changed'
+            and 'SELECT DISTINCT' in sql and ' GROUP BY ' in sql
+            and re.search(r'\b(AVG|STDDEV\w*|STD)\s*\(', sql) is not None)
+
+
+SIGNATURES = {'mariadb-distinct-avg': _issue_009}
 
 
 def read(path):
@@ -31,16 +50,23 @@ def main():
         for rec in read(sys.argv[2]):
             print('%s  # %s' % (key(rec), rec['original'][:80]))
         return 0
-    recs, base = read(sys.argv[1]), {}
+    recs, base, sigs = read(sys.argv[1]), {}, []
     for line in open(sys.argv[2]):
         line = line.split('#')[0].strip()
-        if line:
+        if line.startswith('sig:'):
+            if line[4:] not in SIGNATURES:
+                sys.exit('unknown signature %s' % line)
+            sigs.append(line[4:])
+        elif line:
             base[line] = True
-    new = [r for r in recs if key(r) not in base]
+    matched = {name: sum(1 for r in recs if key(r) not in base and SIGNATURES[name](r)) for name in sigs}
+    new = [r for r in recs if key(r) not in base and not any(SIGNATURES[name](r) for name in sigs)]
     seen = {key(r) for r in recs}
     for k in base:
         if k not in seen:
             print('note: known violation %s did not appear in this run' % k)
+    for name, n in matched.items():
+        print('signature %s: %d violations' % (name, n))
     for r in new:
         print('NEW VIOLATION %s (%s)\n  original: %s\n  mutant  : %s' % (key(r), r.get('verdict'), r['original'], r['mutant']))
     print('%d violations, %d known, %d new' % (len(recs), len(recs) - len(new), len(new)))

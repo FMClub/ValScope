@@ -38,7 +38,7 @@ jobs:
       - name: SQLite campaign on two old releases (small)
         run: |
           L=/tmp/sqlite-libs
-          python3 bridge/campaign_sqlite.py --libs $L/libsqlite3-3260000.so $L/libsqlite3-3340000.so --seeds 1001-1003 --queries 20 --out /tmp/violations.jsonl
+          python3 bridge/campaign_sqlite.py --value-ext --libs $L/libsqlite3-3260000.so $L/libsqlite3-3340000.so --seeds 1001-1003 --queries 20 --out /tmp/violations.jsonl
           scripts/check_violations.py /tmp/violations.jsonl data/ci-baseline/sqlite-campaign.txt
       - name: Reduce a recorded violation (smoke test)
         run: |

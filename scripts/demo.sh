@@ -76,6 +76,9 @@ case "$target" in
     python3 bridge/run_on_db.py out/queries.sql "${conn[@]}" --out out/violations.jsonl > out/run-set.log; summary out/run-set.log
     echo "== 6. value-semantic and HAVING rules on MariaDB"
     python3 bridge/run_on_db.py out/vqueries.sql --value "${conn[@]}" --out out/violations.jsonl > out/run-value.log; summary out/run-value.log
+    echo "== 6b. the same on extended value queries (windows over groups, DISTINCT arms, INTERSECT / EXCEPT)"
+    python3 bridge/gen_fragment.py --value --value-ext "$N" 12 > out/vxqueries.sql
+    python3 bridge/run_on_db.py out/vxqueries.sql --value "${conn[@]}" --out out/violations.jsonl > out/run-value-ext.log; summary out/run-value-ext.log
     echo "== 7. queries of the original Python generator (data/python-generator-queries.sql)"
     python3 bridge/run_on_db.py data/python-generator-queries.sql "${conn[@]}" --out out/violations.jsonl > out/run-python-queries.log; summary out/run-python-queries.log
     echo "== 8. negative control (--flip): must report many violations"

@@ -203,5 +203,8 @@ jobs:
         run: mysql -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mysql/intersect-all-variants.sql || true
       - name: "issue 008, reduced (expected 0 rows for every INTERSECT)"
         run: mysql -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mysql/intersect-min.sql || true
+      - name: "issue 008: reduce the pair (rows and indexes) on this server"
+        if: startsWith(matrix.image, 'mysql')
+        run: python3 bridge/reduce_mysql.py data/mysql/pair-008.jsonl --data-only --password 123456 --database test || true
       - name: "issue 009: AVG under SELECT DISTINCT (expected 1, 2, 3)"
         run: mysql -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mariadb/avg-distinct.sql || true

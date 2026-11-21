@@ -107,6 +107,8 @@ def main():
     ap.add_argument('--password', default='')
     ap.add_argument('--database', required=True)
     ap.add_argument('--no-data', action='store_true', help='reduce the query only')
+    ap.add_argument('--data-only', action='store_true',
+                    help='keep the pair as it is and reduce rows and indexes only (no mutator needed)')
     args = ap.parse_args()
     recs = [json.loads(line) for line in open(args.file) if line.strip()]
     if args.key:
@@ -137,7 +139,8 @@ def main():
         judge = Judge(target, rec)
         if not judge.violated(rec['original'], rec['mutant']):
             sys.exit('the pair is not violated on this server')
-        got = reduce_query(judge, rec.get('query') or rec['original'], log) or (rec['original'], rec['mutant'])
+        got = None if args.data_only else reduce_query(judge, rec.get('query') or rec['original'], log)
+        got = got or (rec['original'], rec['mutant'])
         original, mutant = got
         used = tables_of(original + ' ' + mutant, tables)
         if not args.no_data:

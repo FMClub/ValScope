@@ -203,6 +203,11 @@ jobs:
       - name: Reduce the pair of issue 008 (query and data)
         if: always()
         run: python3 bridge/reduce_mysql.py out/violations.jsonl --key 'DISTINCT-add|21963406b307e718' --password 123456 --database test || true
+      - name: Campaign over random databases (the candidates are printed, not judged)
+        if: always()
+        run: |
+          python3 bridge/campaign_mysql.py --seeds 1-12 --queries 40 --focus --value-ext --password 123456 --out /tmp/campaign.jsonl | grep -v '^  ' | cut -c1-400
+          if [ -s /tmp/campaign.jsonl ]; then python3 scripts/triage_mysql.py /tmp/campaign.jsonl --password 123456 --out-dir /tmp/triage --timeout 120; cat /tmp/triage/pair-*.sql 2>/dev/null | head -n 400; fi
 
   candidates-newer-servers:
     name: Candidate bugs on newer servers (${{ matrix.image }})

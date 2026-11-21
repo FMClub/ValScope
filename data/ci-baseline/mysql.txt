@@ -1,0 +1,3 @@
+# Known violations of scripts/demo.sh mariadb on MySQL 8.4 in CI (N=300)
+DISTINCT-add|ba050f06306b063c  # issues/005 (BIT MIN text vs bit value)
+DISTINCT-add|21963406b307e718  # issues/008 (INTERSECT in a derived table)

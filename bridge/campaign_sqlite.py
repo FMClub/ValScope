@@ -149,7 +149,8 @@ def main():
         schema = sqlite_schema(latest)
         # columns that hold integers only in every library's database (collation law)
         per_db = [sqlite_exact_columns(d, schema) for d in dbs + [latest]]
-        exact = {c: k for c, k in per_db[0].items() if all(e.get(c) == k for e in per_db)}
+        exact = sql_bridge.ExactColumns({c: k for c, k in per_db[0].items() if all(e.get(c) == k for e in per_db)})
+        exact.by_table = {tc: k for tc, k in per_db[0].by_table.items() if all(e.by_table.get(tc) == k for e in per_db)}
         rng = random.Random(seed)
         queries = [('set', gen_fragment.query(rng)) for _ in range(args.queries)]
         queries += [('value', gen_fragment.value_query(rng)) for _ in range(args.queries)]
@@ -257,6 +258,9 @@ def main():
         st['schema_statements_skipped'] = len(gen_sqlite_db.SKIPPED)
         reasons = collections.Counter(e.split(':')[0][:50] for _, _, e in gen_sqlite_db.SKIPPED)
         print('schema statements skipped:', dict(reasons))
+    if sql_bridge.STATS['not_in_dialect']:
+        # rules whose operator the dialect lacks (SQLite: INTERSECT ALL, EXCEPT ALL)
+        st['mutants_not_in_dialect'] = sql_bridge.STATS['not_in_dialect']
     if sql_bridge.STATS['roundtrip_rejected']:
         st['mutants_roundtrip_rejected'] = sql_bridge.STATS['roundtrip_rejected']
     # mutants that apply a collation-sensitive operation above a de-duplication

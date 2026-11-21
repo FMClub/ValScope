@@ -254,7 +254,7 @@ def having_pred(rng, alias, t, depth):
         pred(rng, [ualias], 1))
 
 
-def value_query(rng):
+def _value_query_base(rng):
     t = rng.choice(list(NUM))
     alias = mk_alias(t, 'a')
     where = ''
@@ -283,6 +283,24 @@ def value_query(rng):
             having = ''
     cols = ', '.join('%s AS k%d' % (item, i) for i, item in enumerate(items))
     return 'SELECT %s FROM %s AS %s%s%s%s' % (cols, t, alias, where, group, having)
+
+
+def value_query(rng):
+    """A value query; 20% of them under SELECT DISTINCT and 10% a UNION of two value
+    queries (VDistinct.v).  That choice and the second arm come from a random stream
+    seeded by the query text, so the main stream (and every recorded seed) is unchanged."""
+    sql = _value_query_base(rng)
+    side = random.Random('value-distinct:' + sql)
+    x = side.random()
+    if x < 0.2:
+        return 'SELECT DISTINCT ' + sql[len('SELECT '):]
+    if x < 0.3:
+        width = sql.count(' AS k')
+        for _ in range(20):
+            arm = _value_query_base(side)
+            if arm.count(' AS k') == width:
+                return '%s UNION %s' % (sql, arm)
+    return sql
 
 
 if __name__ == '__main__':

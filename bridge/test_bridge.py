@@ -471,6 +471,22 @@ for sql, expect in [
         got = False
     report(got == expect, 'exact columns: %s %s' % ('accepted' if got else 'rejected', sql))
 
+# per table: t.c is an integer column, u.c a real one (the name c alone is not exact)
+from sql_bridge import ExactColumns  # noqa: E402
+ex = ExactColumns({})
+ex.by_table = {('t', 'c'): 'integer', ('u', 'c'): 'real'}
+for sql, expect in [
+        ("SELECT d.c || '' AS s FROM (SELECT DISTINCT t.c AS c FROM t) AS d", True),
+        ("SELECT d.c || '' AS s FROM (SELECT DISTINCT t.c AS c FROM t UNION SELECT u.c AS c FROM u) AS d", False),
+        ("SELECT d.c || '' AS s FROM (SELECT DISTINCT u.c AS c FROM u UNION SELECT u.c AS c FROM u) AS d", True),
+        ("SELECT d.c || '' AS s FROM (SELECT DISTINCT t.a AS c FROM t) AS d", False)]:
+    try:
+        Translation(sql, 'sqlite', schema={'t': ['a', 'c'], 'u': ['c']}, exact_columns=ex)
+        got = True
+    except Unsupported:
+        got = False
+    report(got == expect, 'exact columns per table: %s %s' % ('accepted' if got else 'rejected', sql))
+
 # a sensitive operation inside a subquery matters only if it reads the outer row
 for sql, expect in [
         ("SELECT d.x FROM (SELECT DISTINCT t.a AS x FROM t) AS d WHERE d.x IN (SELECT u.c FROM u WHERE u.c LIKE '1%')", True),
@@ -513,6 +529,21 @@ report(sources("SELECT DISTINCT * FROM (SELECT COALESCE(t.a, 0) AS k FROM t) AS 
        == {('BINARY (derived column)',)}, 'SQLite compound collation: a derived column of an expression is BINARY')
 report(sources("SELECT DISTINCT * FROM (SELECT t.a AS k FROM t) AS d UNION SELECT u.b AS k FROM u") == {('t.a',)},
        'SQLite compound collation: * over a derived table is its item')
+
+# window functions in value queries without aggregation: opaque items when determined
+for sql, expect in [
+        ("SELECT t.a AS a, RANK() OVER (ORDER BY t.b) AS r, FLOOR(t.x) AS f FROM t", True),
+        ("SELECT t.a AS a, SUM(t.x) OVER (PARTITION BY t.a) AS s, FLOOR(t.x) AS f FROM t", True),
+        ("SELECT t.a AS a, ROW_NUMBER() OVER (ORDER BY t.b) AS r, FLOOR(t.x) AS f FROM t", False),
+        ("SELECT t.a AS a, SUM(t.x) OVER (ORDER BY t.b ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS s, "
+         "FLOOR(t.x) AS f FROM t", False),
+        ("SELECT t.a AS a, SUM(t.x) AS s, RANK() OVER (ORDER BY SUM(t.x)) AS r FROM t GROUP BY t.a", False)]:
+    try:
+        _, mutants, _, _, _ = mutate_value(sql)
+        got = all('OVER' in m for _, _, _, m in mutants) and bool(mutants)
+    except Unsupported:
+        got = False
+    report(got == expect, 'window in a value query: %s %s' % ('accepted' if got else 'rejected', sql))
 
 # the adaptive campaign: UCB1 tries every arm once, then prefers the arm with more reward
 import random  # noqa: E402

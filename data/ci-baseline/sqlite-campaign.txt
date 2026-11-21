@@ -1,0 +1,1 @@
+# Known violations of the sqlite-campaign step in CI: none

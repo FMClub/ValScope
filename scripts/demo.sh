@@ -14,6 +14,7 @@ HOST=${HOST:-127.0.0.1}; PORT=${PORT:-3306}; DB_USER=${DB_USER:-root}; PASSWORD=
 DATABASE=${DATABASE:-test}
 cd "$(dirname "$0")/.."
 mkdir -p out
+rm -f out/violations.jsonl     # the violations of this run only (the runners append)
 
 # ---- check the dependencies first, with the command that installs what is missing
 missing=0
@@ -50,13 +51,15 @@ summary() {
 
 echo "== 1. check the proofs and extract the verified engine (make)"
 make -s > out/make.log 2>&1 || { tail -n 30 out/make.log; exit 1; }
-# ask Rocq which axioms the three soundness theorems depend on
-printf 'From ValScope Require Import Registry.\nPrint Assumptions mutate_sound.\nPrint Assumptions vmutate_sound.\nPrint Assumptions hmutate_sound.\n' > out/Assumptions.v
+# ask Rocq which axioms every soundness theorem depends on
+thms="mutate_sound vmutate_sound hmutate_sound tmutate_sound thmutate_sound tmutate_distinct_sound thmutate_distinct_sound"
+{ echo 'From ValScope Require Import Registry.'; for t in $thms; do echo "Print Assumptions $t."; done; } > out/Assumptions.v
 "${COQC[@]}" -R theories ValScope out/Assumptions.v > out/assumptions.log
-awk '/^Closed under/ {print "   set-semantic mutator (mutate_sound): no axioms"; next}
-     /^Axioms:/ {n++; next}
-     /^[A-Za-z]/ && n {split($1, a, "."); ax[n] = ax[n] " " a[length(a)]}
-     END {for (i = 1; i <= n; i++) print "   " (i == 1 ? "value mutator (vmutate_sound)" : "HAVING mutator (hmutate_sound)") ": axioms of Coq Reals:" ax[i]}' out/assumptions.log
+awk -v names="$thms" 'BEGIN {split(names, nm, " ")}
+     /^Closed under/ {n++; ax[n] = " none"; next}
+     /^Axioms:/ {n++; ax[n] = ""; next}
+     /^[A-Za-z]/ && n && ax[n] != " none" {split($1, a, "."); ax[n] = ax[n] " " a[length(a)]}
+     END {for (i = 1; i <= n; i++) print "   " nm[i] ": axioms:" ax[i]}' out/assumptions.log
 echo "== 2. build the command-line mutator (make cli)"
 make -s cli > out/make-cli.log 2>&1 || { tail -n 30 out/make-cli.log; exit 1; }
 ./cli/valscope_mutate --rules | awk '{print $1}' | sort | uniq -c | sed 's/^/   rules: /'

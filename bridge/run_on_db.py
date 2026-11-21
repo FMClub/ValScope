@@ -62,14 +62,19 @@ class MySQLTarget:
                 t, c = (x.decode() if isinstance(x, bytes) else x for x in (t, c))
                 self.schema.setdefault(t, []).append('`%s`' % c if not c.isidentifier() else c)
             # columns of an integer type in every table that has them (collation law)
-            cur.execute('SELECT COLUMN_NAME, DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = %s',
-                        (args.database,))
-            exact, other = set(), set()
-            for c, ty in cur.fetchall():
-                c, ty = (x.decode() if isinstance(x, bytes) else x for x in (c, ty))
-                (exact if ty.lower() in ('tinyint', 'smallint', 'mediumint', 'int', 'integer', 'bigint')
-                 else other).add(c.lower())
-            self.exact = {c: 'integer' for c in exact - other}
+            cur.execute('SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE FROM information_schema.COLUMNS '
+                        'WHERE TABLE_SCHEMA = %s', (args.database,))
+            exact, other, by_table = set(), set(), {}
+            for t, c, ty in cur.fetchall():
+                t, c, ty = (x.decode() if isinstance(x, bytes) else x for x in (t, c, ty))
+                if ty.lower() in ('tinyint', 'smallint', 'mediumint', 'int', 'integer', 'bigint'):
+                    exact.add(c.lower())
+                    by_table[(t.lower(), c.lower())] = 'integer'
+                else:
+                    other.add(c.lower())
+            from sql_bridge import ExactColumns
+            self.exact = ExactColumns({c: 'integer' for c in exact - other})
+            self.exact.by_table = by_table
 
     def folds(self, collations_a, collations_b):
         return self.columns.folds(collations_a, collations_b)
@@ -129,12 +134,18 @@ class MySQLTarget:
         for arm in arms:
             while isinstance(arm, (exp.Paren, exp.Subquery)) and arm.args.get('alias') is None:
                 arm = arm.this
-            try:
-                with self.conn.cursor() as cur:
-                    cur.execute('%sSELECT * FROM (%s) AS vs_arm LIMIT 0' % (prefix, arm.sql(dialect='mysql')))
-                    cur.fetchall()
-                    got = [self.columns.name(f.charsetnr) for f in cur._result.fields]
-            except self.pymysql.err.MySQLError:
+            probe = '%sSELECT * FROM (%s) AS vs_arm LIMIT 0' % (prefix, arm.sql(dialect='mysql'))
+            cache = self.__dict__.setdefault('_arm_cache', {})
+            if probe not in cache:      # the same arm recurs in the original and its mutants
+                try:
+                    with self.conn.cursor() as cur:
+                        cur.execute(probe)
+                        cur.fetchall()
+                        cache[probe] = [self.columns.name(f.charsetnr) for f in cur._result.fields]
+                except self.pymysql.err.MySQLError:
+                    cache[probe] = None
+            got = cache[probe]
+            if got is None:
                 return coarsest
             if len(got) != len(names):
                 return coarsest
@@ -196,23 +207,40 @@ def sqlite_schema(db):
 
 
 def sqlite_exact_columns(db, schema):
-    """Column name -> storage class ('integer', or 'real' without -0.0), for the columns
-    that hold only that class (or NULL) in every table that has them
-    (sql_bridge._exact_names)."""
-    classes = {}
+    """Column name -> storage classes, for the columns whose equivalent values are identical
+    in every table that has them (sql_bridge._exact_names); `by_table` per (table, column).
+    A column qualifies when it does not mix integers with reals (1 = 1.0), holds no -0.0, and
+    holds text only under the BINARY collation (NOCASE and RTRIM make 'a' = 'A', 'a' = 'a ').
+    The value is the set of storage classes, as a sorted text ('integer', 'integer+text', ...)."""
+    import re
+    collations = {}
+    for name, sql in db.query("SELECT name, sql FROM sqlite_master WHERE type = 'table' AND sql IS NOT NULL"):
+        body = sql[sql.index('(') + 1:sql.rindex(')')]
+        for part in body.split(','):
+            m = re.match(r'\s*"?(\w+)"?\s', part + ' ')
+            if m:
+                c = re.search(r'COLLATE\s+(\w+)', part, re.I)
+                collations[(name.lower(), m.group(1).lower())] = c.group(1).upper() if c else 'BINARY'
+    classes, by_table = {}, {}
     for t, cols in schema.items():
         for c in cols:
             qt, qc = t.replace('"', '""'), c.replace('"', '""')
             kinds = {r[0] for r in db.query('SELECT DISTINCT typeof("%s") FROM "%s" WHERE "%s" IS NOT NULL'
                                              % (qc, qt, qc))}
             k = None
-            if kinds <= {'integer'}:
-                k = 'integer'
-            elif kinds == {'real'} and not db.query(
-                    "SELECT 1 FROM \"%s\" WHERE \"%s\" = 0 AND CAST(\"%s\" AS TEXT) LIKE '-%%' LIMIT 1" % (qt, qc, qc)):
-                k = 'real'
+            ok = not {'integer', 'real'} <= kinds and \
+                ('text' not in kinds or collations.get((t.lower(), c.lower()), 'BINARY') == 'BINARY') and \
+                not ('real' in kinds and db.query("SELECT 1 FROM \"%s\" WHERE typeof(\"%s\") = 'real' AND \"%s\" = 0 "
+                                                   "AND CAST(\"%s\" AS TEXT) LIKE '-%%' LIMIT 1" % (qt, qc, qc, qc)))
+            if ok:
+                k = '+'.join(sorted(kinds)) or 'null'
             classes.setdefault(c.lower(), set()).add(k)
-    return {c: next(iter(ks)) for c, ks in classes.items() if len(ks) == 1 and None not in ks}
+            if k is not None:
+                by_table[(t.lower(), c.lower())] = k
+    from sql_bridge import ExactColumns
+    out = ExactColumns({c: next(iter(ks)) for c, ks in classes.items() if len(ks) == 1 and None not in ks})
+    out.by_table = by_table
+    return out
 
 
 FLIP_VALUE = {'Le': 'Ge', 'Ge': 'Le', 'TowardOne': 'AwayOne', 'AwayOne': 'TowardOne'}
@@ -349,6 +377,9 @@ def main():
                                               'original_rows': len(base), 'mutant_rows': len(res)}) + '\n')
                         out.flush()
     # mutants whose printed SQL did not parse back to the term of the verified engine
+    if sql_bridge.STATS['not_in_dialect']:
+        # rules whose operator the dialect lacks (SQLite: INTERSECT ALL, EXCEPT ALL)
+        st['mutants_not_in_dialect'] = sql_bridge.STATS['not_in_dialect']
     if sql_bridge.STATS['roundtrip_rejected']:
         st['mutants_roundtrip_rejected'] = sql_bridge.STATS['roundtrip_rejected']
     # mutants that apply a collation-sensitive operation above a de-duplication

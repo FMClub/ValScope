@@ -33,10 +33,13 @@ jobs:
       - name: End to end on SQLite
         # the SQLite of ubuntu-24.04 (3.45.1); the old releases above are tested by the campaign
         run: N=60 scripts/demo.sh sqlite
+      - name: No violation outside the baseline (SQLite demo)
+        run: scripts/check_violations.py out/violations.jsonl data/ci-baseline/sqlite-demo.txt
       - name: SQLite campaign on two old releases (small)
         run: |
           L=/tmp/sqlite-libs
           python3 bridge/campaign_sqlite.py --libs $L/libsqlite3-3260000.so $L/libsqlite3-3340000.so --seeds 1001-1003 --queries 20 --out /tmp/violations.jsonl
+          scripts/check_violations.py /tmp/violations.jsonl data/ci-baseline/sqlite-campaign.txt
       - name: Reduce a recorded violation (smoke test)
         run: |
           python3 bridge/reduce_sqlite.py results/sqlite-confirmed.jsonl --pair 5 --lib 3.26.0=/tmp/sqlite-libs/libsqlite3-3260000.so | tee /tmp/reduced.txt
@@ -61,6 +64,8 @@ jobs:
           opam exec -- make test
       - name: End to end on SQLite (rocq c for the axiom report)
         run: N=40 opam exec -- scripts/demo.sh sqlite
+      - name: No violation outside the baseline
+        run: scripts/check_violations.py out/violations.jsonl data/ci-baseline/sqlite-demo.txt
 
   mariadb:
     name: MariaDB 10.11, end to end
@@ -88,6 +93,10 @@ jobs:
         run: python3 bridge/test_mysql.py
       - name: End to end on MariaDB
         run: N=60 scripts/demo.sh mariadb
+      - name: No violation outside the baseline (issues 005, 006, 009 are known)
+        run: scripts/check_violations.py out/violations.jsonl data/ci-baseline/mariadb.txt
+      - name: The AVG candidate of issue 009
+        run: mariadb -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mariadb/avg-distinct.sql
 
   mysql:
     name: MySQL 8.4, end to end
@@ -141,3 +150,54 @@ jobs:
           mysql_ --skip-column-names < data/mysql/bit-variants.sql || true
       - name: The INTERSECT ALL candidate of issue 008 on MySQL
         run: mysql -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mysql/intersect-all-variants.sql || true
+      - name: The AVG candidate of issue 009 on MySQL
+        run: mysql -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mariadb/avg-distinct.sql || true
+      - name: No violation outside the baseline (issues 005, 008 are known)
+        run: scripts/check_violations.py out/violations.jsonl data/ci-baseline/mysql.txt
+      - name: Reduce the pair of issue 008 (query and data)
+        if: always()
+        run: python3 bridge/reduce_mysql.py out/violations.jsonl --key 'DISTINCT-add|21963406b307e718' --password 123456 --database test || true
+
+  candidates-newer-servers:
+    name: Candidate bugs on newer servers (${{ matrix.image }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: "mariadb:11"
+            health: "healthcheck.sh --connect --innodb_initialized"
+            env_password: MARIADB_ROOT_PASSWORD
+          - image: "mysql:9"
+            health: "mysqladmin ping -h 127.0.0.1 -p123456"
+            env_password: MYSQL_ROOT_PASSWORD
+    services:
+      db:
+        image: ${{ matrix.image }}
+        env:
+          MARIADB_ROOT_PASSWORD: "123456"
+          MYSQL_ROOT_PASSWORD: "123456"
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd="${{ matrix.health }}"
+          --health-interval=5s --health-timeout=5s --health-retries=30
+    steps:
+      - uses: actions/checkout@v5
+      - name: Client and Python packages
+        run: |
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends mysql-client
+          python3 -m pip install --break-system-packages -r requirements.txt cryptography
+      - name: Server version and sample database
+        run: |
+          mysql -h127.0.0.1 -uroot -p123456 -N -e "SELECT VERSION()"
+          YES=1 scripts/setup_mariadb.sh
+      - name: "issue 005: MIN of BIT(8)"
+        run: mysql -h127.0.0.1 -uroot -p123456 -e "CREATE DATABASE IF NOT EXISTS vs_bit; USE vs_bit; CREATE TABLE b (x BIT(8)); INSERT INTO b VALUES (2), (242); SELECT HEX(MIN(x)), MIN(x) FROM b;" || true
+      - name: "issue 006: BIT scalar subquery under a loose index scan (expected 14)"
+        run: sed -n '/^DROP DATABASE IF EXISTS/,/^```/p' issues/006-mariadb-bit-subquery-loose-scan.md | grep -v '^```' | mysql -h127.0.0.1 -uroot -p123456 --skip-column-names || true
+      - name: "issue 008: INTERSECT in a derived table (expected 0 everywhere)"
+        run: mysql -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mysql/intersect-all-variants.sql || true
+      - name: "issue 009: AVG under SELECT DISTINCT (expected 1, 2, 3)"
+        run: mysql -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mariadb/avg-distinct.sql || true

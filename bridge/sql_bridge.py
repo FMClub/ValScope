@@ -260,8 +260,12 @@ def outside_collation_law(tr, term):
         of such columns are identical, so the operation gives the same result whichever
         representative a de-duplication kept."""
         cols = [n for n in t.walk() if isinstance(n, (exp.Column, exp.Star))]
-        return bool(exact) and all(isinstance(c, exp.Column) and not isinstance(c.this, exp.Star)
-                                   and c.name.lower() in exact for c in cols)
+        by_table = getattr(tr.exact_columns, 'by_table', None) or {}
+        if not exact and not by_table:
+            return False
+        return all(isinstance(c, exp.Column) and not isinstance(c.this, exp.Star)
+                   and (c.name.lower() in exact or _column_class(c, tr._sources, by_table, tr.schema) is not None)
+                   for c in cols)
     tree = parse_sexp(term) if isinstance(term, str) else term
 
     query_tags = ('Proj', 'Where', 'Inner', 'Left', 'Distinct', 'Union', 'UnionAll', 'Intersect', 'Except',
@@ -401,11 +405,120 @@ def _exact_names(tree, exact_columns, schema):
             if name in cls or (name in base and name not in exact_columns):
                 continue
             ds = _proper_defs(name, defs)
-            if ds and all(_def_class(d, cls) for d in ds) and len({_def_class(d, cls) for d in ds}) == 1:
-                cls[name] = _def_class(ds[0], cls)
+            k = _combine_classes([_def_class(d, cls) for d in ds]) if ds else None
+            if k is not None:
+                cls[name] = k
                 changed = True
     # a base column that is redefined by an alias needs its definitions to be exact too
-    return {n for n, k in cls.items() if all(_def_class(d, cls) == k for d in _proper_defs(n, defs))}
+    return {n for n, k in cls.items()
+            if _combine_classes([k] + [_def_class(d, cls) for d in _proper_defs(n, defs)]) is not None}
+
+
+class ExactColumns(dict):
+    """Column name -> storage class (see _exact_names), with `by_table`: (table, column)
+    -> storage class, for the columns of each table that hold one class only."""
+    by_table = {}
+
+
+def _alias_sources(tree):
+    """Table alias -> what it names: ('table', name), or ('query', a SELECT or compound) for
+    a derived table or a CTE.  An alias used twice names all of its sources."""
+    ctes = {c.alias.lower(): c.this for c in tree.find_all(exp.CTE) if c.alias}
+    out = {}
+    for t in tree.find_all(exp.Table):
+        name = t.name.lower()
+        alias = (t.alias or t.name).lower()
+        out.setdefault(alias, []).append(('query', ctes[name]) if name in ctes else ('table', name))
+    for sq in tree.find_all(exp.Subquery):
+        if sq.alias:
+            cols = sq.args.get('alias').columns if sq.args.get('alias') is not None else None
+            out.setdefault(sq.alias.lower(), []).append(('positional', None) if cols else ('query', sq.this))
+    return out
+
+
+def _column_class(col, sources, by_table, schema=None, depth=0):
+    """The storage class of a qualified column, followed to its table (by_table) or through
+    a derived table or CTE to the item that defines it; None if not exact or not known.
+    An alias bound in several scopes names several sources; a source without a column of
+    that name cannot be the one meant and is skipped (a table of the schema, or a query
+    whose select list lacks the name)."""
+    if depth > 8 or not col.table:
+        return None
+    srcs = sources.get(col.table.lower())
+    if not srcs:
+        return None
+    name, classes = col.name.lower(), set()
+    schema = schema or {}
+    for kind, x in srcs:
+        if kind == 'table':
+            cols = [c.lower() for c in schema.get(x, [])]
+            if schema and x in schema and name not in cols:
+                continue
+            k = by_table.get((x, name))
+        elif kind == 'query':
+            if not _has_output(x, name):
+                continue
+            k = _item_class(x, name, sources, by_table, schema, depth + 1)
+        else:
+            k = None
+        if k is None:
+            return None
+        classes.add(k)
+    return _combine_classes(classes) if classes else None
+
+
+def _has_output(q, name):
+    while isinstance(q, (exp.Union, exp.Intersect, exp.Except)):
+        q = q.this
+    while isinstance(q, (exp.Paren, exp.Subquery)) and not q.args.get('alias'):
+        q = q.this
+    return isinstance(q, exp.Select) and any(e.alias_or_name.lower() == name for e in q.expressions)
+
+
+def _item_class(q, name, sources, by_table, schema, depth):
+    """The class of the output column `name` of a SELECT or compound: every arm must define
+    it as a plain qualified column of one and the same class."""
+    arms = []
+
+    def flatten(n):
+        if isinstance(n, (exp.Union, exp.Intersect, exp.Except)):
+            flatten(n.this)
+            flatten(n.expression)
+        else:
+            while isinstance(n, (exp.Paren, exp.Subquery)) and not n.args.get('alias'):
+                n = n.this
+            arms.append(n)
+    flatten(q)
+    if not all(isinstance(a, exp.Select) for a in arms):
+        return None
+    first = arms[0]
+    pos = next((i for i, e in enumerate(first.expressions) if e.alias_or_name.lower() == name), None)
+    if pos is None:
+        return None
+    classes = set()
+    for a in arms:
+        if pos >= len(a.expressions):
+            return None
+        body = _strip_parens(a.expressions[pos].this if isinstance(a.expressions[pos], exp.Alias)
+                             else a.expressions[pos])
+        k = _column_class(body, sources, by_table, schema, depth) if isinstance(body, exp.Column) else None
+        if k is None:
+            return None
+        classes.add(k)
+    return _combine_classes(classes)
+
+
+def _combine_classes(classes):
+    """The class of values drawn from columns of these classes, or None when two values
+    could be equal without being identical (an integer and a real)."""
+    kinds = set()
+    for k in classes:
+        if k is None:
+            return None
+        kinds |= set(k.split('+')) - {'null'}
+    if {'integer', 'real'} <= kinds:
+        return None
+    return '+'.join(sorted(kinds)) or 'null'
 
 
 def _def_class(d, cls):
@@ -493,6 +606,24 @@ def _bare_columns(select):
                 walk(c)
         walk(body)
     return bare
+
+
+# window functions whose value is the same for identical rows (peers): no row numbers, no
+# offsets into the partition, the default frame (RANGE ... CURRENT ROW includes the peers)
+DETERMINED_WINDOWS = {'RANK', 'DENSE_RANK', 'PERCENT_RANK', 'CUME_DIST', 'COUNT', 'SUM', 'MIN', 'MAX', 'AVG'}
+
+
+def _window_undetermined(w):
+    f = w.this
+    name = (f.name if isinstance(f, exp.Anonymous) else f.sql_name()).upper()
+    if name not in DETERMINED_WINDOWS:
+        return 'window function %s (its value can differ between identical rows)' % name
+    spec = w.args.get('spec')
+    if spec is not None and str(spec.args.get('kind') or '').upper() == 'ROWS':
+        return 'window frame in ROWS (it can differ between identical rows)'
+    if any(isinstance(a, exp.Distinct) for a in f.iter_expressions()):
+        return 'DISTINCT in a window function'
+    return None
 
 
 def _check_deterministic(tree):
@@ -598,6 +729,7 @@ class Translation:
         _check_deterministic(tree)
         self.exact_columns = exact_columns
         self._exact_names = _exact_names(tree, exact_columns, self.schema)
+        self._sources = _alias_sources(tree)
         tree = self._take_ctes(tree)
         # a value query under DISTINCT, or a UNION of value queries (VDistinct.v): the
         # mutants are those of the query without it, and the check is a cover
@@ -1014,7 +1146,11 @@ class Translation:
             keys = list(group.expressions)
         self._check_alias_references(node)
         key_texts = {_strip_parens(k).sql(dialect=self.dialect) for k in keys}
-        has_agg = any(item.find(exp.AggFunc) is not None for item in node.expressions)
+        def agg_outside_window(n):
+            if isinstance(n, (exp.Window, exp.Select, exp.Subquery)):
+                return False
+            return isinstance(n, exp.AggFunc) or any(agg_outside_window(c) for c in n.iter_expressions())
+        has_agg = any(agg_outside_window(item) for item in node.expressions)
         source = self._source(node)
         items, aliases = [], []
         self.item_alias_arms.append(aliases)
@@ -1069,8 +1205,21 @@ class Translation:
         the grouping keys (a non-aggregated expression must be one of them)."""
         if isinstance(node, exp.Paren):
             return self._item(node.this, key_texts)
-        if any(isinstance(inner, exp.Window) for inner in node.walk()):
-            raise Unsupported('window function in a select item')
+        windows = [inner for inner in node.walk() if isinstance(inner, exp.Window)]
+        if windows:
+            # In a query without aggregation (each row its own group) a window function
+            # whose value is the same for identical rows is, for the given database and
+            # the unchanged input of the query, a function of the row: an opaque item
+            # (Value.v: magg), copied and never mutated.  Value mutations change only select
+            # items, so the original and the mutant see the same windows.  Not with
+            # aggregation: a HAVING mutant changes the groups a window ranges over.
+            why = None if key_texts is None else 'window function in a grouped value query'
+            for w in windows:
+                why = why or _window_undetermined(w)
+            if why:
+                raise Unsupported(why)
+            self.opaque_items.append(self._text(node))
+            return '(AOpaque %d)' % (len(self.opaque_items) - 1)
         if isinstance(node, exp.Literal) and node.is_int:
             return '(AConst %s)' % node.this
         if isinstance(node, exp.Neg) and isinstance(node.this, exp.Literal) and node.this.is_int:
@@ -1879,8 +2028,11 @@ def mutate_sql(sql, cli=DEFAULT_CLI, dialect='mysql', schema=None, exact_columns
                 if src_o is None or src_m is None or src_m - src_o:
                     STATS['outside_model'] += 1
                     continue
-        except Unsupported:
-            skipped += 1
+        except Unsupported as e:
+            if str(e).startswith('SQLite has no'):
+                STATS['not_in_dialect'] += 1     # INTERSECT ALL / EXCEPT ALL: no SQL for SQLite
+            else:
+                skipped += 1
             continue
         if text is not None and (direction, text) not in seen:
             seen.add((direction, text))        # two rules can give the same SQL

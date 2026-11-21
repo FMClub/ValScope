@@ -37,19 +37,19 @@ import sqlglot
 from sqlglot import exp
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from checker import check_inclusion, sqlite_fold  # noqa: E402
+from checker import check_inclusion, check_value, sqlite_fold  # noqa: E402
 from gen_sqlite_db import build as build_db  # noqa: E402
 from run_on_db import sqlite_exact_columns, sqlite_schema  # noqa: E402
-from sql_bridge import mutate_sql, Unsupported  # noqa: E402
+from sql_bridge import mutate_sql, mutate_value, Unsupported  # noqa: E402
 from sqlite_exec import SQLiteLib  # noqa: E402
 
 CLAUSES = ('where', 'group', 'having', 'order', 'limit', 'distinct')
 
 
-def variants(sql):
+def variants(sql, dialect='sqlite'):
     """Smaller queries, one simplification each."""
     try:
-        tree = sqlglot.parse_one(sql, read='sqlite')
+        tree = sqlglot.parse_one(sql, read=dialect)
     except Exception:
         return
     nodes = list(tree.walk())
@@ -65,7 +65,7 @@ def variants(sql):
                         t = new
                     else:
                         target.replace(new)
-                yield t.sql(dialect='sqlite')
+                yield t.sql(dialect=dialect)
             except Exception:
                 continue
 
@@ -113,100 +113,121 @@ def _drop_column(node, j):
 
 
 class Judge:
-    def __init__(self, lib, rec, tmp, latest=None):
-        self.lib, self.tmp, self.latest = lib, tmp, latest
-        if latest is not None:
-            self.ldb = SQLiteLib(latest, os.path.join(tmp, 'l.db'))
-            build_db(self.ldb, rec['seed'], rec.get('focus') in (True, 'True'))
-        self.db = SQLiteLib(lib, os.path.join(tmp, 'r.db'))
-        self.statements = build_db(self.db, rec['seed'], rec.get('focus') in (True, 'True'))
-        self.fallback = sqlite_fold(self.statements)
+    """Checks a candidate pair on witnesses: (library, wanted verdict) where the verdict is
+    'bad' (the relation of the rule is violated) or 'good' (it holds).  The reporting
+    release must stay 'bad'; --latest adds the newest release as 'good'; --boundaries adds
+    the commits around the fix and the introduction of the original pair (bisect_sqlite.py),
+    so the reduced pair is fixed and introduced by the same commits: the same bug."""
+
+    def __init__(self, rec, witnesses, tmp):
+        self.rec, self.tmp, self.witnesses = rec, tmp, witnesses
+        self.kind, self.rule, self.expect = rec.get('kind', 'set'), rec['rule'], rec['expect']
+        self.cover = bool(rec.get('distinct'))
+        self.dbs = []
+        for i, (lib, want) in enumerate(witnesses):
+            db = SQLiteLib(lib, os.path.join(tmp, 'w%d.db' % i))
+            stmts = build_db(db, rec['seed'], rec.get('focus') in (True, 'True'))
+            if i == 0:
+                self.statements, self.db = stmts, db
+            # a witness that cannot run every statement of the database would judge another one
+            self.dbs.append((db if stmts == self.statements else None, want, sqlite_fold(stmts)))
+        self.lib = witnesses[0][0]
         self.schema = sqlite_schema(self.db)
         self.exact = sqlite_exact_columns(self.db, self.schema)
-        self.rule, self.expect = rec['rule'], rec['expect']
+
+    def verdict(self, db, fallback, original, mutant, relation=None):
+        try:
+            base = db.query(original)
+            coll = db.last_collations
+            res = db.query(mutant)
+        except Exception:
+            return None, None
+        fold = db.folds(coll, db.last_collations, fallback)
+        if self.kind == 'value':
+            relation, column = relation
+            v = check_value(relation, column, base, res, fold=fold, cover=self.cover)
+        else:
+            v = check_inclusion(self.expect if self.kind == 'set' else self.expect, base, res, fold)
+        if v == 'incomparable':
+            return None, None
+        return ('good' if v in ('ok', 'collation') else 'bad'), (base, res)
+
+    def holds(self, original, mutant, relation=None):
+        """Rows on the reporting release when every witness gives its wanted verdict."""
+        rows = None
+        for i, (db, want, fallback) in enumerate(self.dbs):
+            if db is None:
+                return None
+            v, r = self.verdict(db, fallback, original, mutant, relation)
+            if v != want:
+                return None
+            if i == 0:
+                rows = r
+        return rows
 
     def violates(self, original, mutant):
-        try:
-            base = self.db.query(original)
-            coll = self.db.last_collations
-            res = self.db.query(mutant)
-        except Exception:
+        return self.holds(original, mutant, self._relation(self.expect))
+
+    def _relation(self, expect):
+        if self.kind != 'value':
             return None
-        fold = self.db.folds(coll, self.db.last_collations, self.fallback)
-        v = check_inclusion(self.expect, base, res, fold)
-        if v in ('ok', 'collation', 'incomparable'):
-            return None
-        if self.latest is not None and not holds_on(self.ldb, original, mutant, self.expect, self.fallback):
-            return None     # violated on the latest release too: another phenomenon than the pair's
-        return base, res
+        relation, _, column = expect.split()
+        return relation, int(column)
 
     def pair(self, sql):
-        """(printed original, mutant, rows) of the first violating mutant of the rule, or None."""
+        """(printed original, mutant, rows) of the first mutant of the rule that gives every
+        witness its verdict, or None."""
         try:
-            original, mutants, _ = mutate_sql(sql, dialect='sqlite', schema=self.schema, exact_columns=self.exact)
-        except (Unsupported, Exception):
+            if self.kind == 'set':
+                original, mutants, _ = mutate_sql(sql, dialect='sqlite', schema=self.schema, exact_columns=self.exact)
+                cands = [(m, None) for d, r, m in mutants if r == self.rule and d == self.expect]
+            else:
+                trs = []
+                original, vm, _, _, hm = mutate_value(sql, dialect='sqlite', translation=trs, schema=self.schema,
+                                                      exact_columns=self.exact)
+                if bool(trs[0].value_distinct) != self.cover:
+                    return None
+                if self.kind == 'value':
+                    rel = self._relation(self.expect)
+                    cands = [(m, (r0, c)) for r0, r, c, m in vm if r == self.rule and (r0, c) == rel]
+                else:
+                    cands = [(m, None) for d, r, m in hm if 'HAVING ' + r == self.rule and d == self.expect]
+        except Exception:
             return None
-        for direction, rule, mutant in mutants:
-            if rule == self.rule and direction == self.expect:
-                rows = self.violates(original, mutant)
-                if rows is not None:
-                    return original, mutant, rows
+        for mutant, rel in cands:
+            rows = self.holds(original, mutant, rel)
+            if rows is not None:
+                return original, mutant, rows
         return None
 
-
-def holds_on(db, original, mutant, expect, fallback):
-    """Does the relation hold on this database (of the latest release)?"""
-    try:
-        base = db.query(original)
-        coll = db.last_collations
-        res = db.query(mutant)
-    except Exception:
-        return False
-    return check_inclusion(expect, base, res, db.folds(coll, db.last_collations, fallback)) in ('ok', 'collation')
-
-
-def violates_on(lib, statements, original, mutant, expect, path, latest=None):
-    """Is the pair violated on the database made of these statements?"""
-    if os.path.exists(path):
-        os.remove(path)
-    db = SQLiteLib(lib, path)
-    for st in statements:
-        try:
-            db.executescript(st)
-        except Exception:
-            return False
-    try:
-        base = db.query(original)
-        coll = db.last_collations
-        res = db.query(mutant)
-    except Exception:
-        return False
-    fold = db.folds(coll, db.last_collations, sqlite_fold(statements))
-    if check_inclusion(expect, base, res, fold) in ('ok', 'collation', 'incomparable'):
-        return False
-    if latest is None:
+    def holds_on_statements(self, statements, original, mutant):
+        """The same, on databases made of these statements (database reduction)."""
+        rel = self._relation(self.expect)
+        for i, (lib, want) in enumerate(self.witnesses):
+            path = os.path.join(self.tmp, 'd%d.db' % i)
+            if os.path.exists(path):
+                os.remove(path)
+            db = SQLiteLib(lib, path)
+            for st in statements:
+                try:
+                    db.executescript(st)
+                except Exception:
+                    return False
+            v, _ = self.verdict(db, sqlite_fold(statements), original, mutant, rel)
+            if v != want:
+                return False
         return True
-    ldb_path = path + '.latest'
-    if os.path.exists(ldb_path):
-        os.remove(ldb_path)
-    ldb = SQLiteLib(latest, ldb_path)
-    for st in statements:
-        try:
-            ldb.executescript(st)
-        except Exception:
-            return False
-    return holds_on(ldb, original, mutant, expect, sqlite_fold(statements))
 
 
 REMOVABLE = ('INSERT', 'CREATE INDEX', 'CREATE UNIQUE INDEX', 'ANALYZE')
 
 
-def reduce_database(judge, original, mutant, expect, log=sys.stderr):
-    """Remove rows (INSERT statements), indexes and ANALYZE while the pair stays violated:
-    first in chunks, then one at a time.  The pair is fixed here, and its theorem holds on
-    every database, so any database on which it is violated is a counterexample."""
+def reduce_database(judge, original, mutant, log=sys.stderr):
+    """Remove rows (INSERT statements), indexes and ANALYZE, and drop WITHOUT ROWID, while
+    every witness keeps its verdict: first in chunks, then one at a time.  The pair is fixed
+    here, and its theorem holds on every database, so any database on which it is violated
+    is a counterexample."""
     stmts = list(judge.statements)
-    path = os.path.join(judge.tmp, 'd.db')
     chunk = max(1, len(stmts) // 2)
     while True:
         i = 0
@@ -214,13 +235,19 @@ def reduce_database(judge, original, mutant, expect, log=sys.stderr):
             cut = [j for j in range(i, min(i + chunk, len(stmts))) if stmts[j].upper().startswith(REMOVABLE)]
             if cut:
                 trial = [st for j, st in enumerate(stmts) if j not in cut]
-                if violates_on(judge.lib, trial, original, mutant, expect, path, judge.latest):
+                if judge.holds_on_statements(trial, original, mutant):
                     stmts = trial
                     continue
             i += chunk
         if chunk == 1:
             break
         chunk = max(1, chunk // 2)
+    # tables without WITHOUT ROWID: older releases (before 3.8.2) can run the database
+    for j, st in enumerate(stmts):
+        if st.endswith(') WITHOUT ROWID;'):
+            trial = stmts[:j] + [st[:-len(' WITHOUT ROWID;')] + ';'] + stmts[j + 1:]
+            if judge.holds_on_statements(trial, original, mutant):
+                stmts = trial
     print('  database: %d -> %d statements' % (len(judge.statements), len(stmts)), file=log)
     return stmts
 
@@ -245,17 +272,37 @@ def reduce(judge, sql, log=sys.stderr):
     return best
 
 
+def boundary_witnesses(entry, builder):
+    """Witnesses from the bisection of the original pair: bad on the last bad commit and on
+    the introducing commit, good on the fixing commit and on the last good commit."""
+    out = []
+    for key, want in (('last_bad', 'bad'), ('fixed_by', 'good'), ('introduced_by', 'bad'), ('last_good', 'good')):
+        v = entry.get(key)
+        sha = v.get('commit') if isinstance(v, dict) else v
+        if sha:
+            lib = builder.lib(sha)
+            if lib is None:
+                return None
+            out.append((lib, want))
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('file', help='JSON lines of recorded violations (campaign_sqlite.py --out)')
     ap.add_argument('--lib', required=True, action='append',
                     help='libsqlite3 on which the pairs are violated; VERSION=PATH (repeatable) picks the '
                          'library by the version a pair was reported on')
-    ap.add_argument('--pair', type=int, action='append', help='1-based pair number(s); default: all set pairs')
+    ap.add_argument('--pair', type=int, action='append', help='1-based pair number(s); default: all pairs')
     ap.add_argument('--latest', default=None, metavar='LIB',
                     help='a library of the newest release: a step is kept only if the relation holds '
-                         'there, so that the reduced pair keeps showing the bug of the pair (a bug '
-                         'fixed since) and does not drift to another behaviour')
+                         'there, so that the reduced pair keeps showing a bug fixed since')
+    ap.add_argument('--boundaries', default=None, metavar='BISECT.jsonl',
+                    help='bisection of the original pairs (bisect_sqlite.py --out): a step is kept only if '
+                         'the pair keeps its verdicts on the commits around the fix and the introduction, '
+                         'so the reduced pair shows the same bug (needs --src)')
+    ap.add_argument('--src', default=None, help='SQLite git clone, for --boundaries (as bisect_sqlite.py)')
+    ap.add_argument('--cache', default=None, help='build cache, for --boundaries (as bisect_sqlite.py)')
     ap.add_argument('--out', default=None)
     ap.add_argument('--sql', default=None, metavar='DIR',
                     help='also reduce the database, and write DIR/pair-N.sql: the statements of the '
@@ -263,36 +310,52 @@ def main():
     args = ap.parse_args()
     recs = [json.loads(line) for line in open(args.file) if line.strip()]
     libs = dict(x.split('=', 1) if '=' in x else (None, x) for x in args.lib)
+    bounds, builder = {}, None
+    if args.boundaries:
+        from bisect_sqlite import Builder
+        src = os.path.abspath(args.src)
+        builder = Builder(src, args.cache or os.path.join(os.path.dirname(src), 'bisect-cache'))
+        for line in open(args.boundaries):
+            e = json.loads(line)
+            bounds[(e['original'], e['mutant'])] = e
     out = open(args.out, 'w') if args.out else None
     for k, rec in enumerate(recs, 1):
-        if (args.pair and k not in args.pair) or rec.get('kind') != 'set':
+        if args.pair and k not in args.pair:
             continue
         print('pair %d: seed %s, %s' % (k, rec['seed'], rec['rule']), file=sys.stderr)
         lib = libs.get(rec.get('version'), libs.get(None))
         if lib is None:
             print('  no library for SQLite %s' % rec.get('version'), file=sys.stderr)
             continue
+        witnesses = [(lib, 'bad')] + ([(args.latest, 'good')] if args.latest else [])
+        if args.boundaries:
+            entry = bounds.get((rec['original'], rec['mutant']))
+            extra = boundary_witnesses(entry, builder) if entry else None
+            if extra is None:
+                print('  no bisection boundaries for this pair', file=sys.stderr)
+                continue
+            witnesses += extra
         with tempfile.TemporaryDirectory() as tmp:
-            judge = Judge(lib, rec, tmp, args.latest)
+            judge = Judge(rec, witnesses, tmp)
             if judge.violates(rec['original'], rec['mutant']) is None:
-                print('  not violated on this library', file=sys.stderr)
+                print('  the pair does not give every witness its verdict', file=sys.stderr)
                 continue
             got = reduce(judge, rec['original'])
             if got is None:
                 print('  the mutator does not produce a violating mutant of this rule again', file=sys.stderr)
                 continue
             original, mutant, (base, res) = got
-            database = reduce_database(judge, original, mutant, rec['expect']) if args.sql else None
+            database = reduce_database(judge, original, mutant) if args.sql else None
         print('-- pair %d (%s, expected %s): %d -> %d characters' % (
             k, rec['rule'], rec['expect'], len(rec['original']), len(original)))
         print('original: %s\nmutant  : %s\nrows    : %d / %d\n' % (original, mutant, len(base), len(res)))
         if database is not None:
             os.makedirs(args.sql, exist_ok=True)
             with open(os.path.join(args.sql, 'pair-%d.sql' % k), 'w') as f:
+                what = {'Up': 'a super-bag', 'Down': 'a sub-bag'}.get(rec['expect'], rec['expect'])
                 f.write('-- pair %d, seed %s, rule %s: the mutant must return %s of the rows of the original\n'
                         '-- (SQLite %s; checked modulo the collations of the columns)\n'
-                        % (k, rec['seed'], rec['rule'], 'a super-bag' if rec['expect'] == 'Up' else 'a sub-bag',
-                           rec.get('version')))
+                        % (k, rec['seed'], rec['rule'], what, rec.get('version')))
                 f.write('\n'.join(database) + '\n')
                 f.write('-- original\n%s;\n-- mutant\n%s;\n' % (original, mutant))
         if out:

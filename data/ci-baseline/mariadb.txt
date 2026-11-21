@@ -1,0 +1,5 @@
+# Known violations of scripts/demo.sh mariadb in CI (N=60); scripts/check_violations.py
+expr->expr+k|38b7c18e86d54299  # issues/009 (AVG of the last group under SELECT DISTINCT)
+expr->expr*k|b06a52ecac1de097  # issues/009 (AVG of the last group under SELECT DISTINCT)
+DISTINCT-add|ba050f06306b063c  # issues/005 (BIT MIN/MAX text vs bit value)
+DISTINCT-add|da2f5b5b1eb78df6  # issues/006 (BIT scalar subquery under a loose index scan)

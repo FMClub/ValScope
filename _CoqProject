@@ -16,6 +16,7 @@ theories/VRules.v
 theories/VHaving.v
 theories/VUnion.v
 theories/VDistinct.v
+theories/VSet.v
 theories/Registry.v
 theories/Counter.v
 theories/Extract.v

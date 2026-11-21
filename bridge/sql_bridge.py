@@ -46,6 +46,7 @@ meaning the same as the SQL text.  It is built to fail closed:
 """
 import collections
 import os
+import re
 import subprocess
 
 import sqlglot
@@ -1110,12 +1111,42 @@ class Translation:
         DISTINCT, or a UNION (without ALL), is DISTINCT over the same term; it can be the
         whole query or any part of a UNION ALL (VDistinct.v: meval, a mask over the UNION
         ALL; Translation.value_mask).  Sets self.value_mask at the top."""
+        if top and isinstance(self._unwrap(node), (exp.Intersect, exp.Except)):
+            # INTERSECT / EXCEPT of value queries (VSet.v): set semantics, HAVING mutants only
+            term = self._set_part(node)
+            # the server compares rows exactly: an item that can round differently in two
+            # plans (SUM / AVG / VAR / STDDEV of floats, a function, an opaque item) could
+            # make a row enter or leave the result without a bug
+            # (a function of one row is computed the same way in every plan; an aggregate
+            # that adds floats is not)
+            for tag in ('ASum', 'AAvg', 'AVar', 'AStd'):
+                if '(%s ' % tag in term:
+                    raise Unsupported('%s in an operand of INTERSECT / EXCEPT (rounding)' % tag)
+            for text in self.opaque_items:
+                if re.search(r'\b(SUM|AVG|VAR\w*|VARIANCE|STD\w*)\s*\(', text, re.I):
+                    raise Unsupported('an opaque sum in an operand of INTERSECT / EXCEPT (rounding)')
+            self.value_mask, self.value_distinct, self.value_cover = ('set',), True, True
+            return term
         term, mask = self._value_part(node)
         if top:
             self.value_mask = mask
             self.value_distinct = mask == ('one', True)          # the whole result
             self.value_cover = _mask_any(mask)                   # a cover check, not Forall2
         return term
+
+    def _set_part(self, node):
+        node = self._unwrap(node)
+        if isinstance(node, (exp.Intersect, exp.Except)):
+            if not node.args.get('distinct'):
+                raise Unsupported('%s ALL of value queries' % type(node).__name__.upper())
+            for key in ('limit', 'offset', 'with_', 'with', 'order'):
+                if node.args.get(key):
+                    raise Unsupported('%s on an INTERSECT / EXCEPT of value queries' % key)
+            return '(%s %s %s)' % ('SInter' if isinstance(node, exp.Intersect) else 'SExcept',
+                                   self._set_part(node.this), self._set_part(node.expression))
+        # an operand: under set semantics a DISTINCT or UNION inside it does not matter, and
+        # it is printed as the UNION ALL of its arms
+        return self._value_part(node)[0]
 
     def _value_part(self, node):
         node = self._unwrap(node)
@@ -1160,7 +1191,7 @@ class Translation:
 
     def _value_arms(self, tree):
         """The value queries of a (possibly UNION ALL) value term, left to right."""
-        if tree[0] == 'VUnionAll':
+        if tree[0] in ('VUnionAll', 'SInter', 'SExcept'):
             return self._value_arms(tree[1]) + self._value_arms(tree[2])
         return [tree]
 
@@ -1387,10 +1418,26 @@ class Translation:
     def to_sql(self, term):
         tree = parse_sexp(term) if isinstance(term, str) else term
         tree = self.lift(tree)
+        if tree[0] in ('SInter', 'SExcept'):
+            self._arm = 0
+            return self._st_sql(tree)
         if tree[0] in ('VProj', 'VGroup', 'VGlobal', 'VUnionAll'):
             self._arm = 0
             return self._vt_sql(tree)
         return self._q_sql(tree)
+
+    def _st_sql(self, t):
+        """SQL of an INTERSECT / EXCEPT of value terms (VSet.v); an operand that is not one
+        is a UNION ALL of value queries, printed without DISTINCT."""
+        if t[0] not in ('SInter', 'SExcept'):
+            return self._vt_sql(t, ('one', False))
+        op = 'INTERSECT' if t[0] == 'SInter' else 'EXCEPT'
+        left, right = self._st_sql(t[1]), self._st_sql(t[2])
+        if self.dialect == 'sqlite':
+            if t[2][0] in ('SInter', 'SExcept', 'VUnionAll'):
+                raise Unsupported('SQLite: a compound right operand of %s' % op)
+            return '%s %s %s' % (left, op, right)
+        return '(%s) %s (%s)' % (left, op, right)
 
     def _vt_sql(self, t, mask=None):
         """SQL of a value term; `mask` (VDistinct.v: mask) says which parts are under DISTINCT."""

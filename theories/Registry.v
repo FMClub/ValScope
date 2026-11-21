@@ -137,3 +137,16 @@ Theorem tmutate_mask_sound : forall t m name r j t',
 Proof. intros t m name r j t'. apply tmut_mask_sound. Qed.
 
 Print Assumptions tmutate_mask_sound.
+
+(** ---------------- INTERSECT / EXCEPT of value queries ---------------- *)
+
+From ValScope Require Import VSet.
+
+(** HAVING mutation inside the operands of INTERSECT and EXCEPT (the direction flipped in
+    the right operand of EXCEPT): inclusion of the sets of rows. *)
+Definition shmutate : dir -> stop -> list (string * stop) := shmut pred_rules query_rules.
+
+Theorem shmutate_sound : forall d s name s', In (name, s') (shmutate d s) -> dle s_incl d s s'.
+Proof. intros d s name s'. apply shmut_sound. Qed.
+
+Print Assumptions shmutate_sound.

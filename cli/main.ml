@@ -27,6 +27,8 @@
               | (AMul item item) | (AMono id item)
               | (AOpaque id)       an item that is not analysed (copied, never mutated)
      vtop   ::= vquery | (VUnionAll vtop vtop)          UNION ALL of value queries
+     stop   ::= (SInter s s) | (SExcept s s)            INTERSECT / EXCEPT (set semantics)
+     s      ::= vtop | stop                             of value queries: HAVING mutants only
    Each mutant is printed as
      <Le|Ge|AwayZero|TowardOne|AwayOne> TAB <rule name> TAB <column> TAB <vquery>
    where the relation says how the mutated column of the mutant relates to the original.
@@ -274,6 +276,20 @@ let rec vtop_to = function
   | VOne v -> vquery_to v
   | VUnionAll (a, b) -> Printf.sprintf "(VUnionAll %s %s)" (vtop_to a) (vtop_to b)
 
+let rec stop_of = function
+  | L [A "SInter"; a; b] -> SInter (stop_of a, stop_of b)
+  | L [A "SExcept"; a; b] -> SExcept (stop_of a, stop_of b)
+  | t -> SOne (vtop_of t)
+
+let rec stop_to = function
+  | SOne t -> vtop_to t
+  | SInter (a, b) -> Printf.sprintf "(SInter %s %s)" (stop_to a) (stop_to b)
+  | SExcept (a, b) -> Printf.sprintf "(SExcept %s %s)" (stop_to a) (stop_to b)
+
+let is_set_value_query = function
+  | L (A ("SInter" | "SExcept") :: _) -> true
+  | _ -> false
+
 let rel_name = function
   | VLe -> "Le" | VGe -> "Ge" | VAwayZero -> "AwayZero"
   | VTowardOne -> "TowardOne" | VAwayOne -> "AwayOne"
@@ -294,7 +310,14 @@ let () =
         if String.trim line <> "" then begin
           (try
              let term = parse_sexp line in
-             if is_value_query term then begin
+             if is_set_value_query term then begin
+               let s = stop_of term in
+               List.iter (fun d ->
+                 List.iter (fun (name, s') ->
+                   Printf.printf "%s\t%s\t%s\n" (dir_name d) name (stop_to s'))
+                   (shmutate d s)) [Up; Down]
+             end
+             else if is_value_query term then begin
                let v = vtop_of term in
                List.iter (fun (name, (rel, (j, v'))) ->
                  Printf.printf "%s\t%s\t%d\t%s\n" (rel_name rel) name j (vtop_to v'))

@@ -538,6 +538,37 @@ report(len(base) == 5 and mutants and all(check_value(r0, c, base, con2.execute(
                                           for r0, _, c, m in mutants),
        'DISTINCT arm of a UNION ALL on SQLite: every mutant covers (%d mutants)' % len(mutants))
 
+# INTERSECT / EXCEPT of value queries (VSet.v, shmutate_sound): HAVING mutants only, the
+# direction flipped in the right operand of EXCEPT
+q_ex = ("SELECT t.a AS a, COUNT(*) AS c FROM t GROUP BY t.a EXCEPT "
+        "SELECT u.b AS a, COUNT(*) AS c FROM u GROUP BY u.b HAVING COUNT(*) > 1")
+_, vm, _, _, hm = mutate_value(q_ex, dialect='sqlite')
+report(not vm and ('Down', 'cond->TRUE', q_ex.replace(' HAVING COUNT(*) > 1', '').replace('COUNT(*)', 'COUNT(1)')) in hm
+       and any(d == 'Up' and r == 'cond->FALSE' and m.endswith('HAVING 1 = 0') for d, r, m in hm),
+       'EXCEPT: in the right operand, cond->TRUE gives fewer rows (Down) and cond->FALSE more (Up)')
+for sql, why in [("SELECT t.a AS a FROM t INTERSECT ALL SELECT u.b AS a FROM u", 'INTERSECT ALL'),
+                 ("SELECT t.a AS a, AVG(t.x) AS m FROM t GROUP BY t.a INTERSECT SELECT u.b AS a, u.y AS m FROM u",
+                  'rounding')]:
+    try:
+        mutate_value(sql)
+        report(False, 'INTERSECT / EXCEPT of value queries: %s must be rejected' % why)
+    except Unsupported as e:
+        report(why in str(e), 'INTERSECT / EXCEPT of value queries: %s rejected (%s)' % (why, e))
+con3 = sqlite3.connect(':memory:')
+con3.executescript('CREATE TABLE t (a INT, x INT); CREATE TABLE u (b INT, y INT);'
+                   'INSERT INTO t VALUES (1, 1), (1, 2), (2, 5), (3, 1), (3, 3), (4, 0);'
+                   'INSERT INTO u VALUES (1, 3), (2, 3), (2, 4), (3, 1), (4, 9), (4, 9);')
+ok = True
+for sql in [q_ex,
+            "SELECT t.a AS a, COUNT(*) AS c FROM t GROUP BY t.a HAVING MAX(t.x) > 1 INTERSECT "
+            "SELECT u.b AS a, COUNT(*) AS c FROM u GROUP BY u.b HAVING MIN(u.y) < 4",
+            "SELECT t.a AS a FROM t GROUP BY t.a HAVING COUNT(*) > 1 EXCEPT SELECT u.b AS a FROM u "
+            "GROUP BY u.b HAVING MAX(u.y) > 3 EXCEPT SELECT t.a AS a FROM t GROUP BY t.a HAVING MIN(t.x) = 0"]:
+    original, _, _, _, hm = mutate_value(sql, dialect='sqlite')
+    base = con3.execute(original).fetchall()
+    ok = ok and bool(hm) and all(check_inclusion(d, base, con3.execute(m).fetchall()) == 'ok' for d, _, m in hm)
+report(ok, 'INTERSECT / EXCEPT of value queries on SQLite: every HAVING mutant keeps the inclusion')
+
 # rows merge: original (1, 2), (1, 2), (2, 3) -> DISTINCT (1, 2), (2, 3); mutant +1 in column 1
 orig = [(1, 2), (2, 3)]
 report(check_value('Le', 1, orig, [(1, 3), (2, 4)], cover=True) == 'ok', 'cover: related rows on both sides')

@@ -1,6 +1,6 @@
 # SQLite violations mapped to commits
 
-**The 51 confirmed pairs come from 5 distinct SQLite bugs.** Pairs with the same
+**The 52 confirmed pairs come from 5 distinct SQLite bugs.** Pairs with the same
 (introducing, fixing) commits are one bug; different commits, different bugs. Every
 boundary is exact (two adjacent commits of the first-parent history).
 
@@ -26,7 +26,7 @@ Three reduced pairs coincide (3 = 4, 6 = 7, 33 = 34). Pairs 43 to 45 come from t
 | --- | --- | --- | --- | --- | --- |
 | 1 | #1, #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, #12, #13, #14, #15, #16, #17, #18, #19, #20, #21, #22, #23, #24, #25, #30, #31, #35, #36, #40, #41, #42, #43, #44, #45, #46, #47, #48, #49, #50, #51 | `9ed1dfa802c2` 2008-01-02 Minor optimizations for sub-selects in EXISTS(...) expressio | `9b7005feeae1` 2026-01-25 Always use the sort-and-merge algorithm for EXCEPT, INTERSEC | version-3.52.0 | EXCEPT->left, UNION->UNION-ALL, UNION-ALL->UNION |
 | 2 | #26, #29 | `f8f76d672b78` 2020-01-08 Simplification of the logic in the constant-propagation opti | `fdfd45aef3c8` 2020-02-13 Fix problems in the constant propagation optimization that w | version-3.32.0 | LEFT->INNER-JOIN, cond->TRUE |
-| 3 | #27, #28 | `fad4dd0fd182` 2020-09-30 Improved query optimization for multi-column indexes where t | `16cd8b96d3e2` 2021-01-27 Fix an issue with IN operator optimization introduced by che | version-3.35.0 | DISTINCT-add, cond->TRUE |
+| 3 | #27, #28, #52 | `fad4dd0fd182` 2020-09-30 Improved query optimization for multi-column indexes where t | `16cd8b96d3e2` 2021-01-27 Fix an issue with IN operator optimization introduced by che | version-3.35.0 | DISTINCT-add, cond->TRUE |
 | 4 | #32, #33, #34, #37, #39 | `8dc570b6afac` 2016-06-08 Prefer to use partial indexes for full table scans when that | `8f2b1e4c909d` 2019-05-11 Do not assume that "x IS NOT ?" implies "x NOT NULL" when co | version-3.29.0 | DISTINCT-add, UNION->UNION-ALL |
 | 5 | #38 | `9ed1dfa802c2` 2008-01-02 Minor optimizations for sub-selects in EXISTS(...) expressio | `e69ba68363ed` 2020-12-19 Allow UNION ALL sub-queriesto be flattened even if the paren | version-3.35.0 | UNION->UNION-ALL |
 
@@ -43,7 +43,7 @@ Three reduced pairs coincide (3 = 4, 6 = 7, 33 = 34). Pairs 43 to 45 come from t
    `f8f76d672b78b77e7d79ebaf0e9ab55c8bb0b14d` (2020-01-08, 3.31.0), fixed by
    `fdfd45aef3c8ed91278f4bddff6b421472e49f10` (2020-02-13, 3.32.0, SQLite ticket
    `1dcb4d44964846ad`).
-3. **IN operator on multi-column indexes (`OP_SeekScan`)** (pairs 27, 28). Introduced by
+3. **IN operator on multi-column indexes (`OP_SeekScan`)** (pairs 27, 28, 52). Introduced by
    `fad4dd0fd1826c08f3f04c81b77d51dcb7f1c661` (2020-09-30, 3.34.0), fixed by
    `16cd8b96d3e2cb80e169beee529307d0f0fdf51c` (2021-01-27, 3.35.0, ticket `ee51301f316c09e9`).
 4. **Partial indexes and `x IS NOT ?`** (pairs 32, 33, 34, 37, 39). Introduced by

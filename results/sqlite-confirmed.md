@@ -1,6 +1,6 @@
 # SQLite violations found by the verified mutators
 
-51 recorded, 51 confirmed (reproduced on the reporting version, relation holds on SQLite 3.53.1).
+52 recorded, 52 confirmed (reproduced on the reporting version, relation holds on SQLite 3.53.1).
 
 | # | Reported on | Seed | Rule | Expected | Rows (original / mutant) | Violated on | Confirmed |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -55,6 +55,7 @@
 | 49 | 3.26.0 | 6009 | `UNION->UNION-ALL` | Up | 57 / 51 | 3.26.0, 3.30.1, 3.31.1, 3.34.0 | yes |
 | 50 | 3.26.0 | 6026 | `UNION->UNION-ALL` | Up | 38 / 35 | 3.26.0, 3.30.1, 3.31.1, 3.34.0 | yes |
 | 51 | 3.26.0 | 6027 | `UNION-ALL->UNION` | Down | 5 / 6 | 3.26.0, 3.30.1, 3.31.1, 3.34.0 | yes |
+| 52 | 3.34.0 | 7006 | `cond->TRUE` | Up | 17 / 6 | 3.34.0 | yes |
 
 ## 1. `UNION->UNION-ALL` on SQLite 3.26.0 (seed 1004)
 
@@ -922,4 +923,21 @@ Original rows: `["('0',)", "('01',)", "('10',)", "('A',)", "('B',)"]`
 Mutant rows: `["('0',)", "('01',)", "('10',)", "('A',)", "('B',)", "('b',)"]`
 
 Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+
+## 52. `cond->TRUE` on SQLite 3.34.0 (seed 7006)
+
+Expected relation: Up. Verdict: violation.
+
+```sql
+-- original
+SELECT DISTINCT t1b.c4 AS k0, t1a.c4 AS k1, t1c.c4 AS k2 FROM t1 AS t1a INNER JOIN t1 AS t1b ON (t1b.c1 >= t1b.c1) OR (t1b.c1 IS NULL) INNER JOIN t1 AS t1c ON t1b.c4 IN (SELECT t3i93.c7 FROM t3 AS t3i93 WHERE t1c.c4 > 2) WHERE (EXISTS (SELECT t2s1.c1 FROM t2 AS t2s1 WHERE t1c.c4 > 7)) OR (t1c.c4 > 0) EXCEPT SELECT t2b.c3 AS k0, t2b.c2 AS k1, t3a.c2 AS k2 FROM t3 AS t3a INNER JOIN t2 AS t2b ON (t2b.c1 = 0) OR (t3a.c7 <= t2b.c14) WHERE (NOT (t3a.c9 = 10)) AND (t3a.c7 IS NULL) UNION SELECT t1a.c4 AS k0, t1a.c4 AS k1, t1a.c4 AS k2 FROM t1 AS t1a WHERE NOT ((t1a.c4 <= 1) AND (t1a.c4 = (-1)));
+-- mutant
+SELECT DISTINCT t1b.c4 AS k0, t1a.c4 AS k1, t1c.c4 AS k2 FROM t1 AS t1a CROSS JOIN t1 AS t1b INNER JOIN t1 AS t1c ON t1b.c4 IN (SELECT t3i93.c7 FROM t3 AS t3i93 WHERE t1c.c4 > 2) WHERE (EXISTS (SELECT t2s1.c1 FROM t2 AS t2s1 WHERE t1c.c4 > 7)) OR (t1c.c4 > 0) EXCEPT SELECT t2b.c3 AS k0, t2b.c2 AS k1, t3a.c2 AS k2 FROM t3 AS t3a INNER JOIN t2 AS t2b ON (t2b.c1 = 0) OR (t3a.c7 <= t2b.c14) WHERE (NOT (t3a.c9 = 10)) AND (t3a.c7 IS NULL) UNION SELECT t1a.c4 AS k0, t1a.c4 AS k1, t1a.c4 AS k2 FROM t1 AS t1a WHERE NOT ((t1a.c4 <= 1) AND (t1a.c4 = (-1)));
+```
+
+Original rows: `['(0, 0, 0)', '(1, 0, 5)', '(1, 0, 7)', '(1, 1, 1)', '(1, 1, 5)', '(1, 1, 7)', '(1, 2, 5)', '(1, 2, 7)', '(1, 5, 5)', '(1, 5, 7)', '(1, 7, 5)', '(1, 7, 7)']`
+
+Mutant rows: `['(0, 0, 0)', '(1, 1, 1)', '(1, None, 5)', '(2, 2, 2)', '(5, 5, 5)', '(7, 7, 7)']`
+
+Per version: 3.26.0: ok, 3.30.1: ok, 3.31.1: ok, 3.34.0: violation, 3.53.1: ok
 

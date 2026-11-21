@@ -9,8 +9,8 @@ witness: violated on the reporting release, on the last bad commit and on the in
 commit of its bug, and not violated on the fixing commit, on the last good commit and on
 3.54.1 (`--boundaries`, `--latest`). So a reduced pair shows the same bug as its pair.
 
-All 51 pairs are reduced: queries from 465 to 121 characters on average (80 to 202),
-databases to 6 statements on average (5 to 14); 50 of the 51 databases no longer need
+All 52 pairs are reduced: queries from 467 to 121 characters on average (80 to 202),
+databases to 6 statements on average (5 to 14); 51 of the 52 databases no longer need
 `WITHOUT ROWID`. Each reduced pair is a self-contained script in
 `results/sqlite-repro/pair-N.sql`.
 
@@ -268,3 +268,8 @@ databases to 6 statements on average (5 to 14); 50 of the 51 databases no longer
     original: SELECT t2a.c14 AS k0 FROM t2 AS t2a UNION ALL SELECT DISTINCT t1a.c4 AS k0 FROM t1 AS t1a
     mutant  : SELECT t2a.c14 AS k0 FROM t2 AS t2a UNION SELECT DISTINCT t1a.c4 AS k0 FROM t1 AS t1a
     rows    : 15 / 13
+
+-- pair 52 (cond->TRUE, expected Up): 593 -> 131 characters
+    original: SELECT t1a.c4 AS k1 FROM t1 AS t1a INNER JOIN t1 AS t1b ON (1) INNER JOIN t1 AS t1c ON t1b.c4 IN (SELECT t3i93.c7 FROM t3 AS t3i93)
+    mutant  : SELECT t1a.c4 AS k1 FROM t1 AS t1a CROSS JOIN t1 AS t1b INNER JOIN t1 AS t1c ON t1b.c4 IN (SELECT t3i93.c7 FROM t3 AS t3i93)
+    rows    : 36 / 6

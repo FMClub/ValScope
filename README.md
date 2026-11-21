@@ -44,7 +44,7 @@ database `test` from `data/mariadb/`. Logs and violations are written to `out/`.
 | `scripts/` | `setup_mariadb.sh` (set up the sample database), `demo.sh` (end-to-end run), CI helpers |
 | `data/` | Sample MariaDB database and 870 queries produced by the original Python generator |
 | `docs/` | `USAGE.md`: the step-by-step guide; `JOURNAL.md`: the log of work rounds |
-| `results/` | The SQLite campaign: 51 confirmed violations from 5 bugs (4 withdrawn), reduced pairs, commits |
+| `results/` | The SQLite campaign: 52 confirmed violations from 5 bugs (4 withdrawn), reduced pairs, commits |
 | `issues/` | Problem reports and candidate DBMS bugs |
 
 The idea: **a mutation rule is a theorem**. Once the theorem is proved, a generic,
@@ -274,6 +274,7 @@ value cannot be read off the result.
 | `bridge/reduce_sqlite.py`, `bridge/reduce_mysql.py` | Reduce a violating pair (query, data, indexes), re-running the verified mutator at every step |
 | `bridge/test_mysql.py` | Tests that need a MySQL-protocol server |
 | `scripts/check_violations.py` | Compares the violations of a run with a baseline of known ones (keys and signatures) |
+| `scripts/record_sqlite_pairs.py` | Adds the new pairs of an SQLite campaign to `results/`: confirm, bisect, reduce, bisect again, regenerate the reports |
 | `scripts/check_reduced_mysql.py` | Checks that a reduced script still shows its violation |
 | `docs/JOURNAL.md` | The log of the autonomous work rounds: milestone, audit findings, what was done |
 | `docs/USAGE.md` | End-to-end usage guide |

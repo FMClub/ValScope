@@ -22,6 +22,7 @@ import argparse
 import collections
 import json
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -285,6 +286,20 @@ def arm_mix_verdict(verdict, *mixes):
     return 'incomparable' if 'types' in mixes else 'collation' if 'collations' in mixes else verdict
 
 
+STEP_OF_INEXACT = re.compile(r'\b(FLOOR|CEIL|CEILING|ROUND|TRUNCATE|SIGN)\s*\(\s*\(*\s*(VAR_SAMP|VAR_POP|VARIANCE|STDDEV\w*|STD)\s*\(',
+                             re.IGNORECASE)
+
+
+def step_verdict(verdict, sql):
+    """'other columns changed' is 'incomparable' when the query has a step function of a
+    variance or standard deviation: those are binary floats summed in the order of the
+    plan, and CEIL(1.0000000000000002) is 2 where CEIL(1.0) is 1 (a pair of the campaign
+    on MySQL 9: the mutation of another item changed the plan)."""
+    if verdict == 'other columns changed' and STEP_OF_INEXACT.search(sql):
+        return 'incomparable'
+    return verdict
+
+
 def printed_decimals(target, column, base_types, types, base_scales):
     """The number of decimals after which the mutated column may differ by one unit, or
     None.  The server rounds a binary float printed with a fixed number of decimals, and a
@@ -437,6 +452,7 @@ def main():
                 verdict = check_inclusion(direction, base, res, fold)
                 label = direction
             verdict = arm_mix_verdict(verdict, base_mix, getattr(target, 'last_arm_mix', None))
+            verdict = step_verdict(verdict, original)
             if verdict == 'ok':
                 st['checked_ok'] += 1
                 by_rule[rule] += 1

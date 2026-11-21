@@ -20,7 +20,7 @@ import types
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gen_mysql_db  # noqa: E402
 from checker import check_inclusion, check_value  # noqa: E402
-from run_on_db import MySQLTarget, arm_mix_verdict, printed_decimals  # noqa: E402
+from run_on_db import MySQLTarget, arm_mix_verdict, printed_decimals, step_verdict  # noqa: E402
 
 DATABASE = 'vs_recheck'
 
@@ -53,7 +53,7 @@ def judge(target, rec):
                         output_decimals=decimals)
     else:
         v = check_inclusion(rec['expect'], base, res, fold)
-    return arm_mix_verdict(v, mix, target.last_arm_mix)
+    return step_verdict(arm_mix_verdict(v, mix, target.last_arm_mix), rec['original'])
 
 
 def unique_pairs(path):

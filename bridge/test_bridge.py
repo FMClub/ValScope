@@ -809,6 +809,13 @@ report(query_shape("SELECT t3a.c9 AS k0 FROM t3 AS t3a WHERE t3a.c1 > (-3) AND t
        query_shape("SELECT t1b.c4 AS k1 FROM t1 AS t1b WHERE t1b.c1 > 7 AND t1b.c4 = 'yy'"),
        'triage: queries that differ in names and constants have one shape')
 
+from run_on_db import step_verdict  # noqa: E402
+report(step_verdict('other columns changed', 'SELECT (t.a % 2) AS k0, COUNT(t.b) AS k1, CEIL(VAR_SAMP(t.a)) AS k3 FROM t AS t GROUP BY (t.a % 2)') == 'incomparable' and
+       step_verdict('other columns changed', 'SELECT t.a AS k0, COUNT(t.b) AS k1, FLOOR((STDDEV_SAMP(t.a))) AS k2 FROM t AS t GROUP BY t.a') == 'incomparable' and
+       step_verdict('other columns changed', 'SELECT t.a AS k0, COUNT(t.b) AS k1, VAR_SAMP(t.a) AS k2 FROM t AS t GROUP BY t.a') == 'other columns changed' and
+       step_verdict('Le violated', 'SELECT t.a AS k0, CEIL(VAR_SAMP(t.a)) AS k1 FROM t AS t GROUP BY t.a') == 'Le violated',
+       'runner: a step function of a variance makes "other columns changed" incomparable, nothing else')
+
 # the rich generator writes the dialect of its database
 import subprocess  # noqa: E402
 gen = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'gen_fragment.py')

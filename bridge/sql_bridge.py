@@ -655,7 +655,13 @@ def _check_deterministic(tree):
             if any(isinstance(a, exp.Literal) and a.is_string and a.this.strip().lower() == 'now'
                    for a in node.iter_expressions()):
                 raise Unsupported("non-deterministic: %s('now')" % name)
-        if isinstance(node, (exp.Anonymous, exp.AggFunc)):
+        if isinstance(node, exp.Window):
+            # anywhere in the query (a derived table, a subquery): ROW_NUMBER, LAG,
+            # FIRST_VALUE, a ROWS frame, ... can give different values to tied rows in two plans
+            why = _window_undetermined(node)
+            if why:
+                raise Unsupported('non-deterministic: ' + why)
+        if isinstance(node, (exp.Anonymous, exp.AggFunc)) and not isinstance(node.parent, exp.Window):
             why = _order_dependent_undetermined(node)
             if why:
                 raise Unsupported('non-deterministic: ' + why)
@@ -664,6 +670,9 @@ def _check_deterministic(tree):
             if bare:
                 # the value of a column that is neither grouped nor aggregated comes from
                 # any row of its group (MySQL without ONLY_FULL_GROUP_BY, SQLite)
+                aliases = {i.alias.lower() for i in node.expressions if isinstance(i, exp.Alias)}
+                if '.' not in bare[0] and bare[0].strip('`"').lower() in aliases:
+                    raise Unsupported('HAVING refers to the select alias %s (not modelled)' % bare[0])
                 raise Unsupported('non-deterministic: %s is neither grouped nor aggregated' % bare[0])
         if isinstance(node, (exp.Select, exp.Union, exp.Intersect, exp.Except)) and node is not tree \
                 and (node.args.get('limit') or node.args.get('offset')):
@@ -744,6 +753,11 @@ class Translation:
             sql = _mysql_population_names(sql)
         tree = sqlglot.parse_one(sql, read=dialect)
         _check_deterministic(tree)
+        if tree.args.get('order') is not None and not (tree.args.get('limit') or tree.args.get('offset')):
+            # ORDER BY of the whole query, without LIMIT: the bag of rows is the same without
+            # it (it may name a select alias, which a value mutant changes)
+            tree = tree.copy()
+            tree.set('order', None)
         self.exact_columns = exact_columns
         self._exact_names = _exact_names(tree, exact_columns, self.schema)
         self._sources = _alias_sources(tree)

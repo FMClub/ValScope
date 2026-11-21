@@ -76,3 +76,21 @@ FROM t3 AS t3a GROUP BY t3a.c7 HAVING ...
 MariaDB 11.8.9 returns `3.0000` on every row (and `30.0000` for the last variant): still
 present. MySQL 8.4.13 and 9.7.4 return `1, 2, 3` (and `10, 20, 30`): correct, the problem
 is specific to MariaDB.
+
+## Also STDDEV_SAMP (seventh round)
+
+A run of 1200 generated value queries with `--value-ext` on MariaDB 10.11.14 found 20
+violations, all of this shape (`SELECT DISTINCT`, an expression over a grouping key, and an
+aggregate that is computed at the end). Most use `AVG`; two use only `VAR_SAMP` and
+`STDDEV_SAMP`, and there `STDDEV_SAMP` of the last group is copied into every row:
+
+```sql
+-- the sample database of scripts/setup_mariadb.sh
+SELECT DISTINCT (t2a.c1 % 2) + 3 AS k0, VAR_SAMP(t2a.c1) + 6 AS k1, STDDEV_SAMP(t2a.c1 + t2a.c15) AS k2
+FROM t2 AS t2a WHERE t2a.c2 > 50 GROUP BY (t2a.c1 % 2);
+-- (3, 3329079.0667, 3207.22949395), (4, 10310799.9048, 3207.22949395)
+-- without DISTINCT, or with the key itself as k0: k2 = 1841.46421693 for the first group
+```
+
+`data/mariadb/avg-distinct.sql` has a self-contained `STDDEV_SAMP` variant.
+

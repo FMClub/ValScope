@@ -4,6 +4,7 @@
     python3 bridge/gen_fragment.py N [SEED] > queries.sql            # set-semantic fragment
     python3 bridge/gen_fragment.py --value N [SEED] > queries.sql    # value queries (aggregates)
     add --sqlite for the SQLite databases of gen_sqlite_db.py
+    add --value-ext for windows over groups, DISTINCT arms of a UNION ALL, INTERSECT / EXCEPT
     add --schema FILE.json for another schema (see below)
 
 By default the schema is the sample schema of the Python generator (tables t1, t2, t3).
@@ -22,6 +23,8 @@ SHIFTS = [5, 50, 500, 5000]
 SQLITE = False
 RICH = False      # opaque predicates and derived tables that stress the SQLite planner
 FOCUS = False     # more compound queries and more DISTINCT
+VALUE_EXT = False # value queries with windows over groups, a DISTINCT arm in a UNION ALL,
+                  # INTERSECT / EXCEPT (from side streams: off, the queries are those of earlier runs)
 ALIAS = {}        # alias -> table
 
 
@@ -293,6 +296,16 @@ def _value_query_base(rng):
                 'SUM(%s.%s) OVER (PARTITION BY %s.%s)' % (alias, o, alias, p),
                 'COUNT(*) OVER (PARTITION BY %s.%s)' % (alias, p),
                 'MAX(%s.%s) OVER (PARTITION BY %s.%s ORDER BY %s.%s)' % (alias, o, alias, p, alias, o)])]
+    if VALUE_EXT and group:
+        # 30%: a window over the groups (VUnion.v: tmutate_frame), over keys and aggregates
+        side = random.Random('gwindow:%s:%s:%s' % (t, where, ','.join(items)))
+        if side.random() < 0.3:
+            o = side.choice(NUM[t])
+            items = items + [side.choice([
+                'RANK() OVER (ORDER BY MAX(%s.%s))' % (alias, o),
+                'DENSE_RANK() OVER (ORDER BY %s)' % keys[0],
+                'COUNT(*) OVER ()',
+                'MAX(MIN(%s.%s)) OVER (PARTITION BY %s %% 2)' % (alias, o, keys[0])])]
     cols = ', '.join('%s AS k%d' % (item, i) for i, item in enumerate(items))
     return 'SELECT %s FROM %s AS %s%s%s%s' % (cols, t, alias, where, group, having)
 
@@ -312,6 +325,19 @@ def value_query(rng):
             arm = _value_query_base(side)
             if arm.count(' AS k') == width:
                 return '%s UNION %s' % (sql, arm)
+    if VALUE_EXT:
+        # 15%: a SELECT DISTINCT arm next to a plain one (VDistinct.v: meval), 20%: INTERSECT /
+        # EXCEPT of two value queries (VSet.v); from a side stream of their own
+        ext = random.Random('value-ext:' + sql)
+        y = ext.random()
+        if y < 0.35:
+            width = sql.count(' AS k')
+            for _ in range(20):
+                arm = _value_query_base(ext)
+                if arm.count(' AS k') == width and ' OVER ' not in arm:
+                    if y < 0.15:
+                        return '%s UNION ALL SELECT DISTINCT %s' % (sql, arm[len('SELECT '):])
+                    return '%s %s %s' % (sql, ext.choice(['INTERSECT', 'EXCEPT']), arm)
     return sql
 
 
@@ -322,12 +348,14 @@ if __name__ == '__main__':
         RICH = True
     if '--focus' in sys.argv:
         FOCUS = True
+    if '--value-ext' in sys.argv:
+        VALUE_EXT = True
     argv = sys.argv[1:]
     if '--schema' in argv:
         i = argv.index('--schema')
         use_schema(argv[i + 1])
         del argv[i:i + 2]
-    args = [a for a in argv if a not in ('--value', '--sqlite', '--rich', '--focus')]
+    args = [a for a in argv if a not in ('--value', '--sqlite', '--rich', '--focus', '--value-ext')]
     n = int(args[0])
     rng = random.Random(int(args[1]) if len(args) > 1 else 0)
     for _ in range(n):

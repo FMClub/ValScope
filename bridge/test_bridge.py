@@ -614,6 +614,21 @@ _, vm, _, _, hm = mutate_value('SELECT t.a AS a, SUM(t.x) AS s, RANK() OVER (ORD
                                 'FROM t GROUP BY t.a HAVING COUNT(*) > 1')
 report(vm and not hm, 'window over groups: value mutants only, no HAVING mutants (they change the groups)')
 
+# a window that can give tied rows different values is rejected anywhere in the query
+for sql in ["SELECT t.a FROM t WHERE t.a IN (SELECT d.b FROM (SELECT u.b AS b, ROW_NUMBER() OVER (ORDER BY u.c) AS rn "
+            "FROM u) AS d WHERE d.rn = 1)",
+            "SELECT d.b FROM (SELECT u.b AS b, LAG(u.b) OVER (ORDER BY u.c) AS p FROM u) AS d WHERE d.p > 1"]:
+    try:
+        mutate_sql(sql)
+        report(False, 'non-deterministic window in a subquery must be rejected: %s' % sql)
+    except Unsupported as e:
+        report('window function' in str(e), 'non-deterministic window in a subquery rejected (%s)' % e)
+try:
+    mutate_value('SELECT t.a + 1 AS k, COUNT(*) AS c FROM t GROUP BY t.a HAVING k > 2')
+    report(False, 'HAVING over a select alias must be rejected')
+except Unsupported as e:
+    report('select alias k' in str(e), 'HAVING over a select alias: %s' % e)
+
 # SQLite: HAVING without GROUP BY is printed as a WHERE over a derived table (old releases
 # reject the HAVING); both forms give the same rows, on every predicate value and on an empty table
 import sqlite3  # noqa: E402

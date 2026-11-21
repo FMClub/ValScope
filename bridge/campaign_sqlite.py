@@ -115,12 +115,15 @@ def main():
     ap.add_argument('--rich', action='store_true', help='opaque predicates and derived tables')
     ap.add_argument('--focus', action='store_true',
                     help='more compounds, DISTINCT, text and COLLATE NOCASE columns')
+    ap.add_argument('--value-ext', action='store_true',
+                    help='value queries with windows over groups, DISTINCT arms of a UNION ALL, INTERSECT / EXCEPT')
     ap.add_argument('--adaptive', action='store_true',
                     help='choose --focus / --rich per database seed by coverage feedback (UCB1)')
     args = ap.parse_args()
     gen_fragment.use_sqlite()
     gen_fragment.RICH = args.rich
     gen_fragment.FOCUS = args.focus
+    gen_fragment.VALUE_EXT = args.value_ext
     libs = [None if lib == 'python' else lib for lib in args.libs]
     tmp = tempfile.mkdtemp(prefix='vs_sqlite_')
     st = collections.Counter()

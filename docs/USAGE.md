@@ -245,6 +245,7 @@ Options:
 | `--schema FILE.json` | use your own tables and numeric columns (below) |
 | `--rich` | also opaque predicates (`BETWEEN`, `CAST`, `COLLATE`, ...) and derived tables |
 | `--focus` | more set operations and `DISTINCT` |
+| `--value-ext` | value queries (with `--value`) with windows over groups, a `SELECT DISTINCT` arm in a `UNION ALL`, `INTERSECT` / `EXCEPT`; from side streams, so without it the queries of a seed stay those of earlier runs |
 
 For your own schema, write a JSON file that maps each table to its **numeric** columns; the
 first column of each table is used in `EXISTS` subqueries:
@@ -511,6 +512,7 @@ L=/tmp/sqlite-libs; python3 bridge/campaign_sqlite.py --libs $L/libsqlite3-32600
 | `--focus` | more set operations, `DISTINCT`, text and `COLLATE NOCASE` columns |
 | `--rich` | opaque predicates and derived tables |
 | `--adaptive` | choose plain / `--focus` / `--rich` / both per database seed by coverage feedback (section 8.4) |
+| `--value-ext` | the value queries of `gen_fragment.py --value-ext` (windows over groups, DISTINCT arms of a `UNION ALL`, `INTERSECT` / `EXCEPT`) |
 | `--flip` | negative control |
 
 Progress is printed to standard error after each seed; the summary and the per-rule
@@ -748,7 +750,12 @@ Then `ok checks per rule` and the most frequent database errors.
   no longer correspond one to one. The theorem (`VDistinct.v`, `tmutate_distinct_sound`)
   states a cover in both directions: every row of each result agrees outside the mutated
   column with a row of the other result and satisfies the relation with it. The checker
-  checks exactly that.
+  checks exactly that. The same holds when only some arms of a `UNION ALL` are under
+  DISTINCT (`tmutate_mask_sound`).
+- HAVING rules on a top-level `INTERSECT` / `EXCEPT` of value queries (`VSet.v`,
+  `shmutate_sound`): inclusion of the sets of rows, with the direction flipped in the
+  right operand of `EXCEPT`; the checker's inclusion check applies as it is (the results
+  have no duplicates).
 - What is rejected before any check, and why (determinism, the collation law): README,
   "How the bridge fails closed". The collation law looks at the data of the database
   under test: an operation that reads only columns whose equivalent values are identical
@@ -817,7 +824,7 @@ operator), also extend the printer in `bridge/sql_bridge.py` (`_e_sql`, `_p_sql`
 | `connection to the server lost ...; the run is stopped` | the server stopped (MariaDB is sometimes killed in idle containers); restart it (section 2.4) and run again |
 | many `original_failed` with `near "(": syntax error` on SQLite | the queries were generated without `--sqlite` |
 | `no such function: VAR_SAMP` on SQLite | the value queries were generated without `--sqlite` |
-| `a GROUP BY clause is required before HAVING` on old SQLite | old releases reject HAVING without GROUP BY; these queries are skipped |
+| `a GROUP BY clause is required before HAVING` on old SQLite | a query written with HAVING but no GROUP BY fails on releases before 3.39 (the bridge prints its own queries and mutants without it) |
 | `FUNCTION test.REGEXP_LIKE does not exist` | an old bridge version; update the branch (REGEXP is now printed as an operator) |
 | everything `unsupported` | the queries use features outside the fragment; check one with the `Translation(...)` command of section 4 to see the reason |
 | `database test has N tables; set YES=1 ...` | `setup_mariadb.sh` would drop an existing database; set `YES=1`, or use another `DATABASE=` |

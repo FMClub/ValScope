@@ -77,7 +77,11 @@ On the 13-row table of the original campaign, `MAX(c10) + 0` returned `0` for ev
 
 ## Limitations
 
-- Reproduced on MariaDB 10.11.14 only. MySQL, Percona, TiDB, OceanBase and PolarDB were not tested, and no other MariaDB version was tried.
+- Reproduced on MariaDB 10.11.14 (locally) and, in CI (`data/mariadb/enum-max-having.sql`),
+  on MariaDB 11.8.9 and MySQL 9.7.4: both also return groups 1, 2, 3 with `COUNT(DISTINCT d)`
+  and 1, 2 otherwise, so the behaviour is not specific to MariaDB (it may be a shared,
+  documented conversion rule; see the next point). Percona, TiDB, OceanBase and PolarDB were
+  not tested.
 - The cause inside the server was not analysed; the `COUNT(DISTINCT)` and non-`DISTINCT` variants probably take different aggregation paths.
 - The intended semantics of `MAX(enum_col)` in a comparison with a number was not checked against the documentation.
 

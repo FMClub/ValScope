@@ -11,4 +11,8 @@ SELECT DISTINCT g AS k, MAX(x) * 2 AS m, AVG(g) AS a FROM t GROUP BY g;
 SELECT DISTINCT g + 0 AS k, MAX(x) AS m, AVG(g) AS a FROM t GROUP BY g;
 SELECT DISTINCT g + 0 AS k, MAX(x) * 2 AS m, SUM(g) AS a FROM t GROUP BY g;
 SELECT DISTINCT g + 0 AS k, MIN(x) + 1 AS m, AVG(x) AS a FROM t GROUP BY g;
+-- STDDEV_SAMP (computed at the end, like AVG): must be 0, 7.0711, 0 (MariaDB 10.11.14: 0, 0, 0)
+CREATE TABLE s (g INT, x INT);
+INSERT INTO s VALUES (1, 1), (1, 1), (2, 0), (2, 10), (3, 4), (3, 4);
+SELECT DISTINCT g + 0 AS k, MAX(x) * 2 AS m, STDDEV_SAMP(x) AS sd FROM s GROUP BY g;
 DROP DATABASE vs_avg;

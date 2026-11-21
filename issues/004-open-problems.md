@@ -1,4 +1,4 @@
-# Open problems (status after the sixth round of the Rocq version)
+# Open problems (status after the seventh round of the Rocq version)
 
 > This repository has no issue tracker, so this document (submitted through a PR) collects
 > the problems that are known and not solved, so that they can be reviewed together.
@@ -56,8 +56,9 @@ fixes of PR #1 are merged; the design problems below are still open.
 
 ### B1. Coverage of SQL
 
-1. Not modelled: window functions (except, since the sixth round, as opaque items of value
-   queries without aggregation, when identical rows get identical values), `FULL` / `NATURAL` / `USING` joins, a `RIGHT JOIN` that
+1. Not modelled: window functions (except as opaque items of value queries when identical
+   rows get identical values: without aggregation since the sixth round, over groups since
+   the seventh), `FULL` / `NATURAL` / `USING` joins, a `RIGHT JOIN` that
    is not the first join, `LIMIT` at the top, recursive CTEs. (Since the fourth round:
    `INTERSECT ALL` / `EXCEPT ALL` and `IN` with a row constructor are modelled and proved,
    and a first `RIGHT JOIN` is translated as the swapped `LEFT JOIN`.) Unanalysed predicates
@@ -69,9 +70,14 @@ fixes of PR #1 are merged; the design problems below are still open.
    Python-generator queries are translated for the value rules (136 before, 69 before the
    fourth round). Window functions in value queries are accepted as opaque items when
    identical rows get identical values and the window names qualified columns only. Top-level
-   `INTERSECT` / `EXCEPT` of value queries stay out of the model (no relation between the
-   results). Since the seventh round, a `UNION` whose arms are `SELECT DISTINCT` is accepted
-   too (the arms' DISTINCT is redundant): 314 value queries.
+   `INTERSECT` / `EXCEPT` of value queries have no relation for the value rules. Seventh
+   round: a `UNION` whose arms are `SELECT DISTINCT`, windows over groups (`tmutate_frame`),
+   `SELECT DISTINCT` / `UNION` as a part of a `UNION ALL` (`tmutate_mask_sound`) and the
+   HAVING rules inside `INTERSECT` / `EXCEPT` (`VSet.v`, `shmutate_sound`) are accepted:
+   322 of the 870 Python-generator queries for the value and HAVING rules on MariaDB
+   (`run_on_db.py --value`; 215 before this round). Still out: `INTERSECT` / `EXCEPT`
+   operands with float sums, `INTERSECT ALL` / `EXCEPT ALL` of value queries, `LIMIT`
+   without `ORDER BY` (106 queries, not determined).
 3. Some set-semantic mutants cannot be printed: `DISTINCT` around a join that is an operand
    of another join, or around a join of derived tables (91 of about 9000 mutants on 200
    generated queries; 480 before the fourth round, when `DISTINCT` around any join was

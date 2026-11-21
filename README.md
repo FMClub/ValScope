@@ -445,9 +445,9 @@ in which the term means what the SQL text means.
   are opaque predicates; select items that are not analysed are opaque items.
 - **Rejected, not approximated:** `LIMIT` at the top or without `ORDER BY` in a subquery,
   aggregates and window functions in set-semantic select lists, `HAVING` without
-  aggregation, window functions in set queries and in grouped value queries, window
-  functions that can tell identical rows apart (`ROW_NUMBER`, `LAG`, `NTILE`, `ROWS`
-  frames, ...), `FULL` / `USING` / `NATURAL` joins, a
+  aggregation, window functions in set queries, window functions that can tell identical
+  rows apart (`ROW_NUMBER`, `LAG`, `NTILE`, `ROWS` frames, ...) anywhere in the query
+  (also inside derived tables and subqueries), `FULL` / `USING` / `NATURAL` joins, a
   `RIGHT JOIN` after another join or with `SELECT *` (a first `RIGHT JOIN` is translated as
   the swapped `LEFT JOIN`), recursive CTEs, table functions with column
   arguments, non-aggregated select items that are not grouping keys (at every level, also
@@ -518,14 +518,25 @@ and fixed its bug (self-contained scripts in `results/sqlite-repro/`). Details a
   are supported since the sixth round with a weaker check: after DISTINCT the rows no
   longer correspond one to one, and the theorem (`VDistinct.v`) states a cover in both
   directions (every row of each result is related to a row of the other).
-- Value mutation of an arm of a top-level `INTERSECT` or `EXCEPT` of value queries is not
-  modelled (188 Python-generator queries): changing a value of one arm changes which rows
-  the operator keeps, so there is no relation between the results to check. (`UNION` is
-  supported: DISTINCT over the arms, `VDistinct.v`.)
-- Window functions are accepted only as opaque items of value queries without aggregation,
-  and only those whose value is the same for identical rows (`RANK`, aggregates over the
-  default frame, ...), with qualified columns in `PARTITION BY` / `ORDER BY` (MariaDB and
-  MySQL resolve an unqualified name there to a select alias, which a mutation can change);
+- `SELECT DISTINCT` and `UNION` can also be any part of a `UNION ALL` of value queries
+  (a `SELECT DISTINCT` arm next to plain arms): the theorem (`VDistinct.v`,
+  `tmutate_mask_sound`) is the same cover, with the DISTINCT parts given by a mask over the
+  `UNION ALL`. Such queries get no HAVING mutants (no theorem for them).
+- Value rules do not apply to a top-level `INTERSECT` or `EXCEPT` of value queries: changing
+  a value of one arm changes which rows the operator keeps. HAVING rules do (`VSet.v`,
+  `shmutate_sound`): the result, as a set, grows with both operands of `INTERSECT` and with
+  the left operand of `EXCEPT`, and shrinks with its right operand, where the direction is
+  flipped. Operands with an aggregate that adds floats (`SUM`, `AVG`, `VAR_*`, `STDDEV_*`)
+  are rejected: the server compares rows exactly, and two plans can round differently.
+  `INTERSECT ALL` / `EXCEPT ALL` of value queries are rejected.
+- Window functions are accepted as opaque items of value queries, and only those whose
+  value is the same for identical rows (`RANK`, aggregates over the default frame, ...),
+  with qualified columns in `PARTITION BY` / `ORDER BY` (MariaDB and MySQL resolve an
+  unqualified name there to a select alias, which a mutation can change). In a grouped
+  query the window ranges over the groups: a value mutant keeps the keys, HAVING and source
+  of every arm (`Registry.v`, `tmutate_frame`), so it sees the same groups; a column the
+  window reads must be a grouping key or inside an aggregate, and the query gets no HAVING
+  mutants (they change the groups);
   `IN` with a value list stays an opaque predicate.
 - Some set-semantic mutants cannot be printed as SQL and are dropped (84 of about 7800 on
   200 generated queries): `DISTINCT` around a join that is itself an operand of another
@@ -533,6 +544,10 @@ and fixed its bug (self-contained scripts in `results/sqlite-repro/`). Details a
   derived tables. `DISTINCT` around a join of base tables needs the schema (the runners
   read it from the database).
 - SQLite has no `INTERSECT ALL` / `EXCEPT ALL`; those mutants are not printed for SQLite.
+- SQLite before 3.39 rejects `HAVING` without `GROUP BY`; for SQLite such a value query (or
+  mutant) is printed as a `WHERE` over a derived table that computes the predicate as a
+  column. The round trip checks the standard form; `test_bridge.py` runs both forms.
+- `ORDER BY` of the whole query without `LIMIT` is dropped (the bag of rows is the same).
 - Only the MySQL and SQLite dialects of sqlglot were tested.
 
 ## Trusted base and caveats

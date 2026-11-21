@@ -3,7 +3,7 @@
 Status: open, candidate (MariaDB 10.11.14; found by the translation check of
 `bridge/run_on_db.py --value` on `data/python-generator-queries.sql`, right after window
 functions over groups were admitted as opaque items). Not reported upstream. CI runs the
-reproducer on MariaDB 10.11, MySQL 8.4, `mariadb:11` and `mysql:9`.
+reproducer on MariaDB 10.11, MySQL 8.4, `mariadb:11` and `mysql:9` (see Limitations).
 
 ## Summary
 
@@ -62,5 +62,7 @@ does not change the result).
 
 ## Limitations
 
-- Reproduced on MariaDB 10.11.14 only (locally); the CI log shows the newer servers.
+- MariaDB 10.11.14 (locally, and CI) and MariaDB 11.8.9 (CI): 0 rows, still present.
+  MySQL 8.4.13 and 9.7.4 (CI): 2 rows in every variant, correct; the problem is specific to
+  MariaDB.
 - Not checked against the MariaDB bug tracker.

@@ -1,0 +1,51 @@
+name: sql
+
+# Run one SQL script of the repository on a MySQL-protocol server image, started by hand:
+# for a reproducer on a release that is not installed anywhere else.  The output is the log.
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: "Server image (mariadb:11.8, mysql:9, mysql:8.4, ...)"
+        required: true
+        default: "mysql:9"
+      script:
+        description: "Path of the script in the repository (data/mariadb/*.sql, data/mysql/*.sql)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  sql:
+    name: "${{ inputs.script }} on ${{ inputs.image }}"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      db:
+        image: ${{ inputs.image }}
+        env:
+          MARIADB_ROOT_PASSWORD: "123456"
+          MYSQL_ROOT_PASSWORD: "123456"
+        ports: ["3306:3306"]
+    steps:
+      - uses: actions/checkout@v5
+      - name: Client
+        run: |
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends mysql-client
+      - name: Wait for the server
+        run: |
+          for i in $(seq 1 60); do
+            if mysql -h127.0.0.1 -uroot -p123456 -N -e "SELECT VERSION()" 2> /dev/null; then exit 0; fi
+            sleep 5
+          done
+          echo "the server did not start" >&2; exit 1
+      - name: Run the script
+        env:
+          SCRIPT: ${{ inputs.script }}
+        run: |
+          case "$SCRIPT" in data/*.sql) ;; *) echo "not a script under data/: $SCRIPT" >&2; exit 1 ;; esac
+          case "$SCRIPT" in *..*) echo "no .. in the path" >&2; exit 1 ;; esac
+          mysql -h127.0.0.1 -uroot -p123456 --force --skip-column-names --default-character-set=utf8mb4 < "$SCRIPT"

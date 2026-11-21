@@ -71,3 +71,9 @@ INTERSECT ALL
 
 `data/mysql/intersect-min.sql` runs it on two plain tables with one row each (CI: MySQL 8.4
 and 9). MariaDB 10.11.14 returns no row for every form.
+
+With two plain tables (`data/mysql/intersect-min.sql`: one row each, no secondary index)
+the reduced query is correct on MySQL 8.4.13 and 9.7.4. So the problem needs the schema of
+the sample database (its secondary indexes or column types); `bridge/reduce_mysql.py`
+now also drops the secondary indexes that are not needed (CI job `mysql`, step "Reduce the
+pair of issue 008").

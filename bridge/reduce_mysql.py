@@ -152,6 +152,26 @@ def main():
                         cur.execute('INSERT INTO %s.`%s` VALUES (%s)' % (SCRATCH, t, ', '.join(['%s'] * len(cols))), row)
                 cur.execute('SELECT COUNT(*) FROM %s.`%s`' % (SCRATCH, t))
                 print('  %s: %d -> %d rows' % (t, len(rows), cur.fetchone()[0]), file=log)
+            # then the secondary indexes: each is dropped, and added back if the pair is no
+            # longer violated without it
+            for t in used:
+                cur.execute('SHOW INDEX FROM %s.`%s`' % (SCRATCH, t))
+                idx = {}
+                for r in cur.fetchall():
+                    d = dict(zip([c[0] for c in cur.description], r))
+                    if d['Key_name'] == 'PRIMARY':
+                        continue
+                    part = '`%s`%s' % (d['Column_name'], '(%d)' % d['Sub_part'] if d.get('Sub_part') else '')
+                    idx.setdefault(d['Key_name'], (d['Non_unique'] == 0, []))[1].append((d['Seq_in_index'], part))
+                kept = 0
+                for name, (unique, parts) in idx.items():
+                    cols = ', '.join(p for _, p in sorted(parts))
+                    cur.execute('ALTER TABLE %s.`%s` DROP INDEX `%s`' % (SCRATCH, t, name))
+                    if not judge.violated(original, mutant):
+                        cur.execute('ALTER TABLE %s.`%s` ADD %sINDEX `%s` (%s)'
+                                    % (SCRATCH, t, 'UNIQUE ' if unique else '', name, cols))
+                        kept += 1
+                print('  %s: %d -> %d secondary indexes' % (t, len(idx), kept), file=log)
         # the reproduction script
         print('-- %s (%s): reduced on %s' % (rec['rule'], rec['expect'], target.conn.get_server_info()))
         for t in used:

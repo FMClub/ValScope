@@ -423,7 +423,8 @@ python3 bridge/reduce_mysql.py out/violations.jsonl --pair 1 --host 127.0.0.1 --
 The pair (a line of `--out`, or `--key KEY` with a key of `scripts/check_violations.py`) is
 reduced like an SQLite pair (section 8.5): the query step by step, re-running the verified
 mutator, then the data, deleting rows one by one in a copy of the tables (database
-`vs_reduce`, dropped at the end). It prints a script: `CREATE TABLE` and `INSERT`
+`vs_reduce`, dropped at the end), then the secondary indexes, dropping each one and adding
+it back when the pair is no longer violated without it. It prints a script: `CREATE TABLE` and `INSERT`
 statements for the remaining rows, the original and the mutant.
 
 ### 6.8 Known violations in CI

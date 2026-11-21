@@ -105,7 +105,7 @@ It was the only violation in 37572 value-semantic checks over 3000 generated que
   (`data/mariadb/having-in-nested.sql`): when the subquery of `HAVING ... IN` has an `IN`
   subquery in its own `WHERE`, the groups are still lost.
 
-  | `SELECT ... FROM h3 AS a GROUP BY a.c3, a.c7 HAVING COUNT(a.c1) IN (...)`; expected 2 groups | 10.11.14 | 11.4.13, 11.8.9 | MySQL 8.4.13, 9.7.4 |
+  | `SELECT ... FROM h3 AS a GROUP BY a.c3, a.c7 HAVING COUNT(a.c1) IN (...)`; expected 2 groups | 10.11.14 | 11.4.13, 11.8.9, 13.0.2 | MySQL 8.4.13, 9.7.4 |
   | --- | --- | --- | --- |
   | `(SELECT s.c1 FROM h3 AS s WHERE s.c2 = 2)`, `COUNT(a.c3)` in the select list | **0** | 2 | 2 |
   | `(SELECT s.c1 FROM h3 AS s WHERE s.c2 IN (SELECT u.c1 FROM h1 AS u))`, `COUNT(a.c3)` | **0** | **0** | 2 |

@@ -40,6 +40,6 @@ same number.
 
 ## Limitations
 
-- Servers (local run and CI run 61): MariaDB 10.11.14, 11.4.13 and 11.8.9 show it.
+- Servers (local run and CI run 61): MariaDB 10.11.14, 11.4.13, 11.8.9 and 13.0.2 show it.
   MySQL 8.4.13 and 9.7.4 are consistent in every query.
 - Not checked against the MariaDB bug tracker.

@@ -88,7 +88,13 @@ CI runs a small campaign (seeds 1-12, `--focus`) on MySQL 8.4 and 9 and on Maria
 | MariaDB 11.4.13, 11.8.9 | seeds 1-12, `--focus` | 36142 | 3 | `issues/010`: 2, `issues/003`: 1 (the form that 11.x did not fix) |
 | MariaDB 11.8.9 | seeds 131-170, `--rich` | 70641 | 11 | `issues/013`: 7, `issues/010`: 2, `issues/003`: 1, `issues/014`: 1 |
 | MySQL 9.7.4 | seeds 131-170, `--rich` | 68746 | 12 | 6 false alarms (mixed types, fixed); 6 pairs of seed 144: `issues/015` |
+| MariaDB 13.0.2 (`mariadb:latest`) | seeds 231-280, `--rich` | 91064 | 18 | `issues/013`: 8, `issues/010`: 4, `issues/012`: 4, `issues/003`: 2 (by their hints); 1 false alarm (a number arm and a text arm, fixed) |
+| MySQL 8.4.13 | seeds 231-280, `--rich` | 89483 | 2 | `issues/008`: 1; the same false alarm: 1 |
 
+
+The reproducers of `data/mariadb/` on MariaDB 13.0.2 (`sql.yml` with the directory): issues
+009, 010, 011, 012, 013 and 014 give the same wrong results as on 10.11.14; of issue 003
+the minimal case is right and the nested one (`having-in-nested.sql`) wrong, as on 11.x.
 
 ## The records
 

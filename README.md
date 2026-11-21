@@ -559,7 +559,7 @@ script on any other image). None was reported upstream (no access
 to the trackers from the environment this was written in). The columns say where the
 script gives a wrong result.
 
-| Issue | What | MariaDB 10.11.14 | MariaDB 11.4.13 / 11.8.9 | MySQL 8.4.13 / 9.7.4 |
+| Issue | What | MariaDB 10.11.14 | MariaDB 11.4.13 / 11.8.9 / 13.0.2 | MySQL 8.4.13 / 9.7.4 |
 | --- | --- | --- | --- | --- |
 | [003](issues/003-mariadb-having-count-in-subquery.md) | `HAVING <aggregate> IN (subquery)` finds no match | wrong | fixed for the minimal case; wrong when the subquery has an `IN` subquery | correct |
 | [005](issues/005-mariadb-bit-min-max-text.md) | `MIN` / `MAX` of a `BIT` column return decimal text | wrong | wrong | correct in the minimal case |
@@ -572,6 +572,10 @@ script gives a wrong result.
 | [013](issues/013-mariadb-decimal-negative-zero-group.md) | the DECIMAL `-0.00` (from `-3.00 % 3`) is grouped with `0.00` or apart depending on an unrelated aggregate | wrong | wrong | correct |
 | [014](issues/014-mariadb-subquery-cache-collation.md) | the subquery cache matches `'A'` and `'a'` of a `_ci` outer column although the subquery compares under `_bin`: the result depends on the order of the rows | wrong | wrong | correct |
 | [015](issues/015-mysql-left-join-semijoin-antijoin.md) | a LEFT JOIN loses its inner side (NULL-extended rows) when an `EXISTS` inside it and a `NOT EXISTS` outside it are both materialized on the constant 1 | correct | correct | wrong (8.0.46, 8.4.13, 9.7.4; 5.7.44 correct) |
+
+MariaDB 13.0.2 (the `latest` image, through `.github/workflows/sql.yml`) was checked for
+003 and 009 to 014, and a campaign on it found 003, 010, 012 and 013 again; 005 and 006 were
+not run there.
 
 Not counted: [002](issues/002-mariadb-enum-max-having.md) (probably intended behaviour) and
 [007](issues/007-sqlite-compound-collation.md) (SQLite, perhaps intended). The campaigns over

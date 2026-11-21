@@ -94,3 +94,11 @@ FROM t2 AS t2a WHERE t2a.c2 > 50 GROUP BY (t2a.c1 % 2);
 
 `data/mariadb/avg-distinct.sql` has a self-contained `STDDEV_SAMP` variant.
 
+## Upstream
+
+MDEV-9445 "Wrong result for a grouping query with DISTINCT" (confirmed, open) is very
+likely the same defect: its reproducer `SELECT DISTINCT (COUNT(*) + 1) AS c FROM t1 GROUP BY a`
+returns one row on MariaDB 10.11.14 (checked here; three groups with counts 2, 1, 3 give
+the single row 3 instead of 3, 2, 4). In both cases an expression over an aggregate, or an
+aggregate computed at the end, is evaluated once for the last group under `SELECT DISTINCT`.
+The ticket was found by a web search and not read in full; nothing was reported upstream.

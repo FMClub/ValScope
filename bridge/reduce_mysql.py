@@ -4,6 +4,9 @@
 
 The pair (a line of `run_on_db.py --out`) is reduced like reduce_sqlite.py does it:
 
+A translation mismatch (rule TRANSLATION: the query as written and as re-printed by the
+bridge return different rows) is reduced the same way; its "mutant" is the re-printed query.
+
 1. the query, step by step (an arm instead of a compound, an operand instead of AND / OR,
    a clause, a join or a column dropped, a comparison replaced by 1 or 0); after every step
    the verified mutator runs again, and the step is kept only if a mutant of the same rule
@@ -33,6 +36,7 @@ class Judge:
     def __init__(self, target, rec):
         self.t, self.rec = target, rec
         self.rule = rec['rule']
+        self.translation = rec['rule'] == 'TRANSLATION'    # the query as written vs re-printed
         self.value = ' col ' in rec['expect']
         self.having = self.rule.startswith('HAVING ')
         if self.value and 'distinct' not in rec:
@@ -52,6 +56,9 @@ class Judge:
         if base is None or res is None:
             return False
         fold = self.t.folds(bc, self.t.last_collations)
+        if self.translation:
+            return check_inclusion('Up', base, res, fold) not in ('ok', 'collation') or \
+                check_inclusion('Down', base, res, fold) not in ('ok', 'collation')
         if self.value:
             relation, _, column = self.rec['expect'].split()
             v = check_value(relation, int(column), base, res, fold=fold, cover=self.rec.get('distinct', False))
@@ -60,6 +67,13 @@ class Judge:
         return v not in ('ok', 'collation', 'incomparable')
 
     def pair(self, sql):
+        if self.translation:
+            try:
+                f = mutate_value if self.rec.get('value') else mutate_sql
+                reprinted = f(sql, dialect='mysql', schema=self.t.schema, exact_columns=self.t.exact)[0]
+            except Exception:
+                return None
+            return (sql, reprinted) if self.violated(sql, reprinted) else None
         try:
             if self.value or self.having:
                 trs = []

@@ -120,3 +120,9 @@ the reduced query is correct on MySQL 8.4.13 and 9.7.4. So the problem needs the
 the sample database (its secondary indexes or column types); `bridge/reduce_mysql.py`
 now also drops the secondary indexes that are not needed (CI job `mysql`, step "Reduce the
 pair of issue 008").
+
+## Upstream
+
+A web search of the MySQL bug tracker (bugs.mysql.com) for this symptom (INTERSECT with the NULL of an outer join) found no matching report.
+The search was by keywords over titles only; the tracker itself is not reachable from the
+development environment. Not reported upstream.

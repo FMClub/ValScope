@@ -40,6 +40,24 @@ FROM t JOIN u ON u.k = t.id GROUP BY t.g HAVING MAX(t.y) >= 10;
 | `SUM(DISTINCT t.x)` without a window, join | 2 |
 | window + `SUM(DISTINCT t.x)`, no join | 2 |
 
+## Second symptom: an expression over the window function is 0
+
+With the same ingredients (a grouped join, an aggregate with `DISTINCT`, a window function)
+and no `HAVING`, an expression over the window function evaluates to 0:
+
+```sql
+-- the tables above.  Expected r3 = 4, 5, 6.  Returned: 0, 0, 0 (r itself is 1, 2, 3).
+SELECT t.g, COUNT(DISTINCT t.x) AS c, RANK() OVER (ORDER BY t.g) AS r, RANK() OVER (ORDER BY t.g) + 3 AS r3
+FROM t JOIN u ON u.k = t.id GROUP BY t.g;
+```
+
+With `COUNT(t.x)`, or without the join, `r3` is 4, 5, 6. This one was found by a ValScope
+rule: once the engine's mutants of a window item survived the round trip, `expr->expr+k`
+turned `RANK() OVER (...)` into `RANK() OVER (...) + 3` in a Python-generator query, and the
+mutated column went from 1 to 0 where the theorem promises a value >= 1 (`Le col 1`). Such
+violations are recognised by the baseline signature `mariadb-window-distinct-agg`
+(`scripts/check_violations.py`).
+
 ## How it was found
 
 The query of the corpus was
@@ -66,3 +84,9 @@ does not change the result).
   MySQL 8.4.13 and 9.7.4 (CI): 2 rows in every variant, correct; the problem is specific to
   MariaDB.
 - Not checked against the MariaDB bug tracker.
+- Possibly related upstream reports (found by a web search of the titles; the tickets were
+  not read in full): MDEV-9787 "Window functions: HAVING and GROUP BY", MDEV-10859 "Wrong
+  result of aggregate window function in query with HAVING and no ORDER BY" (fixed in
+  10.2.4), MDEV-25736 "ROW_NUMBER() returns wrong results for query with distinct count and
+  grouping". MDEV-25736 has the same ingredients (window, `COUNT(DISTINCT)`, grouping) and
+  should be compared first.

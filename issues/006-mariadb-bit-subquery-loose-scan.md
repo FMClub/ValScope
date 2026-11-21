@@ -71,3 +71,9 @@ expected: the problem is specific to MariaDB.
 ## Newer versions (CI job `candidates-newer-servers`, sixth round)
 
 MariaDB 11.8.9 returns `255` on every row: still present. MySQL 9.7.4 returns `14`.
+
+## Upstream
+
+A web search of the MariaDB bug tracker (jira.mariadb.org) for this symptom (BIT scalar subquery under a loose index scan) found no matching report.
+The search was by keywords over titles only; the tracker itself is not reachable from the
+development environment. Not reported upstream.

@@ -81,6 +81,8 @@ case "$target" in
     python3 bridge/run_on_db.py out/vxqueries.sql --value "${conn[@]}" --out out/violations.jsonl > out/run-value-ext.log; summary out/run-value-ext.log
     echo "== 7. queries of the original Python generator (data/python-generator-queries.sql)"
     python3 bridge/run_on_db.py data/python-generator-queries.sql "${conn[@]}" --out out/violations.jsonl > out/run-python-queries.log; summary out/run-python-queries.log
+    echo "== 7b. the same queries, value and HAVING rules"
+    python3 bridge/run_on_db.py data/python-generator-queries.sql --value "${conn[@]}" --out out/violations.jsonl > out/run-python-value.log; summary out/run-python-value.log
     echo "== 8. negative control (--flip): must report many violations"
     python3 bridge/run_on_db.py out/queries.sql --flip "${conn[@]}" | grep -o "'VIOLATIONS': [0-9]*" || echo "   no violations: the checks are not working"
     ;;

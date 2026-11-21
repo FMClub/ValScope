@@ -329,6 +329,14 @@ def main():
         if not same_rows(as_written, base):
             st['TRANSLATION_MISMATCH'] += 1
             print('TRANSLATION MISMATCH\n  written  : %s\n  reprinted: %s' % (sql, original))
+            if out and not args.flip:
+                # recorded like a violation: the re-printed query means the same (the bridge
+                # only drops parentheses, ORDER BY without LIMIT, ...), so different rows are
+                # a DBMS bug or a bridge bug; reduce_mysql.py reduces such a pair too
+                out.write(json.dumps({'rule': 'TRANSLATION', 'expect': 'Same', 'verdict': 'translation mismatch',
+                                      'value': bool(args.value), 'query': sql, 'original': sql, 'mutant': original,
+                                      'original_rows': len(as_written), 'mutant_rows': len(base)}) + '\n')
+                out.flush()
             continue
         st['supported'] += 1
         st['mutants_not_printable'] += skipped

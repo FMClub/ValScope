@@ -93,7 +93,7 @@ jobs:
         run: python3 bridge/test_mysql.py
       - name: End to end on MariaDB
         run: N=60 scripts/demo.sh mariadb
-      - name: No violation outside the baseline (issues 005, 006, 009 are known)
+      - name: No violation outside the baseline (issues 005, 006, 009, 010 are known)
         run: scripts/check_violations.py out/violations.jsonl data/ci-baseline/mariadb.txt
       - name: The AVG candidate of issue 009
         run: mariadb -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mariadb/avg-distinct.sql
@@ -109,6 +109,10 @@ jobs:
           cat /tmp/reduced-009.sql | grep -v '^  KEY'
           # the reduced script keeps the violation: run it in a fresh database and compare
           python3 scripts/check_reduced_mysql.py /tmp/reduced-009.sql 'Le col 0'
+      - name: Reduce the translation mismatch of issue 010 (query as written vs re-printed)
+        run: |
+          python3 bridge/reduce_mysql.py out/violations.jsonl --key 'TRANSLATION|f0334db11f7ee317' --password 123456 --database test > /tmp/reduced-010.sql
+          python3 scripts/check_reduced_mysql.py /tmp/reduced-010.sql Same --max-rows 20
 
   mysql:
     name: MySQL 8.4, end to end
@@ -187,6 +191,9 @@ jobs:
       matrix:
         include:
           - image: "mariadb:11"
+            health: "healthcheck.sh --connect --innodb_initialized"
+            env_password: MARIADB_ROOT_PASSWORD
+          - image: "mariadb:11.4"          # between 10.11 and 11.8: where issue 003 was fixed
             health: "healthcheck.sh --connect --innodb_initialized"
             env_password: MARIADB_ROOT_PASSWORD
           - image: "mysql:9"

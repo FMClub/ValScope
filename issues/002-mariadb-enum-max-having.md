@@ -1,7 +1,7 @@
 # Candidate MariaDB bug: `HAVING MAX(enum_col) <> n` depends on an unrelated aggregate in the select list
 
 > This repository has no issue tracker, so this document (submitted through a PR) records the finding.
-> Status: **candidate, not yet reported upstream.** It was reproduced on one version only (see "Limitations").
+> Status: **probably not a bug.** MariaDB 10.11.14, MariaDB 11.8.9 and MySQL 9.7.4 behave the same way (see "Limitations"), which points to a shared conversion rule for `MAX(enum)` compared with a number rather than a defect of one server. Kept as a record; not counted among the candidate bugs.
 
 ## Summary
 

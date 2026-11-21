@@ -58,6 +58,9 @@ def main():
         if ' col ' in a.expect:
             relation, _, column = a.expect.split()
             v = check_value(relation, int(column), base, res, fold=fold, cover=original.upper().startswith('SELECT DISTINCT'))
+        elif a.expect == 'Same':
+            both = [check_inclusion(d, base, res, fold) for d in ('Up', 'Down')]
+            v = 'ok' if all(x in ('ok', 'collation') for x in both) else 'translation mismatch'
         else:
             v = check_inclusion(a.expect, base, res, fold)
     finally:

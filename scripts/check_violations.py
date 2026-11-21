@@ -36,7 +36,16 @@ def _issue_009(rec):
             and re.search(r'\b(AVG|STDDEV\w*|STD)\s*\(', sql) is not None)
 
 
-SIGNATURES = {'mariadb-distinct-avg': _issue_009}
+def _issue_010(rec):
+    """issues/010 (MariaDB): in a grouped join with an aggregate with DISTINCT, an expression
+    over a window function is 0.  Seen by a value rule as a mutated value 0."""
+    sql = rec['original'].upper()
+    return (' col ' in rec.get('expect', '') and 'the mutant value 0 ' in rec.get('verdict', '')
+            and ' OVER ' in sql and ' JOIN ' in sql and ' GROUP BY ' in sql
+            and re.search(r'\b(COUNT|SUM|AVG|MIN|MAX)\s*\(\s*DISTINCT\b', sql) is not None)
+
+
+SIGNATURES = {'mariadb-distinct-avg': _issue_009, 'mariadb-window-distinct-agg': _issue_010}
 
 
 def read(path):

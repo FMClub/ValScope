@@ -106,3 +106,9 @@ column type, depending on whether it comes from a derived table.
 
 MariaDB 11.8.9: `MIN(x)` of the `BIT(8)` column still returns the text `2` (`HEX` `2`): the
 problem is still present. MySQL 9.7.4 returns the bit value `0x02`, as MySQL 8.4.
+
+## Upstream
+
+A web search of the MariaDB bug tracker (jira.mariadb.org) for this symptom (MIN/MAX of a BIT column) found no matching report.
+The search was by keywords over titles only; the tracker itself is not reachable from the
+development environment. Not reported upstream.

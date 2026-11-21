@@ -2,3 +2,5 @@
 sig:mariadb-distinct-avg  # issues/009 (AVG / STDDEV of the last group under SELECT DISTINCT), by signature
 DISTINCT-add|ba050f06306b063c  # issues/005 (BIT MIN/MAX text vs bit value)
 DISTINCT-add|da2f5b5b1eb78df6  # issues/006 (BIT scalar subquery under a loose index scan)
+sig:mariadb-window-distinct-agg  # issues/010 (an expression over a window is 0 in a grouped join with a DISTINCT aggregate)
+TRANSLATION|f0334db11f7ee317  # issues/010 (HAVING applied wrongly; the query as written vs re-printed)

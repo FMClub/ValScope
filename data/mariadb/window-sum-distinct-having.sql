@@ -14,4 +14,8 @@ SELECT 'no join' AS q, COUNT(*) FROM (SELECT t.g, SUM(DISTINCT t.x) AS s, COUNT(
 SELECT 'COUNT(DISTINCT)' AS q, COUNT(*) FROM (SELECT t.g, COUNT(DISTINCT t.x) AS s, COUNT(*) OVER () AS r FROM t JOIN u ON u.k = t.id GROUP BY t.g HAVING MAX(t.y) >= 10) AS d;
 SELECT 'RANK' AS q, COUNT(*) FROM (SELECT t.g, SUM(DISTINCT t.x) AS s, RANK() OVER (ORDER BY t.g) AS r FROM t JOIN u ON u.k = t.id GROUP BY t.g HAVING MAX(t.y) >= 10) AS d;
 SELECT 'rows, top level' AS q, t.g, SUM(DISTINCT t.x) AS s, COUNT(*) OVER () AS r FROM t JOIN u ON u.k = t.id GROUP BY t.g HAVING MAX(t.y) >= 10;
+-- second symptom: an expression over the window function is 0 (expected 4, 5, 6 in the last column;
+-- MariaDB 10.11.14: 0, 0, 0; with COUNT(t.x) or without the join: 4, 5, 6)
+SELECT 'window + 3' AS q, t.g, COUNT(DISTINCT t.x) AS c, RANK() OVER (ORDER BY t.g) AS r, RANK() OVER (ORDER BY t.g) + 3 AS r3 FROM t JOIN u ON u.k = t.id GROUP BY t.g;
+SELECT 'window + 3, COUNT' AS q, t.g, COUNT(t.x) AS c, RANK() OVER (ORDER BY t.g) + 3 AS r3 FROM t JOIN u ON u.k = t.id GROUP BY t.g;
 DROP DATABASE vs_wsd;

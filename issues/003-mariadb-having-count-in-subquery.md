@@ -60,6 +60,24 @@ So the wrong result appears when a bare `COUNT` or `MIN` in `HAVING` of a groupe
 
 Observed on `10.11.14-MariaDB-0ubuntu0.24.04.1` with the default `optimizer_switch`.
 
+### The select list decides whether it shows
+
+Found by the second campaign over random databases (`results/mariadb-campaign.md`, seed 46;
+rule `COUNT->COUNT-DISTINCT`, "row count 1 vs 0"). The mutation changes an aggregate of the
+select list only, and the group that `HAVING MIN(...) IN (subquery)` should keep disappears:
+
+```sql
+-- the tables above, and: CREATE TABLE s2 (v INT); INSERT INTO s2 VALUES (10);
+-- expected in both: g = 1 (MIN(x) = 10).
+SELECT g, COUNT(x)          FROM t GROUP BY g HAVING MIN(x) IN (SELECT v FROM s2);   -- no rows
+SELECT g, COUNT(DISTINCT x) FROM t GROUP BY g HAVING MIN(x) IN (SELECT v FROM s2);   -- g = 1
+```
+
+On the two-row data of the campaign pair it is the other way round (`COUNT(x)` right,
+`COUNT(DISTINCT x)` wrong). The predicate is the same in both queries, so the defect is in
+how `HAVING ... IN (subquery)` is evaluated under one or the other aggregation plan.
+`data/mariadb/having-count-in.sql` has both lines.
+
 ## How it was found
 
 By the Rocq version of ValScope (branch `main`), in a run of value-semantic mutations on generated queries with `HAVING`. The rule `COUNT(c) → COUNT(DISTINCT c)` changes one select item and must not change which groups are returned. For this query it did (0 rows before, 1 row after):

@@ -279,6 +279,7 @@ value cannot be read off the result.
 | `scripts/record_sqlite_pairs.py` | Adds the new pairs of an SQLite campaign to `results/`: confirm, bisect, reduce, bisect again, regenerate the reports |
 | `scripts/replay_reduced_sqlite.py` | Replays the reduced SQLite pairs of `results/` on their releases: every known bug must still be detected (CI) |
 | `scripts/check_reduced_mysql.py` | Checks that a reduced script still shows its violation |
+| `scripts/triage_mysql.py` | Triage of a server campaign: every pair again, without secondary indexes, reduced, grouped by the shape of the reduced query |
 | `docs/JOURNAL.md` | The log of the autonomous work rounds: milestone, audit findings, what was done |
 | `docs/USAGE.md` | End-to-end usage guide |
 | `results/` | The SQLite campaign: summary, confirmed pairs (report and data) |

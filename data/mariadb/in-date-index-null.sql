@@ -13,4 +13,9 @@ SELECT 'no index, NOT IN rows:' AS q, COUNT(*) FROM t WHERE x NOT IN (SELECT v F
 CREATE INDEX si ON s (v);
 SELECT 'index' AS q, x, x IN (SELECT v FROM s) FROM t ORDER BY x;
 SELECT 'index, NOT IN rows:' AS q, COUNT(*) FROM t WHERE x NOT IN (SELECT v FROM s);
+-- the same with text: a value that is not a date ('a ', 'zz', '') gives 0 with the index,
+-- '2024-05-05' gives NULL and '2024-01-01' matches (1); expected NULL for all but the match
+CREATE TABLE w (x VARCHAR(20));
+INSERT INTO w VALUES ('a '), ('zz'), (''), ('2024-01-01'), ('2024-05-05');
+SELECT 'index, text' AS q, x, x IN (SELECT v FROM s) FROM w ORDER BY x;
 DROP DATABASE vs_ind;

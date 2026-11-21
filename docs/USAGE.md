@@ -429,12 +429,23 @@ created for every seed), generates queries for it and checks them with `run_on_d
 python3 bridge/campaign_mysql.py --seeds 1-40 --queries 40 --focus --value-ext --host 127.0.0.1 --port 3306 --user root --password 123456 --out violations.jsonl
 ```
 
-There is no reference release, so every violation is a candidate. Two tools help to
-classify them: `bridge/recheck_mysql.py violations.jsonl ... [--no-indexes]` rebuilds the
-database of each pair and judges it again, optionally without the secondary indexes (a
-pair that needs an index depends on the access path), and `reduce_mysql.py` (section 6.7)
-after `python3 bridge/gen_mysql_db.py SEED | mysql --force DATABASE`. The first campaign is in
-`results/mariadb-campaign.md`.
+There is no reference release, so every violation is a candidate, to be classified by a
+person. `scripts/triage_mysql.py` does the mechanical part:
+
+```bash
+python3 scripts/triage_mysql.py violations.jsonl --port 3306 --password 123456 --out-dir triage
+```
+
+For every pair it rebuilds the database of the seed and judges the pair again, judges it
+without the secondary indexes (a pair that needs an index depends on the access path),
+reduces it (`reduce_mysql.py --build-seed`, section 6.7) into `triage/pair-N.sql`, and
+prints a table of the pairs grouped by the shape of the reduced query (names and constants
+removed). Pairs of one shape are very likely one defect. The steps are also available
+alone: `bridge/recheck_mysql.py violations.jsonl ... [--no-indexes] [--out still.jsonl]`
+and `reduce_mysql.py`. To look at a pair by hand:
+`python3 bridge/gen_mysql_db.py SEED | mysql --force DATABASE` (`--force`: a UNIQUE index on
+a column with duplicates fails, as it does in the campaign, and the client must go on).
+The campaigns so far are in `results/mariadb-campaign.md`.
 
 ### 6.7 Reduce a violation found on a server
 
@@ -447,7 +458,8 @@ reduced like an SQLite pair (section 8.5): the query step by step, re-running th
 mutator, then the data, deleting rows one by one in a copy of the tables (database
 `vs_reduce`, dropped at the end), then the secondary indexes, dropping each one and adding
 it back when the pair is no longer violated without it. It prints a script: `CREATE TABLE` and `INSERT`
-statements for the remaining rows, the original and the mutant.
+statements for the remaining rows, the original and the mutant. For a pair of
+`campaign_mysql.py`, `--build-seed` first builds `--database` from the seed of the pair.
 
 ### 6.8 Known violations in CI
 

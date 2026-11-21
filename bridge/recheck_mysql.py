@@ -54,6 +54,43 @@ def judge(target, rec):
     return check_inclusion(rec['expect'], base, res, fold)
 
 
+def unique_pairs(path):
+    """The records of a campaign file, one per (original, mutant), sorted by seed."""
+    recs, seen = [], set()
+    for line in open(path):
+        if line.strip():
+            r = json.loads(line)
+            if (r['original'], r['mutant']) not in seen:
+                seen.add((r['original'], r['mutant']))
+                recs.append(r)
+    recs.sort(key=lambda r: r['seed'])
+    return recs
+
+
+def violated(verdict):
+    return verdict not in ('ok', 'collation', 'incomparable', 'error')
+
+
+def recheck(recs, conn, no_indexes=False):
+    """The verdicts of the records (sorted by seed) on the server of `conn` (host, port,
+    user, password); the database of every seed is rebuilt."""
+    import pymysql
+    admin = pymysql.connect(host=conn.host, port=conn.port, user=conn.user, password=conn.password, autocommit=True)
+    cur = admin.cursor()
+    seed, target, verdicts = None, None, []
+    for r in recs:
+        if r['seed'] != seed:
+            seed = r['seed']
+            gen_mysql_db.build(cur, DATABASE, seed)
+            if no_indexes:
+                drop_indexes(cur)
+            target = MySQLTarget(types.SimpleNamespace(host=conn.host, port=conn.port, user=conn.user,
+                                                       password=conn.password, database=DATABASE))
+        verdicts.append(judge(target, r))
+    cur.execute('DROP DATABASE IF EXISTS `%s`' % DATABASE)
+    return verdicts
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('file')
@@ -64,33 +101,15 @@ def main():
     ap.add_argument('--no-indexes', action='store_true', help='drop the secondary indexes before the check')
     ap.add_argument('--out', default=None, help='write the pairs that are still violated')
     a = ap.parse_args()
-    import pymysql
-    admin = pymysql.connect(host=a.host, port=a.port, user=a.user, password=a.password, autocommit=True)
-    cur = admin.cursor()
-    recs, seen = [], set()
-    for line in open(a.file):
-        r = json.loads(line)
-        if (r['original'], r['mutant']) not in seen:
-            seen.add((r['original'], r['mutant']))
-            recs.append(r)
-    recs.sort(key=lambda r: r['seed'])
-    counts, seed, target, kept = collections.Counter(), None, None, []
-    for r in recs:
-        if r['seed'] != seed:
-            seed = r['seed']
-            gen_mysql_db.build(cur, DATABASE, seed)
-            if a.no_indexes:
-                drop_indexes(cur)
-            target = MySQLTarget(types.SimpleNamespace(host=a.host, port=a.port, user=a.user,
-                                                       password=a.password, database=DATABASE))
-        v = judge(target, r)
-        bad = v not in ('ok', 'collation', 'incomparable', 'error')
+    recs = unique_pairs(a.file)
+    counts, kept = collections.Counter(), []
+    for r, v in zip(recs, recheck(recs, a, a.no_indexes)):
+        bad = violated(v)
         counts['violated' if bad else v] += 1
         r['recheck'] = v
         if bad:
             kept.append(r)
-        print('%s\tseed %d\t%s\t%s' % ('VIOLATED' if bad else v, seed, r['rule'], r['expect']))
-    cur.execute('DROP DATABASE IF EXISTS `%s`' % DATABASE)
+        print('%s\tseed %d\t%s\t%s' % ('VIOLATED' if bad else v, r['seed'], r['rule'], r['expect']))
     if a.out:
         with open(a.out, 'w') as f:
             f.write(''.join(json.dumps(r) + '\n' for r in kept))

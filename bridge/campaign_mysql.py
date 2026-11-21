@@ -20,6 +20,7 @@ import ast
 import collections
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -99,6 +100,7 @@ def main():
                             f.write(json.dumps(rec) + '\n')
         print('-- seed %d done: %d new violating pairs; %s' % (seed, new, dict(total)), flush=True)
     cur.execute('DROP DATABASE IF EXISTS `%s`' % a.database)
+    shutil.rmtree(tmp, ignore_errors=True)
     total['violating_pairs'] = len(pairs)
     print('server: %s' % version)
     print(dict(total))

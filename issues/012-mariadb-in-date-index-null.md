@@ -33,8 +33,16 @@ SELECT COUNT(*) FROM t WHERE x NOT IN (SELECT v FROM s);      -- 2
 | `x` type | subquery column | without index | with index |
 | --- | --- | --- | --- |
 | `DOUBLE`, `INT`, `DECIMAL(10,2)` | `DATE`, `DATETIME` | NULL, NULL, NULL | NULL, **0, 0** (for 0, 1, -3) |
+| `VARCHAR(20)`, `BIGINT` | `DATE` | NULL | **0** for `'a '`, `'zz'`, `''`, -3, 1; NULL for `'2024-05-05'`, 20240101, 0 |
 | `DOUBLE` | `INT`, `VARCHAR(10)` | NULL | NULL |
 | `INT` | `INT` | NULL | NULL |
+
+The second campaign (`results/mariadb-campaign.md`) reached the same defect with a
+`VARCHAR` and a `BIGINT` on the left. The pattern over all the types: the result is FALSE
+exactly for the values that cannot be read as a date (`'a '`, `''`, -3, 1), and NULL for
+those that can (`'2024-05-05'`, 20240101, and 0, the zero date). So the index lookup seems
+to convert the left value to a `DATE` and, when that fails, to answer "no match" without
+looking at the NULL. The title says "number" because that is how it was found first.
 
 ## How it was found
 

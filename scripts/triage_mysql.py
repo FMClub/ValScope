@@ -1,0 +1,120 @@
+"""Triage the violations of a campaign on a MySQL-protocol server (bridge/campaign_mysql.py).
+
+    python3 scripts/triage_mysql.py VIOLATIONS.jsonl --port P --password W --out-dir DIR
+        [--host H] [--user U] [--timeout SECONDS]
+
+On such a server there is no reference release, so a violating pair is a candidate that a
+person classifies.  This script does the mechanical part for every pair:
+
+1. the pair again, with the present checker (a pair that is not violated any more was a
+   false alarm that has been fixed, or depends on something that changed);
+2. the pair without the secondary indexes (violated with them only: the access path);
+3. the reduction (bridge/reduce_mysql.py --build-seed) to a short query and few rows;
+4. the shape of the reduced original: its text with names and constants removed.
+
+It writes DIR/pair-N.sql (the reduced scripts), DIR/triage.jsonl (the records with the
+fields `recheck`, `no_indexes`, `reduced_original`, `reduced_mutant`, `shape`) and prints a
+table of the shapes, largest first.  Pairs of one shape are very likely one defect; which
+defect, and whether two shapes are the same one, is for the reader to decide.
+"""
+import argparse
+import collections
+import json
+import os
+import re
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+BRIDGE = os.path.join(HERE, '..', 'bridge')
+sys.path.insert(0, BRIDGE)
+from recheck_mysql import recheck, unique_pairs, violated  # noqa: E402
+
+SCRATCH_DB = 'vs_triage'
+
+
+def shape(sql):
+    """The query with table aliases, column names and constants replaced: what is left is
+    the clauses, the operators and the functions."""
+    s = re.sub(r"'[^']*'", 'S', sql)
+    s = re.sub(r'\bt\d\w*\.c\d+\b', 'C', s)             # t3a.c9
+    s = re.sub(r'\bt\d\w*\b', 'T', s)                   # t3, t3a, t3h88
+    s = re.sub(r'\bk\d+\b', 'K', s)
+    s = re.sub(r'\bd\.K\b|\bc\d+\b', 'C', s)
+    s = re.sub(r'-?\b\d+(\.\d+)?\b', 'N', s)
+    s = re.sub(r'\(N\)', 'N', s)
+    return re.sub(r'\s+', ' ', s).strip()
+
+
+def reduced_pair(script):
+    """(original, mutant) of a script printed by reduce_mysql.py, or None."""
+    lines = script.splitlines()
+    try:
+        return lines[lines.index('-- original') + 1], lines[lines.index('-- mutant') + 1]
+    except (ValueError, IndexError):
+        return None
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('file')
+    ap.add_argument('--host', default='127.0.0.1')
+    ap.add_argument('--port', type=int, default=3306)
+    ap.add_argument('--user', default='root')
+    ap.add_argument('--password', default='')
+    ap.add_argument('--out-dir', required=True)
+    ap.add_argument('--timeout', type=int, default=600, help='seconds for the reduction of one pair')
+    a = ap.parse_args()
+    os.makedirs(a.out_dir, exist_ok=True)
+    recs = unique_pairs(a.file)
+    for r, v in zip(recs, recheck(recs, a)):
+        r['recheck'] = v
+    live = [r for r in recs if violated(r['recheck'])]
+    for r, v in zip(live, recheck(live, a, no_indexes=True)):
+        r['no_indexes'] = v
+    print('%d pairs, %d still violated, %d of them only with the secondary indexes'
+          % (len(recs), len(live), sum(not violated(r['no_indexes']) for r in live)), flush=True)
+    one = os.path.join(a.out_dir, 'one.jsonl')
+    for n, r in enumerate(live, 1):
+        with open(one, 'w') as f:
+            f.write(json.dumps(r) + '\n')
+        cmd = [sys.executable, os.path.join(BRIDGE, 'reduce_mysql.py'), one, '--host', a.host, '--port', str(a.port),
+               '--user', a.user, '--password', a.password, '--database', SCRATCH_DB, '--build-seed']
+        try:
+            p = subprocess.run(cmd, capture_output=True, text=True, timeout=a.timeout)
+            pair = reduced_pair(p.stdout)
+        except subprocess.TimeoutExpired:
+            p, pair = None, None
+        if pair is None:
+            r['reduced_original'], r['reduced_mutant'] = r['original'], r['mutant']
+            r['shape'] = 'not reduced: ' + shape(r['original'])
+            print('pair %d (seed %d): not reduced (%s)'
+                  % (n, r['seed'], 'timeout' if p is None else p.stderr.strip()[-120:]), flush=True)
+        else:
+            r['reduced_original'], r['reduced_mutant'] = pair
+            r['shape'] = shape(pair[0])
+            with open(os.path.join(a.out_dir, 'pair-%d.sql' % n), 'w') as f:
+                f.write(p.stdout)
+            print('pair %d (seed %d): %s' % (n, r['seed'], pair[0][:150]), flush=True)
+        r['pair'] = n
+    os.remove(one)
+    with open(os.path.join(a.out_dir, 'triage.jsonl'), 'w') as f:
+        f.write(''.join(json.dumps(r) + '\n' for r in recs))
+    groups = collections.defaultdict(list)
+    for r in live:
+        groups[(r['rule'], r['shape'])].append(r)
+    print('\n| Pairs | Rule | Without indexes | Seeds | Reduced original (first pair) |\n| --- | --- | --- | --- | --- |')
+    for (rule, _), rs in sorted(groups.items(), key=lambda kv: -len(kv[1])):
+        still = sum(violated(r['no_indexes']) for r in rs)
+        print('| %s | `%s` | %d of %d violated | %s | `%s` |'
+              % (', '.join(str(r['pair']) for r in rs), rule, still, len(rs),
+                 ', '.join(sorted({str(r['seed']) for r in rs}, key=int)), rs[0]['reduced_original']))
+    gone = [r for r in recs if not violated(r['recheck'])]
+    if gone:
+        print('\nNot violated any more: %s'
+              % ', '.join('seed %d %s (%s)' % (r['seed'], r['rule'], r['recheck']) for r in gone))
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

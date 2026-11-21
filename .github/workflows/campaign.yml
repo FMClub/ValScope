@@ -20,7 +20,7 @@ on:
         required: true
         default: "40"
       options:
-        description: "Generator options (--focus, --rich, --value-ext, --no-value-distinct)"
+        description: "Generator options (--focus, --rich, --value-ext, --no-value-distinct, --tidb)"
         required: false
         default: "--rich --value-ext --no-value-distinct"
       port:
@@ -74,7 +74,7 @@ jobs:
         run: |
           # the options are split on spaces on purpose; each must be one of the known flags
           for o in $OPTIONS; do
-            case "$o" in --focus|--rich|--value-ext|--no-value-distinct) ;; *) echo "unknown option: $o" >&2; exit 1 ;; esac
+            case "$o" in --focus|--rich|--value-ext|--no-value-distinct|--tidb) ;; *) echo "unknown option: $o" >&2; exit 1 ;; esac
           done
           python3 bridge/campaign_mysql.py --seeds "$SEEDS" --queries "$QUERIES" $OPTIONS --password "$PASSWORD" --out campaign.jsonl | grep -v '^  ' | cut -c1-1500
       - name: Triage

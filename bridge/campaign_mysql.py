@@ -47,6 +47,8 @@ def main():
     ap.add_argument('--value-ext', action='store_true')
     ap.add_argument('--no-value-distinct', action='store_true',
                     help='value queries without DISTINCT / UNION (MariaDB: issues/009 hides the rest)')
+    ap.add_argument('--tidb', action='store_true',
+                    help='queries TiDB accepts: no subquery in a join condition, no INTERSECT ALL / EXCEPT ALL')
     ap.add_argument('--flip', action='store_true', help='negative control')
     ap.add_argument('--host', default='127.0.0.1')
     ap.add_argument('--port', type=int, default=3306)
@@ -63,7 +65,7 @@ def main():
     tmp = tempfile.mkdtemp(prefix='vs_mysql_')
     conn = ['--host', a.host, '--port', str(a.port), '--user', a.user, '--password', a.password,
             '--database', a.database]
-    gen_opts = [o for o, on in (('--focus', a.focus), ('--rich', a.rich)) if on]
+    gen_opts = [o for o, on in (('--focus', a.focus), ('--rich', a.rich), ('--tidb', a.tidb)) if on]
     total, pairs, errors, failed = collections.Counter(), set(), collections.Counter(), []
     for seed in parse_range(a.seeds):
         used = gen_mysql_db.build(cur, a.database, seed)

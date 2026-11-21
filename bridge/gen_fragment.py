@@ -9,6 +9,7 @@
     add --sqlite-seed SEED (with --sqlite --value): only the numeric columns of that database
     add --mysql-seed SEED: queries for the database of gen_mysql_db.py with that seed
     add --no-value-distinct: value queries without DISTINCT / UNION (on MariaDB, issues/009 hides the rest)
+    add --tidb: no subquery in a join condition, no INTERSECT ALL / EXCEPT ALL
     add --schema FILE.json for another schema (see below)
 
 By default the schema is the sample schema of the Python generator (tables t1, t2, t3).
@@ -27,6 +28,7 @@ SHIFTS = [5, 50, 500, 5000]
 SQLITE = False
 SMALL = False     # small values in the tables (gen_mysql_db.py): small constants
 NO_VALUE_DISTINCT = False   # no DISTINCT / UNION over value queries (MariaDB: issues/009 hides the rest)
+TIDB = False      # no subquery in a join condition, no INTERSECT ALL / EXCEPT ALL (TiDB 7.5 refuses them)
 RICH = False      # opaque predicates and derived tables that stress the SQLite planner
 FOCUS = False     # more compound queries and more DISTINCT
 VALUE_EXT = False # value queries with windows over groups, a DISTINCT arm in a UNION ALL,
@@ -207,7 +209,7 @@ def select(rng, ncols):
         if kind == 'CROSS JOIN':
             sql_from += ' CROSS JOIN %s' % from_item(rng, u, alias)
         else:
-            sql_from += ' %s %s ON %s' % (kind, from_item(rng, u, alias), pred(rng, aliases + [alias], 1))
+            sql_from += ' %s %s ON %s' % (kind, from_item(rng, u, alias), pred(rng, aliases + [alias], 0 if TIDB else 1))
         aliases.append(alias)
     items = []
     for i in range(ncols):
@@ -232,7 +234,7 @@ def query(rng, depth=2):
             return select(rng, ncols)
         # INTERSECT ALL / EXCEPT ALL: MySQL 8.0.31+, MariaDB 10.5+; not in SQLite
         op = rng.choice(['UNION', 'UNION ALL', 'INTERSECT', 'EXCEPT'] +
-                        ([] if SQLITE else ['INTERSECT ALL', 'EXCEPT ALL']))
+                        ([] if SQLITE or TIDB else ['INTERSECT ALL', 'EXCEPT ALL']))
         if SQLITE:
             # SQLite does not allow parentheses around compound operands; compounds
             # are left-associative, so build a left-deep chain
@@ -411,6 +413,8 @@ if __name__ == '__main__':
         VALUE_EXT = True
     if '--no-value-distinct' in sys.argv:
         NO_VALUE_DISTINCT = True
+    if '--tidb' in sys.argv:
+        TIDB = True
     argv = sys.argv[1:]
     if '--mysql-seed' in argv:
         # the databases of gen_mysql_db.py; value queries over their exact numeric columns
@@ -436,7 +440,7 @@ if __name__ == '__main__':
         i = argv.index('--schema')
         use_schema(argv[i + 1])
         del argv[i:i + 2]
-    args = [a for a in argv if a not in ('--value', '--sqlite', '--rich', '--focus', '--value-ext', '--no-value-distinct')]
+    args = [a for a in argv if a not in ('--value', '--sqlite', '--rich', '--focus', '--value-ext', '--no-value-distinct', '--tidb')]
     n = int(args[0])
     rng = random.Random(int(args[1]) if len(args) > 1 else 0)
     for _ in range(n):

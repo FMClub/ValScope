@@ -51,7 +51,7 @@ indexes, reduced it and grouped the pairs by the shape of the reduced query.
 No new defect; no pair is left unexplained. The four known defects are found again on
 fifty other databases, three of them in forms that the issues did not have yet.
 
-## Third to fifth campaign (rounds 10 and 11): the rich generator
+## Third to sixth campaign (rounds 10 to 12): the rich generator
 
 `--rich` adds opaque predicates, derived tables and expressions in the select list. It was
 written for SQLite; the third campaign (seeds 91-130) showed that MariaDB refused 737 of
@@ -67,6 +67,7 @@ python3 bridge/campaign_mysql.py --seeds 131-170 --queries 40 --rich --value-ext
 | 3 (seeds 91-130, SQLite spelling) | 3200 (2221) | 44102 | 9 | `issues/013`: 5, `issues/003`: 2, `issues/012`: 2 |
 | 4 (seeds 131-170) | 3200 (2947) | 70643 | 8 | `issues/013`: 7, **`issues/014` (new): 1** |
 | 5 (seeds 171-230, `--rich --focus`) | 4800 (4372) | 160621 | 20 | `issues/003`: 8, `issues/013`: 8, `issues/012`: 2; 2 false alarms (mixed types under a compound in a derived table, fixed) |
+| 6 (seeds 281-360, `--rich`) | 6400 (5911) | 144990 | 19 | `issues/003`: 10, `issues/013`: 5, `issues/010`: 1, `issues/012`: 1 (by their hints); 2 false alarms: a number arm and a text arm, and `AVG(x) * 2` printed as 5.3333 or 5.3334 in a column the mutation does not touch (fixed: such a DECIMAL may differ in its last digit) |
 
 `issues/014`: the subquery cache looks its key up under the collation of the outer column
 (`utf8mb4_general_ci`) while the subquery compares under `utf8mb4_bin`; `'A'` and `'a'` share
@@ -98,7 +99,7 @@ the minimal case is right and the nested one (`having-in-nested.sql`) wrong, as 
 
 ## The records
 
-`results/mariadb-campaign.jsonl` has the 190 pairs that are still violated (campaign, seed,
+`results/mariadb-campaign.jsonl` has the 207 pairs that are still violated (campaign, seed,
 rule, expected relation, verdict, original, mutant, the issue they were assigned to; for the
 campaigns after the first also the reduced pair and the verdict without secondary indexes). A pair is
 reproduced with `python3 bridge/gen_mysql_db.py SEED | mysql --force DATABASE` and its two queries.

@@ -44,7 +44,7 @@ database `test` from `data/mariadb/`. Logs and violations are written to `out/`.
 | `scripts/` | `setup_mariadb.sh` (set up the sample database), `demo.sh` (end-to-end run), CI helpers |
 | `data/` | Sample MariaDB database and 870 queries produced by the original Python generator |
 | `docs/` | `USAGE.md`: the step-by-step guide; `JOURNAL.md`: the log of work rounds |
-| `results/` | The SQLite campaigns: 64 confirmed violations from 5 bugs (4 withdrawn), reduced pairs, commits; the five MariaDB campaigns over random databases (190 pairs, all assigned to issues 003, 009, 010, 012, 013, 014) |
+| `results/` | The SQLite campaigns: 64 confirmed violations from 5 bugs (4 withdrawn), reduced pairs, commits; the six MariaDB campaigns over random databases (207 pairs, all assigned to issues 003, 009, 010, 012, 013, 014) |
 | `issues/` | Problem reports and candidate DBMS bugs |
 
 The idea: **a mutation rule is a theorem**. Once the theorem is proved, a generic,
@@ -579,7 +579,7 @@ not run there.
 
 Not counted: [002](issues/002-mariadb-enum-max-having.md) (probably intended behaviour) and
 [007](issues/007-sqlite-compound-collation.md) (SQLite, perhaps intended). The campaigns over
-random databases that found 012 to 015 and re-found the others on 190 pairs are in
+random databases that found 012 to 015 and re-found the others on 207 pairs are in
 [`results/mariadb-campaign.md`](results/mariadb-campaign.md).
 
 ## Not done yet

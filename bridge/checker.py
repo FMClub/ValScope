@@ -252,6 +252,13 @@ def _norm(v, fold, digits):
         v = int(v)
     if isinstance(v, int):
         return ('n', v)               # exact; an integral float or decimal is equal to it
+    if digits == 'scale':
+        # a DECIMAL with a fraction, one decimal shorter: the servers keep more digits of
+        # a division (AVG) than its type has until the value is stored in a temporary
+        # table, so `AVG(x) * 2` is 5.3333 in one plan and 5.3334 in another
+        if isinstance(v, Decimal) and v.is_finite() and v.as_tuple().exponent < 0:
+            v = v.quantize(Decimal(1).scaleb(v.as_tuple().exponent + 1))
+        digits = None
     if isinstance(v, (float, Decimal)):
         if digits is not None:
             r = _round_float(float(v), digits)
@@ -418,7 +425,7 @@ def check_value(relation, column, original_rows, mutant_rows, single_precision=F
     SQLite converted a value on the way (results/sqlite-bisect.md, bug 5).
 
     The other columns are compared exactly, then with floats rounded to 12 and 9
-    significant digits, then (with a fold) modulo the DBMS's equality: a grouping key
+    significant digits, at last with DECIMALs one decimal shorter (_norm, 'scale'), then (with a fold) modulo the DBMS's equality: a grouping key
     with a case-insensitive collation may be returned as 'a' by one plan and 'A' by
     another."""
     # output_decimals: the server rounded the mutated column to that many decimals in one
@@ -430,6 +437,7 @@ def check_value(relation, column, original_rows, mutant_rows, single_precision=F
     attempts = [(ExactFold(), None), (ExactFold(), 12), (ExactFold(), 9)]
     if nontrivial(fold):
         attempts += [(fold, None), (fold, 9)]
+    attempts.append((fold if nontrivial(fold) else ExactFold(), 'scale'))
     verdict = None
     check = _check_cover if cover else _check_value
     for f, digits in attempts:

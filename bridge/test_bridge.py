@@ -389,6 +389,10 @@ report(check_value('Le', 1, [(1, '2')], [(1, 5)]) == 'incomparable' and
 report(check_value('Le', 0, [(1, 0.30000000000000004)], [(2, 0.3)]) == 'ok',
        'floating-point noise in another column does not break the row matching')
 report(check_value('Le', 0, [(1, 0.31)], [(2, 0.3)]) != 'ok', 'a real change in another column is reported')
+report(check_value('Le', 0, [(1, Decimal('5.3333'))], [(2, Decimal('5.3334'))]) == 'ok' and
+       check_value('Le', 0, [(1, Decimal('5.3333'))], [(2, Decimal('5.3433'))]) != 'ok' and
+       check_value('Le', 0, [(1, Decimal('5'))], [(2, Decimal('6'))]) != 'ok',
+       'a DECIMAL of another column may differ in its last digit (AVG * 2 before and after a temporary table)')
 report(check_value('Le', 1, rows(Decimal('82.160004')), rows(82.16)) != 'ok', 'strict tolerance by default')
 # the check asks whether SOME one-to-one correspondence satisfies the relation
 report(check_value('TowardOne', 1, rows(0.5, 2), rows(3, 1.5)) == 'ok',

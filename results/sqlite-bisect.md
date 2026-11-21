@@ -1,6 +1,6 @@
 # SQLite violations mapped to commits
 
-**The 42 confirmed pairs come from 5 distinct SQLite bugs.** Pairs with the same
+**The 45 confirmed pairs come from 5 distinct SQLite bugs.** Pairs with the same
 (introducing, fixing) commits are one bug; different commits, different bugs. Every
 boundary is exact (two adjacent commits of the first-parent history).
 
@@ -20,11 +20,11 @@ How it was computed:
    equal those of their pairs wherever the original bisection found them, and the
    introducing commits that the full databases could not reach are now found.
 
-Three reduced pairs coincide (3 = 4, 6 = 7, 33 = 34), so 39 distinct pairs were bisected.
+Three reduced pairs coincide (3 = 4, 6 = 7, 33 = 34). Pairs 43 to 45 come from the seventh-round campaign (seeds 4001-4030) and were reduced and bisected the same way: all three are bug 1.
 
 | Bug | Pairs | Introduced by | Fixed by | Fix first released in | Rules |
 | --- | --- | --- | --- | --- | --- |
-| 1 | #1, #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, #12, #13, #14, #15, #16, #17, #18, #19, #20, #21, #22, #23, #24, #25, #30, #31, #35, #36, #40, #41, #42 | `9ed1dfa802c2` 2008-01-02 Minor optimizations for sub-selects in EXISTS(...) expressio | `9b7005feeae1` 2026-01-25 Always use the sort-and-merge algorithm for EXCEPT, INTERSEC | version-3.52.0 | EXCEPT->left, UNION->UNION-ALL, UNION-ALL->UNION |
+| 1 | #1, #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, #12, #13, #14, #15, #16, #17, #18, #19, #20, #21, #22, #23, #24, #25, #30, #31, #35, #36, #40, #41, #42, #43, #44, #45 | `9ed1dfa802c2` 2008-01-02 Minor optimizations for sub-selects in EXISTS(...) expressio | `9b7005feeae1` 2026-01-25 Always use the sort-and-merge algorithm for EXCEPT, INTERSEC | version-3.52.0 | EXCEPT->left, UNION->UNION-ALL, UNION-ALL->UNION |
 | 2 | #26, #29 | `f8f76d672b78` 2020-01-08 Simplification of the logic in the constant-propagation opti | `fdfd45aef3c8` 2020-02-13 Fix problems in the constant propagation optimization that w | version-3.32.0 | LEFT->INNER-JOIN, cond->TRUE |
 | 3 | #27, #28 | `fad4dd0fd182` 2020-09-30 Improved query optimization for multi-column indexes where t | `16cd8b96d3e2` 2021-01-27 Fix an issue with IN operator optimization introduced by che | version-3.35.0 | DISTINCT-add, cond->TRUE |
 | 4 | #32, #33, #34, #37, #39 | `8dc570b6afac` 2016-06-08 Prefer to use partial indexes for full table scans when that | `8f2b1e4c909d` 2019-05-11 Do not assume that "x IS NOT ?" implies "x NOT NULL" when co | version-3.29.0 | DISTINCT-add, UNION->UNION-ALL |
@@ -32,7 +32,7 @@ Three reduced pairs coincide (3 = 4, 6 = 7, 33 = 34), so 39 distinct pairs were 
 
 ## The bugs
 
-1. **`EXISTS` subqueries drop `DISTINCT`, shown by compound operators** (32 pairs; `UNION`,
+1. **`EXISTS` subqueries drop `DISTINCT`, shown by compound operators** (35 pairs; `UNION`,
    `UNION ALL`, `EXCEPT`, `DISTINCT`). Introduced by `9ed1dfa802c24fc678f6ca11e4616b4edc414fed`
    (2008-01-02, 3.5.5, "Minor optimizations for sub-selects in EXISTS(...) expressions:
    Discard any DISTINCT or ORDER BY clauses and do not calculate any column values"), fixed

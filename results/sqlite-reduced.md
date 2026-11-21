@@ -9,8 +9,8 @@ witness: violated on the reporting release, on the last bad commit and on the in
 commit of its bug, and not violated on the fixing commit, on the last good commit and on
 3.54.1 (`--boundaries`, `--latest`). So a reduced pair shows the same bug as its pair.
 
-All 42 pairs are reduced: queries from 460 to 123 characters on average (80 to 202),
-databases from 33 to 6 statements (5 to 14); 41 of the 42 databases no longer need
+All 45 pairs are reduced: queries from 466 to 123 characters on average (80 to 202),
+databases to 6 statements on average (5 to 14); 44 of the 45 databases no longer need
 `WITHOUT ROWID`. Each reduced pair is a self-contained script in
 `results/sqlite-repro/pair-N.sql`.
 
@@ -224,3 +224,17 @@ databases from 33 to 6 statements (5 to 14); 41 of the 42 databases no longer ne
     mutant  : SELECT t2a.c2 AS k1 FROM t2 AS t2a UNION SELECT DISTINCT t2a.c14 AS k1 FROM t2 AS t2a
     rows    : 16 / 14
 
+-- pair 43 (UNION-ALL->UNION, expected Down): 339 -> 89 characters
+    original: SELECT t2a.c15 AS k0 FROM t2 AS t2a UNION ALL SELECT DISTINCT t3a.c2 AS k0 FROM t3 AS t3a
+    mutant  : SELECT t2a.c15 AS k0 FROM t2 AS t2a UNION SELECT DISTINCT t3a.c2 AS k0 FROM t3 AS t3a
+    rows    : 15 / 10
+
+-- pair 44 (UNION-ALL->UNION, expected Down): 612 -> 144 characters
+    original: SELECT t1c.c4 AS k2 FROM t1 AS t1a LEFT JOIN t1 AS t1c ON (0) UNION ALL SELECT DISTINCT t2b.c15 AS k2 FROM t2 AS t2a INNER JOIN t2 AS t2b ON (1)
+    mutant  : SELECT t1c.c4 AS k2 FROM t1 AS t1a LEFT JOIN t1 AS t1c ON (0) UNION SELECT DISTINCT t2b.c15 AS k2 FROM t2 AS t2a INNER JOIN t2 AS t2b ON (1)
+    rows    : 17 / 8
+
+-- pair 45 (UNION-ALL->UNION, expected Down): 693 -> 117 characters
+    original: SELECT t1b.c1 AS k2 FROM t1 AS t1a INNER JOIN t1 AS t1b ON (0) UNION ALL SELECT DISTINCT t2a.c15 AS k2 FROM t2 AS t2a
+    mutant  : SELECT t1b.c1 AS k2 FROM t1 AS t1a INNER JOIN t1 AS t1b ON (0) UNION SELECT DISTINCT t2a.c15 AS k2 FROM t2 AS t2a
+    rows    : 7 / 8

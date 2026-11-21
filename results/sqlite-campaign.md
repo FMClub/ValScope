@@ -13,14 +13,14 @@ Every violation was then re-checked from scratch by `bridge/confirm_sqlite.py`.
 
 ## Result
 
-**42 distinct (original, mutant) query pairs violate the relation that the rule's theorem
+**45 distinct (original, mutant) query pairs violate the relation that the rule's theorem
 guarantees; they come from 5 distinct SQLite bugs** (`results/sqlite-bisect.md`: each pair
 is mapped to the commit that introduced and the commit that fixed it, and pairs with the
 same commits are one bug). 37 pairs were found by the first campaign, 5 by a second
 campaign run after the model was extended (strings, decimals, collations, opaque atoms), 2
 by a third run after the audit fixes and 2 by the comparison of generator settings in the
-fifth round; 1 pair was withdrawn in the fifth round and 3 in the sixth (see "Withdrawn"
-and the sixth round below). All 42 are confirmed:
+fifth round, and 3 by the seventh-round campaign; 1 pair was withdrawn in the fifth round
+and 3 in the sixth (see "Withdrawn" and the sixth round below). All 45 are confirmed:
 
 - the database of the seed was rebuilt by each SQLite library and both queries were run
   again;
@@ -203,7 +203,7 @@ L=/tmp/sqlite-libs; python3 bridge/confirm_sqlite.py results/sqlite-confirmed.js
 
 `results/sqlite-confirmed.md` is the output of the last command. For every pair it has the
 queries, the first rows of both results and the verdict on each version.
-`results/sqlite-confirmed.jsonl` holds the 42 pairs as data; `results/sqlite-withdrawn.jsonl`
+`results/sqlite-confirmed.jsonl` holds the 45 pairs as data; `results/sqlite-withdrawn.jsonl`
 the withdrawn ones with the reasons. `results/sqlite-reduced.md` has the pairs reduced by
 `bridge/reduce_sqlite.py`, and `results/sqlite-bisect.md` the commits of each bug.
 
@@ -213,7 +213,7 @@ the withdrawn ones with the reasons. `results/sqlite-reduced.md` has the pairs r
   The bisection (sixth round) builds SQLite from its git history on GitHub instead.
 - "Confirmed" means inconsistent on the old version and consistent on 3.53.1. It does not
   prove which of the two results on the old version is the wrong one.
-- The 42 pairs come from 5 bugs, identified by their introducing and fixing commits; three
+- The 45 pairs come from 5 bugs, identified by their introducing and fixing commits; three
   fixes name an SQLite ticket. A fixing commit can be a plan change that hides the symptom
   (bug 5).
 
@@ -237,3 +237,21 @@ the withdrawn ones with the reasons. `results/sqlite-reduced.md` has the pairs r
   compared that column exactly. The checker now combines the collations of all arms of a
   compound and does not use the metadata when a compound is nested in a derived table; with
   it, both pairs hold on every release and the others stay confirmed.
+
+## Seventh round: a new campaign (seeds 4001-4030)
+
+After the sixth round the generator gained `DISTINCT` and `UNION` over value queries, and the
+bridge the cover check for them. A new campaign ran on the same four releases:
+
+```bash
+L=/tmp/sqlite-libs; python3 bridge/campaign_sqlite.py --focus --libs $L/libsqlite3-3260000.so $L/libsqlite3-3300100.so $L/libsqlite3-3310100.so $L/libsqlite3-3340000.so --seeds 4001-4030 --queries 40 --out violations.jsonl
+```
+
+- 2400 queries, 262868 checks passed, 12 violations: 3 new distinct pairs (seeds 4004 and
+  4028, all `UNION-ALL->UNION`), all consistent on 3.53.1, so all confirmed (pairs 43 to 45).
+- Bisected on their full databases they give the fixing commit `9b7005f`; reduced with
+  `--boundaries` and bisected again, the introducing commit `9ed1dfa`: all three are bug 1.
+  The campaign found no new SQLite bug.
+- The value and HAVING rules again found nothing on SQLite. (The window items of the
+  generator were added after this campaign started, so it did not exercise them.)
+

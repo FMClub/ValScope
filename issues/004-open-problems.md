@@ -168,15 +168,16 @@ fixes of PR #1 are merged; the design problems below are still open.
    outer join (reduced to two one-row tables on MySQL 8.4.13; on 9.7.4 only the larger case
    reproduces).
 2. **MariaDB `GROUP BY` on DOUBLE**: plan-dependent number of groups; not analysed.
-3. **SQLite: 42 confirmed violations from 5 distinct bugs (4 withdrawn).** 37 pairs from
+3. **SQLite: 45 confirmed violations from 5 distinct bugs (4 withdrawn).** 37 pairs from
    the first campaign, 5 from a second campaign with the extended model, 2 from a third run
-   after the audit fixes and 2 from the fifth round, minus 1 pair withdrawn in the fifth
+   after the audit fixes, 2 from the fifth round and 3 from the seventh-round campaign (all
+   bug 1), minus 1 pair withdrawn in the fifth
    round and 3 in the sixth (`results/sqlite-campaign.md`). Solved in the sixth round:
    - every pair is mapped to the SQLite commits that introduced and fixed it
      (`bridge/bisect_sqlite.py`, `results/sqlite-bisect.md`); pairs with the same commits
      are one bug. Three of the fixing commits name an SQLite ticket
      (`1dcb4d44964846ad`, `ee51301f316c09e9`, `8025674847`);
-   - all 42 pairs are reduced, query and database, keeping their verdicts on the commits
+   - all 45 pairs are reduced, query and database, keeping their verdicts on the commits
      around the fix and the introduction (`bridge/reduce_sqlite.py --boundaries`); the
      reduced pairs give the same commits and every introducing commit (the reduced
      databases no longer need `WITHOUT ROWID`).
@@ -185,8 +186,9 @@ fixes of PR #1 are merged; the design problems below are still open.
      defect of bug 1, with which it shares the introducing commit;
    - the second campaign also saw 4 translation mismatches on the old releases only
      (`CROSS JOIN` versus `INNER JOIN ... ON 1 = 1`), not counted and not analysed.
-4. **Value-semantic and HAVING mutators found nothing on SQLite**; whether the value side
-   can find SQLite bugs at all is open.
+4. **Value-semantic and HAVING mutators found nothing on SQLite**, also in the seventh-round
+   campaign with `DISTINCT` / `UNION` value queries (seeds 4001-4030, 2400 queries); whether
+   the value side can find SQLite bugs at all is open.
 5. **Generator tuning (partly solved).** `--adaptive` chooses the generator settings per
    database seed by coverage features and violations (UCB1). The arms are only the four
    existing settings; the generator's probabilities themselves are not learned, and a

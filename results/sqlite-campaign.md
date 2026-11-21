@@ -13,14 +13,14 @@ Every violation was then re-checked from scratch by `bridge/confirm_sqlite.py`.
 
 ## Result
 
-**51 distinct (original, mutant) query pairs violate the relation that the rule's theorem
-guarantees; they come from 5 distinct SQLite bugs** (`results/sqlite-bisect.md`: each pair
+**60 distinct (original, mutant) query pairs violate the relation that the rule's theorem
+guarantees; they come from 6 distinct SQLite bugs** (`results/sqlite-bisect.md`: each pair
 is mapped to the commit that introduced and the commit that fixed it, and pairs with the
 same commits are one bug). 37 pairs were found by the first campaign, 5 by a second
 campaign run after the model was extended (strings, decimals, collations, opaque atoms), 2
 by a third run after the audit fixes and 2 by the comparison of generator settings in the
-fifth round, 3 by the seventh-round campaign, 1 by the eighth and 5 by the ninth; 1 pair was withdrawn in the fifth round
-and 3 in the sixth (see "Withdrawn" and the sixth round below). All 51 are confirmed:
+fifth round, 3 by the seventh-round campaign, 1 by the eighth, 5 by the ninth and 9 by the tenth; 1 pair was withdrawn in the fifth round
+and 3 in the sixth (see "Withdrawn" and the sixth round below). All 60 are confirmed:
 
 - the database of the seed was rebuilt by each SQLite library and both queries were run
   again;
@@ -205,7 +205,7 @@ L=/tmp/sqlite-libs; python3 bridge/confirm_sqlite.py results/sqlite-confirmed.js
 
 `results/sqlite-confirmed.md` is the output of the last command. For every pair it has the
 queries, the first rows of both results and the verdict on each version.
-`results/sqlite-confirmed.jsonl` holds the 51 pairs as data; `results/sqlite-withdrawn.jsonl`
+`results/sqlite-confirmed.jsonl` holds the 60 pairs as data; `results/sqlite-withdrawn.jsonl`
 the withdrawn ones with the reasons. `results/sqlite-reduced.md` has the pairs reduced by
 `bridge/reduce_sqlite.py`, and `results/sqlite-bisect.md` the commits of each bug.
 
@@ -215,7 +215,7 @@ the withdrawn ones with the reasons. `results/sqlite-reduced.md` has the pairs r
   The bisection (sixth round) builds SQLite from its git history on GitHub instead.
 - "Confirmed" means inconsistent on the old version and consistent on 3.53.1. It does not
   prove which of the two results on the old version is the wrong one.
-- The 51 pairs come from 5 bugs, identified by their introducing and fixing commits; three
+- The 60 pairs come from 6 bugs, identified by their introducing and fixing commits; three
   fixes name an SQLite ticket. A fixing commit can be a plan change that hides the symptom
   (bug 5).
 
@@ -297,4 +297,31 @@ L=/tmp/sqlite-libs; python3 bridge/campaign_sqlite.py --focus --value-ext --libs
 - The value and HAVING rules found nothing on SQLite, now with more than twice the checks
   and no skipped queries: the earlier explanation "half of the value queries were not
   checked" is ruled out.
+
+## Tenth round: a bug found by a HAVING rule (seeds 7001-7030)
+
+Changes since the ninth round: a mutated value is followed through a derived table
+(`VLineage.v`), and the reference is the newest release built from source (`--latest`,
+3.54.1) instead of the SQLite that Python ships (3.53.1).
+
+```bash
+L=/tmp/sqlite-libs; python3 bridge/campaign_sqlite.py --focus --value-ext --libs $L/libsqlite3-3260000.so $L/libsqlite3-3300100.so $L/libsqlite3-3310100.so $L/libsqlite3-3340000.so --seeds 7001-7030 --queries 40 --out violations.jsonl
+scripts/record_sqlite_pairs.py violations.jsonl --lib 3.26.0=... --latest LIB-3.54.1 --src sqlite-src
+```
+
+- 2400 queries, 298823 checks passed (49596 value checks, 11200 HAVING checks), 33
+  violations = 9 new distinct pairs, recorded as pairs 52 to 60 by
+  `scripts/record_sqlite_pairs.py` (confirm, bisect, reduce, bisect again).
+- Six pairs (seeds 7017, 7019, 7025; `UNION-ALL->UNION`, `UNION->UNION-ALL`) are bug 1; one
+  (seed 7006, `cond->TRUE`, on 3.34.0 only) is bug 3.
+- **Two pairs (seed 7012, `HAVING cond->TRUE`) are a sixth bug, the first one found by the
+  value side.** The original has `HAVING COUNT(t2a.c1) IN (SELECT t1.c4 ...)` with a `TEXT`
+  column `c4`; its `COUNT(t2a.c1)` in the select list comes back as the text `'2'`, the
+  mutant (HAVING removed) returns the integer `2`, so the original's rows are not among the
+  mutant's. Introduced by `f78dcd1` (2016-09-07, 3.15.0, row-value comparisons), fixed by
+  `3bc026d` (2026-07-29, 3.54.0, "Avoid apply an affinity to a register that might be the
+  result of a TK_AGG_COLUMN expression"). These violations were also present on the SQLite
+  that Python ships (3.53.1), which the earlier rounds used as the reference: with that
+  reference a pair of this bug would have been filed as "also in latest".
+- The lineage mutants (through a derived table) found nothing on SQLite.
 

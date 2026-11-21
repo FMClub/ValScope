@@ -1,6 +1,6 @@
 # SQLite violations mapped to commits
 
-**The 52 confirmed pairs come from 5 distinct SQLite bugs.** Pairs with the same
+**The 60 confirmed pairs come from 6 distinct SQLite bugs.** Pairs with the same
 (introducing, fixing) commits are one bug; different commits, different bugs. Every
 boundary is exact (two adjacent commits of the first-parent history).
 
@@ -20,19 +20,20 @@ How it was computed:
    equal those of their pairs wherever the original bisection found them, and the
    introducing commits that the full databases could not reach are now found.
 
-Three reduced pairs coincide (3 = 4, 6 = 7, 33 = 34). Pairs 43 to 45 come from the seventh-round campaign (seeds 4001-4030) and were reduced and bisected the same way: all three are bug 1, as are pair 46 (eighth-round campaign, seed 5023) and pairs 47 to 51 (ninth round, seeds 6001-6030).
+Three reduced pairs coincide (3 = 4, 6 = 7, 33 = 34). Pairs 43 to 45 come from the seventh-round campaign (seeds 4001-4030) and were reduced and bisected the same way: all three are bug 1, as are pair 46 (eighth-round campaign, seed 5023) and pairs 47 to 51 (ninth round, seeds 6001-6030). Pairs 52 to 60 (tenth round, seeds 7001-7030) were recorded by `scripts/record_sqlite_pairs.py`, which runs these steps.
 
 | Bug | Pairs | Introduced by | Fixed by | Fix first released in | Rules |
 | --- | --- | --- | --- | --- | --- |
-| 1 | #1, #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, #12, #13, #14, #15, #16, #17, #18, #19, #20, #21, #22, #23, #24, #25, #30, #31, #35, #36, #40, #41, #42, #43, #44, #45, #46, #47, #48, #49, #50, #51 | `9ed1dfa802c2` 2008-01-02 Minor optimizations for sub-selects in EXISTS(...) expressio | `9b7005feeae1` 2026-01-25 Always use the sort-and-merge algorithm for EXCEPT, INTERSEC | version-3.52.0 | EXCEPT->left, UNION->UNION-ALL, UNION-ALL->UNION |
+| 1 | #1, #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, #12, #13, #14, #15, #16, #17, #18, #19, #20, #21, #22, #23, #24, #25, #30, #31, #35, #36, #40, #41, #42, #43, #44, #45, #46, #47, #48, #49, #50, #51, #55, #56, #57, #58, #59, #60 | `9ed1dfa802c2` 2008-01-02 Minor optimizations for sub-selects in EXISTS(...) expressio | `9b7005feeae1` 2026-01-25 Always use the sort-and-merge algorithm for EXCEPT, INTERSEC | version-3.52.0 | EXCEPT->left, UNION->UNION-ALL, UNION-ALL->UNION |
 | 2 | #26, #29 | `f8f76d672b78` 2020-01-08 Simplification of the logic in the constant-propagation opti | `fdfd45aef3c8` 2020-02-13 Fix problems in the constant propagation optimization that w | version-3.32.0 | LEFT->INNER-JOIN, cond->TRUE |
 | 3 | #27, #28, #52 | `fad4dd0fd182` 2020-09-30 Improved query optimization for multi-column indexes where t | `16cd8b96d3e2` 2021-01-27 Fix an issue with IN operator optimization introduced by che | version-3.35.0 | DISTINCT-add, cond->TRUE |
 | 4 | #32, #33, #34, #37, #39 | `8dc570b6afac` 2016-06-08 Prefer to use partial indexes for full table scans when that | `8f2b1e4c909d` 2019-05-11 Do not assume that "x IS NOT ?" implies "x NOT NULL" when co | version-3.29.0 | DISTINCT-add, UNION->UNION-ALL |
 | 5 | #38 | `9ed1dfa802c2` 2008-01-02 Minor optimizations for sub-selects in EXISTS(...) expressio | `e69ba68363ed` 2020-12-19 Allow UNION ALL sub-queriesto be flattened even if the paren | version-3.35.0 | UNION->UNION-ALL |
+| 6 | #53, #54 | `f78dcd1b960e` 2016-09-07 Add support for row-value comparisons, including IN operator | `3bc026df6eef` 2026-07-29 Avoid apply an affinity to a register that might be the resu | version-3.54.0 | HAVING cond->TRUE |
 
 ## The bugs
 
-1. **`EXISTS` subqueries drop `DISTINCT`, shown by compound operators** (41 pairs; `UNION`,
+1. **`EXISTS` subqueries drop `DISTINCT`, shown by compound operators** (47 pairs; `UNION`,
    `UNION ALL`, `EXCEPT`, `DISTINCT`). Introduced by `9ed1dfa802c24fc678f6ca11e4616b4edc414fed`
    (2008-01-02, 3.5.5, "Minor optimizations for sub-selects in EXISTS(...) expressions:
    Discard any DISTINCT or ORDER BY clauses and do not calculate any column values"), fixed
@@ -54,6 +55,23 @@ Three reduced pairs coincide (3 = 4, 6 = 7, 33 = 34). Pairs 43 to 45 come from t
    3.35.0, "Allow UNION ALL sub-queries to be flattened even if the parent query is a
    join"), an optimisation that changes the plan: by the rule it is another bug, and it
    may be the defect of bug 1 that this plan change hides for this pair.
+6. **Affinity applied to an aggregate's register** (pairs 53, 54; found by the HAVING rule
+   `cond->TRUE`). `HAVING COUNT(x) IN (SELECT text_column ...)` converts the register that
+   holds `COUNT(x)` to text for the comparison, and the select list then returns the text:
+
+   ```sql
+   CREATE TABLE t (a, b INTEGER); INSERT INTO t VALUES (1, 2), (1, 2), (2, 2);
+   CREATE TABLE s (v TEXT);       INSERT INTO s VALUES ('2');
+   SELECT typeof(COUNT(a)), COUNT(a) FROM t GROUP BY a HAVING COUNT(a) IN (SELECT v FROM s);
+   -- 3.26.0, 3.34.0, 3.53.1: text, '2'      3.54.1: integer, 2
+   ```
+
+   Introduced by `f78dcd1b960ebf135ec7860dd4fed592e5d3fc7e` (2016-09-07, 3.15.0, "Add support
+   for row-value comparisons, including IN operators"), fixed by
+   `3bc026df6eef2397ea0968404037e1b15d34955d` (2026-07-29, 3.54.0, "Avoid apply an affinity to
+   a register that might be the result of a TK_AGG_COLUMN expression, as it might be reused";
+   the commit names a bug report of the same day). The SQLite that Python 3.13 ships
+   (3.53.1) has the bug; `MAX(b)` in place of `COUNT(a)` shows it too.
 
 ## What changed in the sixth round
 

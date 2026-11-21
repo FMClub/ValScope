@@ -1,0 +1,11 @@
+-- pair 58, seed 7019, rule UNION-ALL->UNION: the mutant must return a sub-bag of the rows of the original
+-- (SQLite 3.26.0; checked modulo the collations of the columns)
+CREATE TABLE t1 (c1 INTEGER, c4 REAL);
+CREATE TABLE t2 (c1 TEXT, c2 INTEGER, c3 , c14 REAL, c15 TEXT COLLATE NOCASE, rid INTEGER PRIMARY KEY);
+INSERT INTO t2 VALUES (NULL, 0, 4, 1.5, 'B', 4);
+INSERT INTO t2 VALUES (NULL, NULL, NULL, -1, 'b', 5);
+CREATE TABLE t3 (c1 INTEGER, c2 REAL, c3 REAL, c6 TEXT COLLATE NOCASE, c7 TEXT COLLATE NOCASE, c8 , c9 REAL, rid INTEGER PRIMARY KEY);
+-- original
+SELECT t3b.c2 AS k1 FROM t3 AS t3a INNER JOIN t3 AS t3b ON (0) UNION ALL SELECT DISTINCT t2a.c15 AS k1 FROM t2 AS t2a;
+-- mutant
+SELECT t3b.c2 AS k1 FROM t3 AS t3a INNER JOIN t3 AS t3b ON (0) UNION SELECT DISTINCT t2a.c15 AS k1 FROM t2 AS t2a;

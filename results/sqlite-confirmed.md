@@ -1,6 +1,6 @@
 # SQLite violations found by the verified mutators
 
-52 recorded, 52 confirmed (reproduced on the reporting version, relation holds on SQLite 3.53.1).
+60 recorded, 60 confirmed (reproduced on the reporting version, relation holds on SQLite 3.54.1).
 
 | # | Reported on | Seed | Rule | Expected | Rows (original / mutant) | Violated on | Confirmed |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -56,6 +56,14 @@
 | 50 | 3.26.0 | 6026 | `UNION->UNION-ALL` | Up | 38 / 35 | 3.26.0, 3.30.1, 3.31.1, 3.34.0 | yes |
 | 51 | 3.26.0 | 6027 | `UNION-ALL->UNION` | Down | 5 / 6 | 3.26.0, 3.30.1, 3.31.1, 3.34.0 | yes |
 | 52 | 3.34.0 | 7006 | `cond->TRUE` | Up | 17 / 6 | 3.34.0 | yes |
+| 53 | 3.26.0 | 7012 | `HAVING cond->TRUE` | Up | 2 / 4 | 3.26.0, 3.30.1, 3.31.1, 3.34.0, 3.53.1 | yes |
+| 54 | 3.26.0 | 7012 | `HAVING cond->TRUE` | Up | 2 / 4 | 3.26.0, 3.30.1, 3.31.1, 3.34.0, 3.53.1 | yes |
+| 55 | 3.26.0 | 7017 | `UNION-ALL->UNION` | Down | 11 / 12 | 3.26.0, 3.30.1, 3.31.1, 3.34.0 | yes |
+| 56 | 3.26.0 | 7017 | `UNION-ALL->UNION` | Down | 11 / 12 | 3.26.0, 3.30.1, 3.31.1, 3.34.0 | yes |
+| 57 | 3.26.0 | 7017 | `UNION->UNION-ALL` | Up | 9 / 8 | 3.26.0, 3.30.1, 3.31.1, 3.34.0 | yes |
+| 58 | 3.26.0 | 7019 | `UNION-ALL->UNION` | Down | 10 / 11 | 3.26.0, 3.30.1, 3.31.1, 3.34.0 | yes |
+| 59 | 3.26.0 | 7019 | `UNION-ALL->UNION` | Down | 10 / 11 | 3.26.0, 3.30.1, 3.31.1, 3.34.0 | yes |
+| 60 | 3.26.0 | 7025 | `UNION->UNION-ALL` | Up | 13 / 16 | 3.26.0, 3.30.1, 3.31.1, 3.34.0 | yes |
 
 ## 1. `UNION->UNION-ALL` on SQLite 3.26.0 (seed 1004)
 
@@ -72,7 +80,7 @@ Original rows: `["(' 1', ' 1')", "('', '')", "('-3', '-3')", "('01', '01')", "('
 
 Mutant rows: `["(' 1', ' 1')", "('', '')", "('-3', '-3')", "('01', '01')", "('1', 2)", "('1', 3)", "('1', 7)", "('2', 2)", "('2', 3)", "('2', 7)", "('7', 2)", "('7', 3)"]`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 2. `UNION-ALL->UNION` on SQLite 3.26.0 (seed 1004)
 
@@ -89,7 +97,7 @@ Original rows: `["('', '', ' 1')", "('', '', '')", "('', '', '-3')", "('', '', '
 
 Mutant rows: `["('', '', ' 1')", "('', '', '')", "('', '', '-3')", "('', '', '01')", "('', '', 'A')", "('', '', 'B')", "('', '', 'a')", "('', '', None)", "(0, '1', '1')", "(0, '3', '1')", "(0, -1, '1')", "(0, 3, '1')"]`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 3. `UNION-ALL->UNION` on SQLite 3.26.0 (seed 1005)
 
@@ -106,7 +114,7 @@ Original rows: `["(' 1', '3', '3')", "('', '3', '3')", "('-1', '3', '3')", "('2'
 
 Mutant rows: `["(' 1', '3', '3')", "('', '3', '3')", "('-1', '3', '3')", "('2', '3', '3')", "('A', '3', '3')", "('a', '3', '3')"]`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 4. `UNION-ALL->UNION` on SQLite 3.26.0 (seed 1005)
 
@@ -123,7 +131,7 @@ Original rows: `["(' 1', '3', '3')", "('', '3', '3')", "('-1', '3', '3')", "('2'
 
 Mutant rows: `["(' 1', '3', '3')", "('', '3', '3')", "('-1', '3', '3')", "('2', '3', '3')", "('A', '3', '3')", "('a', '3', '3')"]`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 5. `UNION->UNION-ALL` on SQLite 3.26.0 (seed 1005)
 
@@ -140,7 +148,7 @@ Original rows: `["('', '', '2')", "('', '', '7')", "('', '', 'B')", "('', '', 'x
 
 Mutant rows: `["('', '', '2')", "('', '', '7')", "('', '', 'B')", "('', '', 'x')", "('', '-1', '2')", "('', '-1', 'B')", "('', '10', '2')", "('', '10', '7')", "('', '10', 'B')", "('', '10', 'x')", "('', '3', '')", "('', '3', '2')"]`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 6. `UNION-ALL->UNION` on SQLite 3.26.0 (seed 1008)
 
@@ -157,7 +165,7 @@ Original rows: `["('0',)", "('1',)", "('2',)", "('B',)"]`
 
 Mutant rows: `["('0',)", "('1',)", "('2',)", "('B',)", "('b',)"]`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 7. `UNION-ALL->UNION` on SQLite 3.26.0 (seed 1008)
 
@@ -174,7 +182,7 @@ Original rows: `["('0',)", "('1',)", "('2',)", "('B',)"]`
 
 Mutant rows: `["('0',)", "('1',)", "('2',)", "('B',)", "('b',)"]`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 8. `UNION->UNION-ALL` on SQLite 3.26.0 (seed 1008)
 
@@ -191,7 +199,7 @@ Original rows: `["('0', '0', '')", "('0', '0', '1')", "('0', '0', '4')", "('0', 
 
 Mutant rows: `["('0', '0', '')", "('0', '0', '1')", "('0', '0', '4')", "('0', '0', None)", "('1', '1', '')", "('1', '1', '1')", "('1', '1', '4')", "('1', '1', None)", "('2', '2', '')", "('2', '2', '1')", "('2', '2', '4')", "('2', '2', None)"]`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 9. `UNION->UNION-ALL` on SQLite 3.26.0 (seed 1014)
 
@@ -208,7 +216,7 @@ Original rows: `["('01', -1, '01')", "('01', -3, '01')", "('01', 0, '01')", "('0
 
 Mutant rows: `["('01', -1, '01')", "('01', -3, '01')", "('01', 0, '01')", "('01', 10, '01')", "('01', 2, '01')", "('01', 4, '01')", "('01', None, '01')", "('10', -1, '10')", "('10', -3, '10')", "('10', 0, '10')", "('10', 10, '10')", "('10', 2, '10')"]`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 10. `UNION->UNION-ALL` on SQLite 3.26.0 (seed 1021)
 
@@ -225,7 +233,7 @@ Original rows: `["('',)", "('01',)", "('1',)", "('A',)", "('B',)", "('a',)", "('
 
 Mutant rows: `["('',)", "('01',)", "('1',)", "('B',)", "('a',)", "('x',)", '(10.0,)', '(5.0,)', '(None,)']`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 11. `UNION->UNION-ALL` on SQLite 3.26.0 (seed 1023)
 
@@ -242,7 +250,7 @@ Original rows: `["(' 1',)", "('',)", "('-1',)", "('1',)", "('10',)", "('2',)", "
 
 Mutant rows: `["(' 1',)", "('',)", "('-1',)", "('1',)", "('10',)", "('2',)", "('4',)", "('b',)"]`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 12. `UNION->UNION-ALL` on SQLite 3.26.0 (seed 1156)
 
@@ -259,7 +267,7 @@ Original rows: `["('2', '2', 'B')", "('5', '5', '2')", "(-1, -1, 'b')", "(1, 1, 
 
 Mutant rows: `["('2', '2', 'B')", "('5', '5', '2')", "(-1, -1, 'b')", "(1, 1, 'A')", "(10, 10, '7')", "(2, 2, 'A')", "(5, 5, '2')", "(None, None, 'b')", '(None, None, None)']`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 13. `UNION-ALL->UNION` on SQLite 3.26.0 (seed 1156)
 
@@ -276,7 +284,7 @@ Original rows: `["('2', '5')", "('2', 5)", "('7', 10)", "('A', 1)", "('A', 2)", 
 
 Mutant rows: `["('2', '5')", "('2', 5)", "('7', 10)", "('A', 1)", "('A', 2)", "('B', None)", "('b', -1)", "('b', None)", '(None, None)']`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 14. `UNION->UNION-ALL` on SQLite 3.26.0 (seed 1157)
 
@@ -293,7 +301,7 @@ Original rows: `["(' 1',)", "('-1',)", "('-3',)", "('1',)", "('4',)", "('7',)", 
 
 Mutant rows: `["(' 1',)", "('-1',)", "('-3',)", "('1',)", "('4',)", "('7',)", "('a',)", "('b',)", '(-3,)', '(1,)', '(2,)', '(None,)']`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 15. `UNION->UNION-ALL` on SQLite 3.26.0 (seed 1162)
 
@@ -310,7 +318,7 @@ Original rows: `["('3', '2')", "('3', 'B')", "('3', 'x')", "('3', None)", "('A',
 
 Mutant rows: `["('3', '2')", "('3', 'B')", "('3', 'x')", "('3', None)", "('B', '2')", "('B', 'B')", "('B', 'x')", "('B', None)", "('a', '2')", "('a', 'B')", "('a', 'x')", "('a', None)"]`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 16. `UNION->UNION-ALL` on SQLite 3.26.0 (seed 1163)
 
@@ -327,7 +335,7 @@ Original rows: `["('2', None)", "('5', 1)", "('B', 1)", "('b', 1)", '(1.0, 1.5)'
 
 Mutant rows: `["('2', None)", "('5', 1)", "('b', 1)", '(1.0, 1.5)', '(1.0, 10.0)', '(4.5, -1.0)', '(None, 1.0)']`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 17. `UNION->UNION-ALL` on SQLite 3.26.0 (seed 1166)
 
@@ -344,7 +352,7 @@ Original rows: `['(-3, -3, 2)', "(1, 1, '0')", "(10, 10, '4')", "(2, 2, '5')", '
 
 Mutant rows: `['(-3, -3, 2)', "(1, 1, '0')", "(10, 10, '4')", "(2, 2, '5')", '(2, 2, None)', '(4, 4, None)', '(5, 5, 5)', '(5, 5, None)', '(7, 7, 7)', "(None, ' 1', None)", "(None, '-3', None)", "(None, '3', None)"]`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 18. `UNION->UNION-ALL` on SQLite 3.26.0 (seed 1166)
 
@@ -361,7 +369,7 @@ Original rows: `["(' 1',)", "('1',)", "('10',)", "('2',)", "('3',)", "('B',)", "
 
 Mutant rows: `["(' 1',)", "('1',)", "('10',)", "('2',)", "('3',)", "('b',)", "('x',)", '(None,)']`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 19. `UNION->UNION-ALL` on SQLite 3.26.0 (seed 1166)
 
@@ -378,7 +386,7 @@ Original rows: `["('0', ' 1')", "('0', '1')", "('0', '10')", "('0', '2')", "('0'
 
 Mutant rows: `["('0', ' 1')", "('0', '1')", "('0', '10')", "('0', '2')", "('0', '3')", "('0', 'b')", "('0', 'x')", "('0', None)", "('4', ' 1')", "('4', '1')", "('4', '10')", "('4', '2')"]`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 20. `UNION->UNION-ALL` on SQLite 3.26.0 (seed 1167)
 
@@ -395,7 +403,7 @@ Original rows: `["(' 1',)", "('-3',)", "('10',)", "('3',)", "('4',)", "('5',)", 
 
 Mutant rows: `["(' 1',)", "('-3',)", "('10',)", "('3',)", "('4',)", "('5',)", "('5',)", "('A',)", "('B',)", '(-1,)', '(1,)', '(None,)']`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 21. `UNION->UNION-ALL` on SQLite 3.26.0 (seed 1173)
 
@@ -412,7 +420,7 @@ Original rows: `["('',)", "('-1',)", "('01',)", "('1',)", "('2',)", "('4',)", "(
 
 Mutant rows: `["('',)", "('-1',)", "('01',)", "('1',)", "('2',)", "('2',)", "('4',)", "('5',)", "('A',)", '(1,)', '(2,)', '(3,)']`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 22. `UNION->UNION-ALL` on SQLite 3.26.0 (seed 1173)
 
@@ -429,7 +437,7 @@ Original rows: `["('', '', 2)", "('', 'x', '2')", "('', 'x', 1)", "('1', '', 2)"
 
 Mutant rows: `["('', '', 2)", "('', 'x', '2')", "('', 'x', 1)", "('1', '', 2)", "('1', '0', None)", "('1', 'A', 3)", "('1', 'a', None)", "('1', 'x', '2')", "('1', 'x', 1)", "('2', '', 2)", "('2', 'x', '2')", "('2', 'x', 1)"]`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 23. `EXCEPT->left` on SQLite 3.26.0 (seed 1178)
 
@@ -446,7 +454,7 @@ Original rows: `["('-1', '-1')", "('-3', '-3')", "('01', '01')", "('B', 'B')", "
 
 Mutant rows: `["('-1', '-1')", "('-3', '-3')", "('01', '01')", "('a', 'a')", "('b', 'b')", '(-3, 1.25)', '(-3, 4.0)', '(1, 1.25)', '(1, 4.0)', '(10, 1.25)', '(10, 4.0)', '(2, 1.25)']`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 24. `UNION->UNION-ALL` on SQLite 3.26.0 (seed 1178)
 
@@ -463,7 +471,7 @@ Original rows: `["('-1', ' 1')", "('-1', '')", "('-1', '1')", "('-1', '10')", "(
 
 Mutant rows: `["('-1', ' 1')", "('-1', '')", "('-1', '1')", "('-1', '10')", "('-1', '2')", "('-3', ' 1')", "('-3', '')", "('-3', '1')", "('-3', '10')", "('-3', '2')", "('01', ' 1')", "('01', '')"]`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 25. `UNION->UNION-ALL` on SQLite 3.26.0 (seed 240)
 
@@ -480,7 +488,7 @@ Original rows: `["('',)", "('-1',)", "('-3',)", "('0',)", "('10',)", "('3',)", "
 
 Mutant rows: `["('',)", "('-1',)", "('-3',)", "('0',)", "('10',)", "('3',)", "('7',)", "('a',)"]`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 26. `cond->TRUE` on SQLite 3.31.1 (seed 292)
 
@@ -497,7 +505,7 @@ Original rows: `['(-3, -1)', '(-3, 2)', '(-3, 5)', '(1, -1)', '(1, 2)', '(1, 5)'
 
 Mutant rows: `['(-3, None)', '(1, -1)', '(1, -3)', '(1, 10)', '(1, 2)', '(1, 3)', '(1, 4)', '(1, 5)', '(1, None)', '(2, None)', '(3, None)', '(4, None)']`
 
-Per version: 3.26.0: ok, 3.30.1: ok, 3.31.1: violation, 3.34.0: ok, 3.53.1: ok
+Per version: 3.26.0: ok, 3.30.1: ok, 3.31.1: violation, 3.34.0: ok, 3.53.1: ok, 3.54.1: ok
 
 ## 27. `cond->TRUE` on SQLite 3.34.0 (seed 663)
 
@@ -514,7 +522,7 @@ Original rows: `['(1.25,)', '(2.0,)', '(2.0,)', '(4.0,)', '(None,)', '(None,)']`
 
 Mutant rows: `['(-3.0,)']`
 
-Per version: 3.26.0: ok, 3.30.1: ok, 3.31.1: ok, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: ok, 3.30.1: ok, 3.31.1: ok, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 28. `DISTINCT-add` on SQLite 3.34.0 (seed 1)
 
@@ -531,7 +539,7 @@ Original rows: `['(4,)']`
 
 Mutant rows: `['(10,)', '(4,)', '(7,)']`
 
-Per version: 3.26.0: ok, 3.30.1: ok, 3.31.1: ok, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: ok, 3.30.1: ok, 3.31.1: ok, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 29. `LEFT->INNER-JOIN` on SQLite 3.31.1 (seed 11)
 
@@ -548,7 +556,7 @@ Original rows: `[]`
 
 Mutant rows: `["('-0.5', 0.0)", "('-0.5', None)", "('-1.0', 0.0)", "('-1.0', None)", "('0.5', 0.0)", "('0.5', None)", "('1.0', 0.0)", "('1.0', None)", "('10.0', 0.0)", "('10.0', None)", "('10.25', 0.0)", "('10.25', None)"]`
 
-Per version: 3.26.0: ok, 3.30.1: ok, 3.31.1: violation, 3.34.0: ok, 3.53.1: ok
+Per version: 3.26.0: ok, 3.30.1: ok, 3.31.1: violation, 3.34.0: ok, 3.53.1: ok, 3.54.1: ok
 
 ## 30. `EXCEPT->left` on SQLite 3.26.0 (seed 22)
 
@@ -565,7 +573,7 @@ Original rows: `["(' 1', ' 1')", "(' 1', 1.5)", "('', None)", "('10', '10')", "(
 
 Mutant rows: `["(' 1', ' 1')", "(' 1', 1.5)", "('', None)", "('10', '10')", "('3', 7.0)", "('A', 'A')", "('x', 'x')", '(None, 2.0)', '(None, None)']`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 31. `UNION-ALL->UNION` on SQLite 3.26.0 (seed 194)
 
@@ -582,7 +590,7 @@ Original rows: `['(-1, -1, None)', "(0.25, '-1', 4)", "(0.25, '1', 4)", "(0.25, 
 
 Mutant rows: `['(-1, -1, None)', "(0.25, '-1', 4)", "(0.25, '1', 4)", "(0.25, '4', 4)", "(0.25, 'A', 4)", "(0.25, 'a', 4)", "(0.5, '-1', 2)", "(0.5, '1', 2)", "(0.5, '4', 2)", "(0.5, 'A', 2)", "(0.5, 'a', 2)", "(1.0, '-1', 0)"]`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 32. `DISTINCT-add` on SQLite 3.26.0 (seed 237)
 
@@ -599,7 +607,7 @@ Original rows: `["(10, '-3')", "(10, '2')", "(10, '3')", "(10, '4')", "(10, '5')
 
 Mutant rows: `["(10, '-1')", "(10, '-3')", "(10, '0')", "(10, '2')", "(10, '3')", "(10, '4')", "(10, '5')", "(10, 'A')", '(10, None)', '(10, None)', "(5, '-1')", "(5, '-3')"]`
 
-Per version: 3.26.0: violation, 3.30.1: ok, 3.31.1: ok, 3.34.0: ok, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: ok, 3.31.1: ok, 3.34.0: ok, 3.53.1: ok, 3.54.1: ok
 
 ## 33. `DISTINCT-add` on SQLite 3.26.0 (seed 336)
 
@@ -616,7 +624,7 @@ Original rows: `['(-1,)', '(-1,)', '(-1,)', '(-1,)', '(-1,)', '(-1,)', '(-1,)', 
 
 Mutant rows: `['(-1,)', '(-3,)', '(1,)', '(10,)', '(5,)', '(None,)']`
 
-Per version: 3.26.0: violation, 3.30.1: ok, 3.31.1: ok, 3.34.0: ok, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: ok, 3.31.1: ok, 3.34.0: ok, 3.53.1: ok, 3.54.1: ok
 
 ## 34. `DISTINCT-add` on SQLite 3.26.0 (seed 336)
 
@@ -633,7 +641,7 @@ Original rows: `['(-1,)', '(-1,)', '(-1,)', '(-1,)', '(-1,)', '(-1,)', '(-1,)', 
 
 Mutant rows: `['(-1,)', '(-1,)', '(-1,)', '(-1,)', '(-1,)', '(-1,)', '(-1,)', '(-1,)', '(-1,)', '(-1,)', '(-1,)', '(-1,)']`
 
-Per version: 3.26.0: violation, 3.30.1: ok, 3.31.1: ok, 3.34.0: ok, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: ok, 3.31.1: ok, 3.34.0: ok, 3.53.1: ok, 3.54.1: ok
 
 ## 35. `UNION-ALL->UNION` on SQLite 3.26.0 (seed 340)
 
@@ -650,7 +658,7 @@ Original rows: `["(' 1',)", "('0',)", "('1',)", "('2',)", "('3',)", "('a',)", '(
 
 Mutant rows: `["(' 1',)", "('0',)", "('1',)", "('2',)", "('3',)", "('A',)", "('a',)", '(None,)']`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 36. `UNION-ALL->UNION` on SQLite 3.26.0 (seed 352)
 
@@ -667,7 +675,7 @@ Original rows: `["('3',)", "('5',)", "('a',)", '(-3,)', '(-3,)', '(-3,)', '(-3,)
 
 Mutant rows: `["('3',)", "('5',)", "('A',)", "('a',)", '(-3,)', '(0,)', '(1,)', '(2,)', '(3,)', '(None,)']`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 37. `UNION->UNION-ALL` on SQLite 3.26.0 (seed 515)
 
@@ -684,7 +692,7 @@ Original rows: `['(-1, None)', '(0, None)', '(1, 3)', '(1, 4)', '(1, None)', '(2
 
 Mutant rows: `['(-1, None)', '(0, None)', '(1, 3)', '(1, 4)', '(1, None)', '(2, 3)', '(2, 4)', '(2, None)', '(2, None)', '(3, 3)', '(3, 4)', '(3, None)']`
 
-Per version: 3.26.0: violation, 3.30.1: ok, 3.31.1: ok, 3.34.0: ok, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: ok, 3.31.1: ok, 3.34.0: ok, 3.53.1: ok, 3.54.1: ok
 
 ## 38. `UNION->UNION-ALL` on SQLite 3.26.0 (seed 2011)
 
@@ -701,7 +709,7 @@ Original rows: `["('-1', '', 'x')", "('-1', '-3', 'x')", "('-1', '0', 'x')", "('
 
 Mutant rows: `["('-1', '', 'x')", "('-1', '-3', 'x')", "('-1', '0', 'x')", "('-1', '01', 'x')", "('-1', '2', 'x')", "('-1', '4', 'x')", "('-1', 'a', 'x')", "('-1', 'b', 'x')", "('-3', '', 'a')", "('-3', '', 'x')", "('-3', '-3', 'a')", "('-3', '-3', 'x')"]`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 39. `DISTINCT-add` on SQLite 3.26.0 (seed 2022)
 
@@ -718,7 +726,7 @@ Original rows: `[]`
 
 Mutant rows: `["('2', '1', None)"]`
 
-Per version: 3.26.0: violation, 3.30.1: ok, 3.31.1: ok, 3.34.0: ok, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: ok, 3.31.1: ok, 3.34.0: ok, 3.53.1: ok, 3.54.1: ok
 
 ## 40. `EXCEPT->left` on SQLite 3.26.0 (seed 2022)
 
@@ -735,7 +743,7 @@ Original rows: `["('0', '0', '0')", "('0', 1.0, 1.0)", "('1', '1', '1')", "('1',
 
 Mutant rows: `["('0', '0', '0')", "('0', 1.0, 1.0)", "('0', 1.0, 1.0)", "('1', '1', '1')", "('1', 1.0, 1.0)", "('1', 1.0, 1.0)", "('1', 1.0, 1.0)", "('1', 1.0, 1.0)", "('2', '2', '2')", "('2', 1.0, 1.0)", "('2', 1.0, 1.0)", "('A', 1.0, 1.0)"]`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 41. `UNION->UNION-ALL` on SQLite 3.26.0 (seed 3006)
 
@@ -752,7 +760,7 @@ Original rows: `["(1, 10, '')", "(1, 10, '-3')", "(1, 10, '1')", "(1, 10, 'A')",
 
 Mutant rows: `["(1, 10, '')", "(1, 10, '-3')", "(1, 10, '1')", "(1, 10, 'A')", "(1, 10, 'x')", "(10, 4, '')", "(10, 4, '-3')", "(10, 4, '1')", "(10, 4, 'A')", "(10, 4, 'x')", "(2, '10', '')", "(2, '10', 'a')"]`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 42. `UNION-ALL->UNION` on SQLite 3.26.0 (seed 3009)
 
@@ -769,7 +777,7 @@ Original rows: `['(-1, 1)', '(-1, None)', '(-3, 1)', '(-3, None)', "(1, '4')", "
 
 Mutant rows: `['(-1, 1)', '(-1, None)', '(-3, 1)', '(-3, None)', "(1, '4')", "(1, 'A')", "(1, 'a')", '(1, 5)', '(10, 1)', '(10, None)', "(2, 'A')", '(2, 1)']`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 43. `UNION-ALL->UNION` on SQLite 3.26.0 (seed 4004)
 
@@ -786,7 +794,7 @@ Original rows: `["(' 1', '')", "(' 1', '-1')", "(' 1', '-3')", "(' 1', '0')", "(
 
 Mutant rows: `["(' 1', '')", "(' 1', '-1')", "(' 1', '-3')", "(' 1', '0')", "(' 1', '2')", "(' 1', '4')", "(' 1', 'x')", "('01', '')", "('01', '-1')", "('01', '-3')", "('01', '0')", "('01', '2')"]`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 44. `UNION-ALL->UNION` on SQLite 3.26.0 (seed 4028)
 
@@ -803,7 +811,7 @@ Original rows: `["('1', 3.0, '01')", "('1', 3.0, '1')", "('1', 3.0, '3')", "('1'
 
 Mutant rows: `["('1', 3.0, '01')", "('1', 3.0, '1')", "('1', 3.0, '3')", "('1', 3.0, '7')", "('1', 3.0, 'A')", "('1', 3.0, 'B')", "('1', 3.0, 'a')", "('1', 3.0, None)", "(-1, 1.25, '01')", "(-1, 1.25, '3')"]`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 45. `UNION-ALL->UNION` on SQLite 3.26.0 (seed 4028)
 
@@ -820,7 +828,7 @@ Original rows: `["('2', 10.0, '2')", '(-0.5, 2, -3)', '(-0.5, 2, 1)', '(-0.5, 2,
 
 Mutant rows: `["('2', 10.0, '2')", '(-0.5, 2, -3)', '(-0.5, 2, 1)', '(-0.5, 2, 2)', '(-0.5, 2, None)', "(-1, '1', '01')", "(-1, '1', '7')", "(-1, '1', 'A')", "(-1, '1', 'a')", "(-1, '1', None)", "(-1, None, '01')", "(-1, None, '7')"]`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 46. `UNION->UNION-ALL` on SQLite 3.26.0 (seed 5023)
 
@@ -837,7 +845,7 @@ Original rows: `["('', '', '-1')", "('', '', '1')", "('', '', 'A')", "('', '', '
 
 Mutant rows: `["('', '', '-1')", "('', '', '1')", "('', '', 'A')", "('', '', 'B')", "('', '', 'x')", "('', '', None)", "('-3', '5', '-3')", "('01', '01', '-1')", "('01', '01', '1')", "('01', '01', 'A')", "('01', '01', 'B')", "('01', '01', 'x')"]`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 47. `UNION-ALL->UNION` on SQLite 3.26.0 (seed 6004)
 
@@ -854,7 +862,7 @@ Original rows: `["('0', '0')", "('01', 1.0)", "('01', 2.5)", "('01', 4.0)", "('0
 
 Mutant rows: `["('0', '0')", "('01', 1.0)", "('01', 2.5)", "('01', 4.0)", "('01', 4.25)", "('01', 5.0)", "('01', None)", "('1', 1.0)", "('1', 2.5)", "('1', 4.0)", "('1', 4.25)", "('1', 5.0)"]`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 48. `EXCEPT->left` on SQLite 3.26.0 (seed 6004)
 
@@ -871,7 +879,7 @@ Original rows: `["('10', '10')", "('2', '2')", "('A', 'A')", "('a', 'a')", '(Non
 
 Mutant rows: `["('10', '10')", "('2', '2')", "('A', 'A')", '(None, None)']`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 49. `UNION->UNION-ALL` on SQLite 3.26.0 (seed 6009)
 
@@ -888,7 +896,7 @@ Original rows: `["('', '')", "('', '0')", "('', '01')", "('', '1')", "('', 'A')"
 
 Mutant rows: `["('', '')", "('', '0')", "('', '01')", "('', '1')", "('', 'A')", "('', 'B')", "('', None)", "('-1', '')", "('-1', '0')", "('-1', '01')", "('-1', '1')", "('-1', 'A')"]`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 50. `UNION->UNION-ALL` on SQLite 3.26.0 (seed 6026)
 
@@ -905,7 +913,7 @@ Original rows: `["('', 1.0)", "('', 1.5)", "('', 2.25)", "('', 4.25)", "('', 5.0
 
 Mutant rows: `["('', 1.0)", "('', 1.5)", "('', 2.25)", "('', 4.25)", "('', 5.0)", "('', 5.25)", "('', None)", "('-1', 5.0)", "('-1', 5.25)", "('0', 1.0)", "('0', 1.5)", "('0', 2.25)"]`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 51. `UNION-ALL->UNION` on SQLite 3.26.0 (seed 6027)
 
@@ -922,7 +930,7 @@ Original rows: `["('0',)", "('01',)", "('10',)", "('A',)", "('B',)"]`
 
 Mutant rows: `["('0',)", "('01',)", "('10',)", "('A',)", "('B',)", "('b',)"]`
 
-Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 
 ## 52. `cond->TRUE` on SQLite 3.34.0 (seed 7006)
 
@@ -939,5 +947,141 @@ Original rows: `['(0, 0, 0)', '(1, 0, 5)', '(1, 0, 7)', '(1, 1, 1)', '(1, 1, 5)'
 
 Mutant rows: `['(0, 0, 0)', '(1, 1, 1)', '(1, None, 5)', '(2, 2, 2)', '(5, 5, 5)', '(7, 7, 7)']`
 
-Per version: 3.26.0: ok, 3.30.1: ok, 3.31.1: ok, 3.34.0: violation, 3.53.1: ok
+Per version: 3.26.0: ok, 3.30.1: ok, 3.31.1: ok, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
+
+## 53. `HAVING cond->TRUE` on SQLite 3.26.0 (seed 7012)
+
+Expected relation: Up. Verdict: violation.
+
+```sql
+-- original
+SELECT (t2a.c1 % 5) AS k0, (SUM(t2a.c1) + 6) AS k1, COUNT(t2a.c1) AS k2, (ROUND(COUNT(t2a.c1 - 3))) AS k3, COUNT(DISTINCT t2a.c1) AS k4 FROM t2 AS t2a GROUP BY (t2a.c1 % 5) HAVING ((COUNT(t2a.c1)) IN (SELECT t1h40.c4 FROM t1 AS t1h40 WHERE (t1h40.c4 <= 5) AND (t1h40.c1 <> 0))) OR ((COUNT(DISTINCT t2a.c1 - 1)) >= 7);
+-- mutant
+SELECT (t2a.c1 % 5) AS k0, (SUM(t2a.c1) + 6) AS k1, COUNT(t2a.c1) AS k2, (ROUND(COUNT(t2a.c1 - 3))) AS k3, COUNT(DISTINCT t2a.c1) AS k4 FROM t2 AS t2a GROUP BY (t2a.c1 % 5);
+```
+
+Original rows: `["(0.0, 16.25, '2', 2.0, 2)", "(2.0, 10.0, '2', 2.0, 1)"]`
+
+Mutant rows: `['(-3.0, 3.0, 1, 1.0, 1)', '(0.0, 16.25, 2, 2.0, 2)', '(2.0, 10.0, 2, 2.0, 1)', '(None, None, 0, 0.0, 0)']`
+
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: violation, 3.54.1: ok
+
+## 54. `HAVING cond->TRUE` on SQLite 3.26.0 (seed 7012)
+
+Expected relation: Up. Verdict: violation.
+
+```sql
+-- original
+SELECT (t2a.c1 % 5) AS k0, (SUM(t2a.c1) + 6) AS k1, COUNT(t2a.c1) AS k2, (ROUND(COUNT(t2a.c1 - 3))) AS k3, COUNT(DISTINCT t2a.c1) AS k4 FROM t2 AS t2a GROUP BY (t2a.c1 % 5) HAVING ((COUNT(t2a.c1)) IN (SELECT t1h40.c4 FROM t1 AS t1h40 WHERE (t1h40.c4 <= 5) AND (t1h40.c1 <> 0))) OR ((COUNT(DISTINCT t2a.c1 - 1)) >= 7);
+-- mutant
+SELECT (t2a.c1 % 5) AS k0, (SUM(t2a.c1) + 6) AS k1, COUNT(t2a.c1) AS k2, (ROUND(COUNT(t2a.c1 - 3))) AS k3, COUNT(DISTINCT t2a.c1) AS k4 FROM t2 AS t2a GROUP BY (t2a.c1 % 5) HAVING (1 = 1) OR ((COUNT(DISTINCT t2a.c1 - 1)) >= 7);
+```
+
+Original rows: `["(0.0, 16.25, '2', 2.0, 2)", "(2.0, 10.0, '2', 2.0, 1)"]`
+
+Mutant rows: `['(-3.0, 3.0, 1, 1.0, 1)', '(0.0, 16.25, 2, 2.0, 2)', '(2.0, 10.0, 2, 2.0, 1)', '(None, None, 0, 0.0, 0)']`
+
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: violation, 3.54.1: ok
+
+## 55. `UNION-ALL->UNION` on SQLite 3.26.0 (seed 7017)
+
+Expected relation: Down. Verdict: violation.
+
+```sql
+-- original
+SELECT DISTINCT t2c.c3 AS k0 FROM t1 AS t1a INNER JOIN t2 AS t2b ON (t2b.c14 > 1) AND (t1a.c4 <> 10) INNER JOIN t2 AS t2c ON t2b.c14 > 10 WHERE (t2b.c2 < 5) AND ((t1a.c1 > 1) AND (t1a.c1 IS NULL)) UNION ALL SELECT DISTINCT t1a.c4 AS k0 FROM t1 AS t1a LEFT JOIN t3 AS t3b ON t1a.c1 = 7 UNION ALL SELECT DISTINCT t3a.c1 AS k0 FROM t3 AS t3a;
+-- mutant
+SELECT DISTINCT t2c.c3 AS k0 FROM t1 AS t1a INNER JOIN t2 AS t2b ON (t2b.c14 > 1) AND (t1a.c4 <> 10) INNER JOIN t2 AS t2c ON t2b.c14 > 10 WHERE (t2b.c2 < 5) AND ((t1a.c1 > 1) AND (t1a.c1 IS NULL)) UNION ALL SELECT DISTINCT t1a.c4 AS k0 FROM t1 AS t1a LEFT JOIN t3 AS t3b ON t1a.c1 = 7 UNION SELECT DISTINCT t3a.c1 AS k0 FROM t3 AS t3a;
+```
+
+Original rows: `["('',)", "('-3',)", "('4',)", "('7',)", "('A',)", "('x',)", '(1,)', '(2,)', '(3,)', '(7,)', '(None,)']`
+
+Mutant rows: `["('',)", "('-3',)", "('4',)", "('7',)", "('A',)", "('a',)", "('x',)", '(1,)', '(2,)', '(3,)', '(7,)', '(None,)']`
+
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
+
+## 56. `UNION-ALL->UNION` on SQLite 3.26.0 (seed 7017)
+
+Expected relation: Down. Verdict: violation.
+
+```sql
+-- original
+SELECT DISTINCT t2c.c3 AS k0 FROM t1 AS t1a INNER JOIN t2 AS t2b ON (t2b.c14 > 1) AND (t1a.c4 <> 10) INNER JOIN t2 AS t2c ON t2b.c14 > 10 WHERE (t2b.c2 < 5) AND ((t1a.c1 > 1) AND (t1a.c1 IS NULL)) UNION ALL SELECT DISTINCT t1a.c4 AS k0 FROM t1 AS t1a LEFT JOIN t3 AS t3b ON t1a.c1 = 7 UNION ALL SELECT DISTINCT t3a.c1 AS k0 FROM t3 AS t3a;
+-- mutant
+SELECT DISTINCT t2c.c3 AS k0 FROM t1 AS t1a INNER JOIN t2 AS t2b ON (t2b.c14 > 1) AND (t1a.c4 <> 10) INNER JOIN t2 AS t2c ON t2b.c14 > 10 WHERE (t2b.c2 < 5) AND ((t1a.c1 > 1) AND (t1a.c1 IS NULL)) UNION SELECT DISTINCT t1a.c4 AS k0 FROM t1 AS t1a LEFT JOIN t3 AS t3b ON t1a.c1 = 7 UNION ALL SELECT DISTINCT t3a.c1 AS k0 FROM t3 AS t3a;
+```
+
+Original rows: `["('',)", "('-3',)", "('4',)", "('7',)", "('A',)", "('x',)", '(1,)', '(2,)', '(3,)', '(7,)', '(None,)']`
+
+Mutant rows: `["('',)", "('-3',)", "('4',)", "('7',)", "('A',)", "('a',)", "('x',)", '(1,)', '(2,)', '(3,)', '(7,)', '(None,)']`
+
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
+
+## 57. `UNION->UNION-ALL` on SQLite 3.26.0 (seed 7017)
+
+Expected relation: Up. Verdict: violation.
+
+```sql
+-- original
+SELECT t3a.c1 AS k0, t3a.c8 AS k1 FROM t3 AS t3a WHERE t3a.c7 IS NULL INTERSECT SELECT DISTINCT t1a.c1 AS k0, t1a.c1 AS k1 FROM t1 AS t1a WHERE t1a.c4 <= 3 UNION SELECT DISTINCT t1a.c4 AS k0, t1a.c1 AS k1 FROM t1 AS t1a WHERE NOT (t1a.c1 IN (SELECT t3i2.c2 FROM t3 AS t3i2 WHERE t3i2.c9 IS NULL));
+-- mutant
+SELECT t3a.c1 AS k0, t3a.c8 AS k1 FROM t3 AS t3a WHERE t3a.c7 IS NULL INTERSECT SELECT DISTINCT t1a.c1 AS k0, t1a.c1 AS k1 FROM t1 AS t1a WHERE t1a.c4 <= 3 UNION ALL SELECT DISTINCT t1a.c4 AS k0, t1a.c1 AS k1 FROM t1 AS t1a WHERE NOT (t1a.c1 IN (SELECT t3i2.c2 FROM t3 AS t3i2 WHERE t3i2.c9 IS NULL));
+```
+
+Original rows: `["('', 2)", "('-3', '1')", "('4', 0)", "('7', 0)", "('A', 10)", "('a', 10)", "('x', -3)", "('x', 7)", '(None, 3)']`
+
+Mutant rows: `["('', 2)", "('-3', '1')", "('4', 0)", "('7', 0)", "('A', 10)", "('x', -3)", "('x', 7)", '(None, 3)']`
+
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
+
+## 58. `UNION-ALL->UNION` on SQLite 3.26.0 (seed 7019)
+
+Expected relation: Down. Verdict: violation.
+
+```sql
+-- original
+SELECT DISTINCT t3b.c6 AS k0, t3b.c2 AS k1, t3b.c2 AS k2 FROM t3 AS t3a INNER JOIN t3 AS t3b ON t3a.c3 IS NULL UNION ALL SELECT DISTINCT t2a.c15 AS k0, t2a.c15 AS k1, t2a.c1 AS k2 FROM t2 AS t2a WHERE NOT (NOT (t2a.c15 > 7)) UNION ALL SELECT t2a.c14 AS k0, t2a.c2 AS k1, t2a.c1 AS k2 FROM t2 AS t2a WHERE (NOT (t2a.c14 IN (SELECT t2i39.c2 FROM t2 AS t2i39 WHERE t2i39.c3 > t2i39.c2))) OR ((t2a.c1 < 3) OR (t2a.c14 > 7));
+-- mutant
+SELECT DISTINCT t3b.c6 AS k0, t3b.c2 AS k1, t3b.c2 AS k2 FROM t3 AS t3a INNER JOIN t3 AS t3b ON t3a.c3 IS NULL UNION ALL SELECT DISTINCT t2a.c15 AS k0, t2a.c15 AS k1, t2a.c1 AS k2 FROM t2 AS t2a WHERE NOT (NOT (t2a.c15 > 7)) UNION SELECT t2a.c14 AS k0, t2a.c2 AS k1, t2a.c1 AS k2 FROM t2 AS t2a WHERE (NOT (t2a.c14 IN (SELECT t2i39.c2 FROM t2 AS t2i39 WHERE t2i39.c3 > t2i39.c2))) OR ((t2a.c1 < 3) OR (t2a.c14 > 7));
+```
+
+Original rows: `["('B', 'B', None)", "('a', 'a', '0')", "('b', 'b', 'a')", "(-1.0, 0, 'b')", '(-1.0, None, None)', "(1.0, 4, ' 1')", "(1.5, -3, 'A')", '(1.5, 0, None)', "(1.5, 1, '0')", "(7.0, -1, 'x')"]`
+
+Mutant rows: `["('B', 'B', None)", "('a', 'a', '0')", "('b', 'b', 'a')", "('b', 'b', None)", "(-1.0, 0, 'b')", '(-1.0, None, None)', "(1.0, 4, ' 1')", "(1.5, -3, 'A')", '(1.5, 0, None)', "(1.5, 1, '0')", "(7.0, -1, 'x')"]`
+
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
+
+## 59. `UNION-ALL->UNION` on SQLite 3.26.0 (seed 7019)
+
+Expected relation: Down. Verdict: violation.
+
+```sql
+-- original
+SELECT DISTINCT t3b.c6 AS k0, t3b.c2 AS k1, t3b.c2 AS k2 FROM t3 AS t3a INNER JOIN t3 AS t3b ON t3a.c3 IS NULL UNION ALL SELECT DISTINCT t2a.c15 AS k0, t2a.c15 AS k1, t2a.c1 AS k2 FROM t2 AS t2a WHERE NOT (NOT (t2a.c15 > 7)) UNION ALL SELECT t2a.c14 AS k0, t2a.c2 AS k1, t2a.c1 AS k2 FROM t2 AS t2a WHERE (NOT (t2a.c14 IN (SELECT t2i39.c2 FROM t2 AS t2i39 WHERE t2i39.c3 > t2i39.c2))) OR ((t2a.c1 < 3) OR (t2a.c14 > 7));
+-- mutant
+SELECT DISTINCT t3b.c6 AS k0, t3b.c2 AS k1, t3b.c2 AS k2 FROM t3 AS t3a INNER JOIN t3 AS t3b ON t3a.c3 IS NULL UNION SELECT DISTINCT t2a.c15 AS k0, t2a.c15 AS k1, t2a.c1 AS k2 FROM t2 AS t2a WHERE NOT (NOT (t2a.c15 > 7)) UNION ALL SELECT t2a.c14 AS k0, t2a.c2 AS k1, t2a.c1 AS k2 FROM t2 AS t2a WHERE (NOT (t2a.c14 IN (SELECT t2i39.c2 FROM t2 AS t2i39 WHERE t2i39.c3 > t2i39.c2))) OR ((t2a.c1 < 3) OR (t2a.c14 > 7));
+```
+
+Original rows: `["('B', 'B', None)", "('a', 'a', '0')", "('b', 'b', 'a')", "(-1.0, 0, 'b')", '(-1.0, None, None)', "(1.0, 4, ' 1')", "(1.5, -3, 'A')", '(1.5, 0, None)', "(1.5, 1, '0')", "(7.0, -1, 'x')"]`
+
+Mutant rows: `["('B', 'B', None)", "('a', 'a', '0')", "('b', 'b', 'a')", "('b', 'b', None)", "(-1.0, 0, 'b')", '(-1.0, None, None)', "(1.0, 4, ' 1')", "(1.5, -3, 'A')", '(1.5, 0, None)', "(1.5, 1, '0')", "(7.0, -1, 'x')"]`
+
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
+
+## 60. `UNION->UNION-ALL` on SQLite 3.26.0 (seed 7025)
+
+Expected relation: Up. Verdict: violation.
+
+```sql
+-- original
+SELECT t3a.c2 AS k0 FROM t3 AS t3a WHERE (t3a.c6 > 0) OR (t3a.c8 >= 3) UNION SELECT DISTINCT t1a.c1 AS k0 FROM t1 AS t1a INNER JOIN t2 AS t2b ON t1a.c1 >= t2b.c2;
+-- mutant
+SELECT t3a.c2 AS k0 FROM t3 AS t3a WHERE (t3a.c6 > 0) OR (t3a.c8 >= 3) UNION ALL SELECT DISTINCT t1a.c1 AS k0 FROM t1 AS t1a INNER JOIN t2 AS t2b ON t1a.c1 >= t2b.c2;
+```
+
+Original rows: `["(' 1',)", "('',)", "('-1',)", "('-3',)", "('0',)", "('1',)", "('2',)", "('7',)", "('A',)", "('B',)", "('a',)", "('b',)"]`
+
+Mutant rows: `["(' 1',)", "('',)", "('-1',)", "('-3',)", "('0',)", "('1',)", "('1',)", "('1',)", "('2',)", "('7',)", "('A',)", "('A',)"]`
+
+Per version: 3.26.0: violation, 3.30.1: violation, 3.31.1: violation, 3.34.0: violation, 3.53.1: ok, 3.54.1: ok
 

@@ -80,29 +80,42 @@ def main():
     if not new:
         print('no new pair')
         return 0
-    open(w('new.jsonl'), 'w').write(''.join(json.dumps(r) + '\n' for r in new))
+    text = ''.join(json.dumps(r) + '\n' for r in new)
+    # the intermediate files of an earlier run on the same pairs are reused (--work)
+    fresh = not (os.path.exists(w('new.jsonl')) and open(w('new.jsonl')).read() == text)
+    open(w('new.jsonl'), 'w').write(text)
     n, first = len(new), len(confirmed) + 1
 
+    def lines(name):
+        return read(w(name)) if os.path.exists(w(name)) else []
+
+    def covered(recs):                    # reduced pairs that coincide share one bisection record
+        return sorted(p for r in recs for p in r.get('pairs', [r['pair']])) == list(range(1, n + 1))
+
     # 1. confirm
-    rep = run([os.path.join(BRIDGE, 'confirm_sqlite.py'), w('new.jsonl'), '--latest', a.latest, '--libs'] + libs,
-              w('confirm.md'))
-    if '%d recorded, %d confirmed' % (n, n) not in rep:
+    if fresh or not os.path.exists(w('confirm.md')):
+        run([os.path.join(BRIDGE, 'confirm_sqlite.py'), w('new.jsonl'), '--latest', a.latest, '--libs'] + libs,
+            w('confirm.md'))
+    if '%d recorded, %d confirmed' % (n, n) not in open(w('confirm.md')).read():
         sys.exit('not every new pair is confirmed: see %s' % w('confirm.md'))
     # 2. bisect on the full databases
     common = ['--introduced', '--compat', '--src', a.src, '--cache', cache]
-    run([os.path.join(BRIDGE, 'bisect_sqlite.py'), w('new.jsonl')] + common + ['--out', w('bisect-original.jsonl')])
+    if fresh or not covered(lines('bisect-original.jsonl')):
+        run([os.path.join(BRIDGE, 'bisect_sqlite.py'), w('new.jsonl')] + common + ['--out', w('bisect-original.jsonl')])
     # 3. reduce
-    lib_args = [x for l in a.lib for x in ('--lib', l)]
-    run([os.path.join(BRIDGE, 'reduce_sqlite.py'), w('new.jsonl')] + lib_args +
-        ['--latest', a.latest, '--boundaries', w('bisect-original.jsonl'), '--src', a.src, '--cache', cache,
-         '--out', w('reduced.jsonl'), '--sql', w('repro')])
-    reduced = read(w('reduced.jsonl')) if os.path.exists(w('reduced.jsonl')) else []
+    if fresh or len(lines('reduced.jsonl')) != n:
+        lib_args = [x for l in a.lib for x in ('--lib', l)]
+        run([os.path.join(BRIDGE, 'reduce_sqlite.py'), w('new.jsonl')] + lib_args +
+            ['--latest', a.latest, '--boundaries', w('bisect-original.jsonl'), '--src', a.src, '--cache', cache,
+             '--out', w('reduced.jsonl'), '--sql', w('repro')])
+    reduced = lines('reduced.jsonl')
     if len(reduced) != n:
         sys.exit('%d of %d pairs reduced: see %s' % (len(reduced), n, a.work))
     # 4. bisect the reduced pairs
-    run([os.path.join(BRIDGE, 'bisect_sqlite.py'), w('reduced.jsonl')] + common + ['--out', w('bisect.jsonl')])
-    bis, orig = read(w('bisect.jsonl')), read(w('bisect-original.jsonl'))
-    if len(bis) != n or len(orig) != n:
+    if fresh or not covered(lines('bisect.jsonl')):
+        run([os.path.join(BRIDGE, 'bisect_sqlite.py'), w('reduced.jsonl')] + common + ['--out', w('bisect.jsonl')])
+    bis, orig = lines('bisect.jsonl'), lines('bisect-original.jsonl')
+    if not covered(bis) or not covered(orig):
         sys.exit('bisection incomplete: see %s' % a.work)
 
     # 5. everything is there: compute the new contents, then write

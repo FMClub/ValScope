@@ -162,7 +162,9 @@ class Translation(Printer):
 
     # ------------------------------------------------------------ SQL -> term
     def _text(self, node):
-        return node.sql(dialect=self.dialect)
+        # without outer parentheses: the printer adds its own around an atom, and a
+        # re-printed query that is translated again would collect one more level each time
+        return self._unparen(node).sql(dialect=self.dialect)
 
     def _expr(self, node):
         # one atom per occurrence: never identify two occurrences by their text

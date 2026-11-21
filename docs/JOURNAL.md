@@ -50,3 +50,33 @@ queries over numeric columns (`gen_fragment.py --sqlite-seed`) with `--value-ext
 2. `campaign_sqlite.py` counts mutants that SQLite cannot express (`INTERSECT ALL`) under
    `mutants_not_printable` as well as `mutants_not_in_dialect`: separate the counters.
 3. The lineage path runs only when the outer query is itself a supported value query.
+
+## Round 3 (2026-11-21)
+
+**Milestone.** The tenth SQLite campaign (seeds 7001-7030) recorded: 60 confirmed pairs,
+**6 bugs**. Bug 6 is the first one found by the value side: `HAVING COUNT(x) IN (SELECT
+text_column ...)` turns the `COUNT(x)` of the select list into text; introduced in 3.15.0
+(2016), fixed in 3.54.0 (2026-07), present in the SQLite that Python ships.
+
+**What made it visible.** Numeric columns for value queries (ninth round) and a reference
+that is the newest release: `confirm_sqlite.py` and `campaign_sqlite.py` take `--latest LIB`.
+
+**Bridge fixes found on the way.**
+- `GROUP BY (x % 5)`: parenthesised grouping keys were re-printed with two levels of
+  parentheses and then failed the round trip, so the recorded pair could not be reduced.
+  `_strip_parens` now removes every level; atoms are stored without outer parentheses, so
+  a re-printed query is a fixed point of the bridge (new test).
+- `record_sqlite_pairs.py`: reduced pairs that coincide share one bisection record (the
+  completeness check counted records); intermediate files of an interrupted run are reused.
+
+**Audit findings / TODO for round 4.**
+1. The reduced pairs 53 and 54 were produced before the parenthesis fix and carry
+   `((((COUNT(...))))` in their text: re-reduce them.
+2. CI does not exercise bug 6: its SQLite (3.45.1, Ubuntu) has the bug, so a
+   `--value-ext` demo query can hit it; decide between a signature in the baseline and a
+   regression test that expects it.
+3. `campaign_sqlite.py` still uses Python's SQLite as the reference by default: document
+   that campaigns should pass `--latest`, or build it in CI.
+4. The value rules proper have found nothing on SQLite: look at what the 49596 checks
+   cover (which rules, which shapes), and whether SQLite's dynamic typing of results
+   (text vs integer, as in bug 6) is checked for value mutants too.

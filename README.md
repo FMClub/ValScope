@@ -308,6 +308,21 @@ value cannot be read off the result.
 - `tmut_sound` / `thmut_sound` (instances `tmutate_sound`, `thmutate_sound`, `VUnion.v`):
   the same two statements for a `UNION ALL` of value queries whose arms have the same
   number of columns; one arm is mutated, the other arm's rows correspond to themselves.
+- `tmut_frame` (`tmutate_frame`): a value mutant keeps the grouping keys, the HAVING
+  predicate and the source of every arm, so whatever is computed from the groups alone (a
+  window function over them) is the same in the original and the mutant.
+- `tmut_distinct_sound`, `tmut_mask_sound`, `tmut_mask_plain_sound`, `thmut_distinct_sound`
+  (`VDistinct.v`): under `DISTINCT` on the whole query or on some parts of a `UNION ALL`,
+  the rows of the two results cover each other (every row of each is related to a row of
+  the other); a mutation outside the DISTINCT parts keeps the one-to-one correspondence;
+  HAVING mutants give set inclusion.
+- `shmut_sound` (`shmutate_sound`, `VSet.v`): HAVING mutation inside the operands of
+  `INTERSECT` / `EXCEPT` of value queries gives set inclusion, with the direction flipped
+  in the right operand of `EXCEPT`.
+- `wmut_sound` (`wmutate_sound`, `wmutate_distinct_sound`, `VLineage.v`): an outer query
+  over a derived value query (opaque `WHERE` and `HAVING`, `GROUP BY` on columns, items
+  that are a column, `SUM` / `MIN` / `MAX` / `AVG` / `COUNT` of a column, or opaque) passes
+  the relation of a mutated inner column on to the one item that reads it.
 - `INTERSECT ALL` / `EXCEPT ALL` (`Bag.v`): an element occurs `min(a, b)` times in
   `INTERSECT ALL` and `a - b` times in `EXCEPT ALL`, modulo the collation; `EXCEPT ALL` is
   antitone on the right; `INTERSECT <= INTERSECT ALL` and `EXCEPT <= EXCEPT ALL`.

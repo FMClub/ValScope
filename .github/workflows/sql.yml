@@ -13,6 +13,14 @@ on:
       script:
         description: "A script of the repository (data/mariadb/x.sql) or a directory of scripts (data/mariadb)"
         required: true
+      port:
+        description: "Port the server listens on inside its container (3306; TiDB: 4000)"
+        required: false
+        default: "3306"
+      password:
+        description: "Password of root (123456 is set for MySQL and MariaDB images; TiDB: none, type the word none)"
+        required: false
+        default: "123456"
 
 permissions:
   contents: read
@@ -28,7 +36,7 @@ jobs:
         env:
           MARIADB_ROOT_PASSWORD: "123456"
           MYSQL_ROOT_PASSWORD: "123456"
-        ports: ["3306:3306"]
+        ports: ["3306:${{ inputs.port }}"]
     steps:
       - uses: actions/checkout@v5
       - name: Client
@@ -36,14 +44,17 @@ jobs:
           sudo apt-get -o Acquire::Retries=3 update
           sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends mysql-client
       - name: Wait for the server
+        env:
+          PASSWORD: ${{ inputs.password != 'none' && inputs.password || '' }}
         run: |
           for i in $(seq 1 60); do
-            if mysql -h127.0.0.1 -uroot -p123456 -N -e "SELECT VERSION()" 2> /dev/null; then exit 0; fi
+            if mysql -h127.0.0.1 -uroot --password="$PASSWORD" -N -e "SELECT VERSION()" 2> /dev/null; then exit 0; fi
             sleep 5
           done
           echo "the server did not start" >&2; exit 1
       - name: Run the script
         env:
+          PASSWORD: ${{ inputs.password != 'none' && inputs.password || '' }}
           SCRIPT: ${{ inputs.script }}
         run: |
           case "$SCRIPT" in *..*) echo "no .. in the path" >&2; exit 1 ;; esac
@@ -54,5 +65,5 @@ jobs:
           esac
           for f in $files; do
             echo "=== $f"
-            mysql -h127.0.0.1 -uroot -p123456 --force --skip-column-names --default-character-set=utf8mb4 < "$f" 2>&1 | grep -v "Using a password" || true
+            mysql -h127.0.0.1 -uroot --password="$PASSWORD" --force --skip-column-names --default-character-set=utf8mb4 < "$f" 2>&1 | grep -v "Using a password" || true
           done

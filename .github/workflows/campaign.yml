@@ -23,6 +23,14 @@ on:
         description: "Generator options (--focus, --rich, --value-ext, --no-value-distinct)"
         required: false
         default: "--rich --value-ext --no-value-distinct"
+      port:
+        description: "Port the server listens on inside its container (3306; TiDB: 4000)"
+        required: false
+        default: "3306"
+      password:
+        description: "Password of root (123456 is set for MySQL and MariaDB images; TiDB: none, type the word none)"
+        required: false
+        default: "123456"
 
 permissions:
   contents: read
@@ -38,7 +46,7 @@ jobs:
         env:
           MARIADB_ROOT_PASSWORD: "123456"
           MYSQL_ROOT_PASSWORD: "123456"
-        ports: ["3306:3306"]
+        ports: ["3306:${{ inputs.port }}"]
     steps:
       - uses: actions/checkout@v5
       - name: Install Coq, OCaml, the client and Python packages
@@ -49,14 +57,17 @@ jobs:
       - name: Check the proofs and build the mutator
         run: make && make cli
       - name: Wait for the server
+        env:
+          PASSWORD: ${{ inputs.password != 'none' && inputs.password || '' }}
         run: |
           for i in $(seq 1 60); do
-            if mysql -h127.0.0.1 -uroot -p123456 -N -e "SELECT VERSION()" 2> /dev/null; then exit 0; fi
+            if mysql -h127.0.0.1 -uroot --password="$PASSWORD" -N -e "SELECT VERSION()" 2> /dev/null; then exit 0; fi
             sleep 5
           done
           echo "the server did not start" >&2; exit 1
       - name: Campaign
         env:
+          PASSWORD: ${{ inputs.password != 'none' && inputs.password || '' }}
           SEEDS: ${{ inputs.seeds }}
           QUERIES: ${{ inputs.queries }}
           OPTIONS: ${{ inputs.options }}
@@ -65,12 +76,14 @@ jobs:
           for o in $OPTIONS; do
             case "$o" in --focus|--rich|--value-ext|--no-value-distinct) ;; *) echo "unknown option: $o" >&2; exit 1 ;; esac
           done
-          python3 bridge/campaign_mysql.py --seeds "$SEEDS" --queries "$QUERIES" $OPTIONS --password 123456 --out campaign.jsonl | grep -v '^  ' | cut -c1-1500
+          python3 bridge/campaign_mysql.py --seeds "$SEEDS" --queries "$QUERIES" $OPTIONS --password "$PASSWORD" --out campaign.jsonl | grep -v '^  ' | cut -c1-1500
       - name: Triage
+        env:
+          PASSWORD: ${{ inputs.password != 'none' && inputs.password || '' }}
         run: |
           mkdir -p triage
           if [ -s campaign.jsonl ]; then
-            python3 scripts/triage_mysql.py campaign.jsonl --password 123456 --out-dir triage --timeout 300
+            python3 scripts/triage_mysql.py campaign.jsonl --password "$PASSWORD" --out-dir triage --timeout 300
             for f in triage/pair-*.sql; do echo "=== $f"; cat "$f"; done | head -n 1500
           else
             echo "no violation"

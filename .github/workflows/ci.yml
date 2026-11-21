@@ -214,7 +214,7 @@ jobs:
       - name: Campaign over random databases (the candidates are printed, not judged)
         if: always()
         run: |
-          python3 bridge/campaign_mysql.py --seeds 1-12 --queries 40 --focus --value-ext --password 123456 --out /tmp/campaign.jsonl | grep -v '^  ' | cut -c1-400
+          python3 bridge/campaign_mysql.py --seeds 1-12 --queries 40 --focus --value-ext --password 123456 --out /tmp/campaign.jsonl | grep -v '^  ' | cut -c1-1500
           if [ -s /tmp/campaign.jsonl ]; then python3 scripts/triage_mysql.py /tmp/campaign.jsonl --password 123456 --out-dir /tmp/triage --timeout 120; cat /tmp/triage/pair-*.sql 2>/dev/null | head -n 400; fi
 
   candidates-newer-servers:
@@ -289,5 +289,5 @@ jobs:
       - name: Campaign over random databases on this server (the candidates are printed, not judged)
         if: always()
         run: |
-          python3 bridge/campaign_mysql.py --seeds 1-12 --queries 40 --focus --value-ext --no-value-distinct --password 123456 --out /tmp/campaign.jsonl | grep -v '^  ' | cut -c1-400
+          python3 bridge/campaign_mysql.py --seeds 1-12 --queries 40 --focus --value-ext --no-value-distinct --password 123456 --out /tmp/campaign.jsonl | grep -v '^  ' | cut -c1-1500
           if [ -s /tmp/campaign.jsonl ]; then python3 scripts/triage_mysql.py /tmp/campaign.jsonl --password 123456 --out-dir /tmp/triage --timeout 120; cat /tmp/triage/pair-*.sql 2>/dev/null | head -n 400; fi

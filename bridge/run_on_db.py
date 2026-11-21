@@ -313,6 +313,8 @@ def main():
     ap.add_argument('--sqlite-lib', metavar='LIB.so', default=None,
                     help='SQLite shared library to use (default: the one Python ships)')
     ap.add_argument('--out', metavar='FILE.jsonl', help='append the violations to this file')
+    ap.add_argument('--show-failed', type=int, default=0, metavar='N',
+                    help='print the first N mutants that the DBMS refused although it ran the original')
     ap.add_argument('--flip', action='store_true',
                     help='negative control: expect the opposite relation (must report violations)')
     args = ap.parse_args()
@@ -401,6 +403,8 @@ def main():
             res, types = target.run(text)
             if res is None:
                 st['mutant_failed'] += 1
+                if st['mutant_failed'] <= args.show_failed:     # the dialect of the printer, or of the server?
+                    print('MUTANT FAILED (%s)\n  original: %s\n  mutant  : %s' % (mutant[1], original, text))
                 continue
             fold = target.folds(base_collations, target.last_collations)
             if args.value and len(mutant) == 4:

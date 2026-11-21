@@ -64,7 +64,7 @@ def main():
     conn = ['--host', a.host, '--port', str(a.port), '--user', a.user, '--password', a.password,
             '--database', a.database]
     gen_opts = [o for o, on in (('--focus', a.focus), ('--rich', a.rich)) if on]
-    total, pairs, errors = collections.Counter(), set(), collections.Counter()
+    total, pairs, errors, failed = collections.Counter(), set(), collections.Counter(), []
     for seed in parse_range(a.seeds):
         used = gen_mysql_db.build(cur, a.database, seed)
         new = 0
@@ -78,9 +78,14 @@ def main():
             vfile = os.path.join(tmp, 'v-%s-%d.jsonl' % (kind, seed))
             r = subprocess.run([sys.executable, os.path.join(HERE, 'run_on_db.py'), qfile] + conn +
                                (['--value'] if kind == 'value' else []) + (['--flip'] if a.flip else []) +
-                               ['--out', vfile], capture_output=True, text=True)
+                               ['--out', vfile, '--show-failed', '1'], capture_output=True, text=True)
             in_errors = False
-            for line in r.stdout.splitlines():
+            lines = r.stdout.splitlines()
+            for i, line in enumerate(lines):
+                if line.startswith('MUTANT FAILED') and len(failed) < 6:
+                    failed.append('[seed %d] %s | original: %s | mutant: %s'
+                                  % (seed, line, lines[i + 1].split(': ', 1)[-1], lines[i + 2].split(': ', 1)[-1]))
+            for line in lines:
                 if line.startswith('{'):
                     for k, v in ast.literal_eval(line).items():
                         total[k] += v
@@ -113,6 +118,8 @@ def main():
         print('most frequent errors:')
         for message, count in errors.most_common(10):
             print('error x%d: %s' % (count, message))
+        for text in failed:     # examples: one per seed and kind of query, six at most
+            print('refused: ' + text)
     return 0
 
 

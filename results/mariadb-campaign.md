@@ -51,7 +51,7 @@ indexes, reduced it and grouped the pairs by the shape of the reduced query.
 No new defect; no pair is left unexplained. The four known defects are found again on
 fifty other databases, three of them in forms that the issues did not have yet.
 
-## Third and fourth campaign (round 10): the rich generator
+## Third to fifth campaign (rounds 10 and 11): the rich generator
 
 `--rich` adds opaque predicates, derived tables and expressions in the select list. It was
 written for SQLite; the third campaign (seeds 91-130) showed that MariaDB refused 737 of

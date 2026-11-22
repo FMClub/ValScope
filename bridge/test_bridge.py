@@ -805,7 +805,7 @@ import json  # noqa: E402
 from triage_mysql import hint, shape as query_shape  # noqa: E402
 recorded = [json.loads(line) for line in open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..',
                                                            'results', 'mariadb-campaign.jsonl'))]
-reduced = [r for r in recorded if 'reduced_original' in r]
+reduced = [r for r in recorded if 'reduced_original' in r and not r['issue'].startswith('tool')]   # 'tool': a false alarm found later
 wrong = [(r['issue'], hint(r['reduced_original'], r['reduced_mutant'], r['without_indexes'] == 'ok'))
          for r in reduced]
 hinted = ('003', '009', '010', '012', '013')      # issue 014 cannot be told from the text of the query
@@ -827,12 +827,21 @@ report(query_shape("SELECT t3a.c9 AS k0 FROM t3 AS t3a WHERE t3a.c1 > (-3) AND t
        query_shape("SELECT t1b.c4 AS k1 FROM t1 AS t1b WHERE t1b.c1 > 7 AND t1b.c4 = 'yy'"),
        'triage: queries that differ in names and constants have one shape')
 
-from run_on_db import step_verdict  # noqa: E402
-report(step_verdict('other columns changed', 'SELECT (t.a % 2) AS k0, COUNT(t.b) AS k1, CEIL(VAR_SAMP(t.a)) AS k3 FROM t AS t GROUP BY (t.a % 2)') == 'incomparable' and
-       step_verdict('other columns changed', 'SELECT t.a AS k0, COUNT(t.b) AS k1, FLOOR((STDDEV_SAMP(t.a))) AS k2 FROM t AS t GROUP BY t.a') == 'incomparable' and
-       step_verdict('other columns changed', 'SELECT t.a AS k0, COUNT(t.b) AS k1, VAR_SAMP(t.a) AS k2 FROM t AS t GROUP BY t.a') == 'other columns changed' and
-       step_verdict('Le violated', 'SELECT t.a AS k0, CEIL(VAR_SAMP(t.a)) AS k1 FROM t AS t GROUP BY t.a') == 'Le violated',
-       'runner: a step function of a variance makes "other columns changed" incomparable, nothing else')
+from run_on_db import rejudge, step_columns  # noqa: E402
+report(step_columns('SELECT (t.a % 2) AS k0, COUNT(t.b) AS k1, CEIL(VAR_SAMP(t.a)) AS k3 FROM t AS t GROUP BY (t.a % 2)') == {2} and
+       step_columns('(SELECT t.a AS k0, FLOOR((STDDEV_SAMP(t.a))) AS k1 FROM t AS t GROUP BY t.a) UNION ALL '
+                    '(SELECT t.b AS k0, t.b AS k1 FROM t AS t)') == {1} and
+       step_columns('SELECT t.a AS k0, VAR_SAMP(t.a) AS k1 FROM t AS t GROUP BY t.a') == set(),
+       'runner: the columns that are a step function of a variance')
+chk = lambda b, r: check_value('Le', 1, b, r)
+inc = lambda b, r: check_inclusion('Up', b, r, None)
+report(rejudge(inc([('5',)], [('5.00',), ('7',)]), inc, [('5',)], [('5.00',), ('7',)], mixed={0}) == 'incomparable' and
+       rejudge(inc([('5',), ('8',)], [('5.00',)]), inc, [('5',), ('8',)], [('5.00',)], mixed={0}) not in ('ok', 'incomparable') and
+       rejudge(chk([(1, 2, 1)], [(1, 3, 2)]), chk, [(1, 2, 1)], [(1, 3, 2)], steps={2}, column=1) == 'incomparable' and
+       rejudge(chk([(1, 2, 1)], [(5, 3, 1)]), chk, [(1, 2, 1)], [(5, 3, 1)], steps={2}, column=1) not in ('ok', 'incomparable') and
+       rejudge(chk([(1, 2, 1)], [(1, 1, 1)]), chk, [(1, 2, 1)], [(1, 1, 1)], steps={1}, column=1) not in ('ok', 'incomparable') and
+       rejudge(chk([(1, 2, 1)], [(1, 3, 5)]), chk, [(1, 2, 1)], [(1, 3, 5)], steps={2}, column=1) not in ('ok', 'incomparable'),
+       'runner: only the mixed or step columns are made comparable; any other difference stays a violation')
 
 from run_on_db import INTERNAL_ERROR  # noqa: E402
 report(INTERNAL_ERROR.search("Can't find column vs_rowid.t1._tidb_rowid in schema Column: [vs_rowid.t1.c1]") and

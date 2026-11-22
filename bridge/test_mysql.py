@@ -55,25 +55,28 @@ def main():
         report(target.last_collations == [MariaDBColumns.COARSEST], 'nested compound: coarsest of the database')
         # arms that no fold repairs (run_on_db.arm_mix_verdict)
         target.run('SELECT t.b, t.n FROM t UNION SELECT t.b, t.n FROM t')
-        report(target.last_arm_mix is None, 'compound of like arms: no mix')
+        report(not target.last_arm_mix, 'compound of like arms: no mix')
         target.run('SELECT DISTINCT t.a FROM t EXCEPT ALL SELECT t.b FROM t')
-        report(target.last_arm_mix == 'collations', 'EXCEPT of a _ci arm and a _bin arm: mixed collations')
+        report('collations' in target.last_arm_mix, 'EXCEPT of a _ci arm and a _bin arm: mixed collations')
         target.run('SELECT DISTINCT t.a FROM t UNION ALL SELECT t.b FROM t')
-        report(target.last_arm_mix is None, 'UNION ALL compares nothing: mixed collations do not matter')
+        report(not target.last_arm_mix, 'UNION ALL compares nothing: mixed collations do not matter')
         target.run('(SELECT t.n FROM t UNION SELECT t.a FROM t) UNION ALL (SELECT t.n FROM t EXCEPT SELECT t.n + 0.5 FROM t)')
-        report(target.last_arm_mix == 'types', 'INT, DECIMAL and text arms, nested in parentheses: mixed types')
+        report('types' in target.last_arm_mix, 'INT, DECIMAL and text arms, nested in parentheses: mixed types')
         target.run('SELECT d.n FROM (SELECT t.n FROM t UNION ALL SELECT t.n FROM t) AS d UNION SELECT t.a FROM t '
                    'UNION ALL SELECT t.n + 0.5 FROM t')
-        report(target.last_arm_mix == 'types' and target.last_collations == [MariaDBColumns.COARSEST],
+        report('types' in target.last_arm_mix and target.last_collations == [MariaDBColumns.COARSEST],
                'a compound in a derived table of an arm: the arms at the top are still probed')
         target.run('SELECT t.n FROM t UNION SELECT t.a FROM t')
-        report(target.last_arm_mix == 'types', 'a number arm and a text arm: mixed types')
+        report('types' in target.last_arm_mix, 'a number arm and a text arm: mixed types')
         target.run('SELECT t.n FROM t UNION SELECT t.n + 0.5 FROM t')
-        report(target.last_arm_mix is None, 'two numeric types and no text: no mix')
-        report(arm_mix_verdict('Up violated', None, 'types') == 'incomparable' and
-               arm_mix_verdict('Up violated', 'collations', None) == 'collation' and
-               arm_mix_verdict('Up violated', None, None) == 'Up violated' and
-               arm_mix_verdict('ok', 'types', None) == 'ok', 'a violation over mixed arms is not reported as one')
+        report(not target.last_arm_mix, 'two numeric types and no text: no mix')
+        report(arm_mix_verdict('Up violated', set(), {'types'}) == 'Up violated' and
+               arm_mix_verdict('Up violated', {'collations', 'types'}, set()) == 'collation' and
+               arm_mix_verdict('Up violated', set(), set()) == 'Up violated' and
+               arm_mix_verdict('ok', {'types'}, set()) == 'ok',
+               'mixed collations under INTERSECT / EXCEPT: collation; mixed types: judged per column (rejudge)')
+        target.run('SELECT t.n FROM t UNION SELECT t.a FROM t UNION SELECT t.n + 0.5 FROM t')
+        report(target.last_mixed_columns == {0}, 'the mixed column of a compound is recorded %r' % target.last_mixed_columns)
         # a server that does not report the collations of result columns (TiDB): the
         # coarsest collation of the database for every text column, binary kept
         report(target.trusted_collations, 'this server reports the collations of result columns')
@@ -82,9 +85,9 @@ def main():
         report(target.last_collations[:2] == [MariaDBColumns.COARSEST] * 2,
                'untrusted metadata: text columns are compared with the coarsest collation %r' % target.last_collations)
         target.run('SELECT t.n FROM t UNION SELECT t.a FROM t')
-        report(target.last_arm_mix == 'types', 'untrusted metadata: the arms of a compound are still probed for types')
+        report('types' in target.last_arm_mix, 'untrusted metadata: the arms of a compound are still probed for types')
         target.run('SELECT t.a FROM t EXCEPT SELECT t.b FROM t')
-        report(target.last_arm_mix == 'collations', 'untrusted metadata: EXCEPT over text is judged modulo collation')
+        report('collations' in target.last_arm_mix, 'untrusted metadata: EXCEPT over text is judged modulo collation')
         target.trusted_collations = True
         target.run('SELECT t.a, t.b FROM t')
         report(target.last_collations == ['utf8mb4_general_ci', 'utf8mb4_bin'], 'plain columns %r' % target.last_collations)

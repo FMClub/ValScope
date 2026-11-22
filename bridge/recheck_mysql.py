@@ -20,7 +20,7 @@ import types
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gen_mysql_db  # noqa: E402
 from checker import check_inclusion, check_value  # noqa: E402
-from run_on_db import MySQLTarget, arm_mix_verdict, printed_decimals, step_verdict  # noqa: E402
+from run_on_db import MySQLTarget, arm_mix_verdict, printed_decimals, rejudge, step_columns  # noqa: E402
 
 DATABASE = 'vs_recheck'
 
@@ -38,6 +38,7 @@ def drop_indexes(cur):
 def judge(target, rec):
     base, base_types = target.run(rec['original'])
     bc, bs, mix = target.last_collations, getattr(target, 'last_scales', None), target.last_arm_mix
+    mixed = set(target.last_mixed_columns)
     res, types_ = target.run(rec['mutant'])
     if base is None or res is None:
         return 'error'
@@ -49,11 +50,17 @@ def judge(target, rec):
         relation, _, column = rec['expect'].split()
         column = int(column)
         decimals = printed_decimals(target, column, base_types, types_, bs, (base, res))
-        v = check_value(relation, column, base, res, fold=fold, cover=bool(rec.get('distinct')),
-                        output_decimals=decimals)
+
+        def check(b, r):
+            return check_value(relation, column, b, r, fold=fold, cover=bool(rec.get('distinct')),
+                               output_decimals=decimals)
     else:
-        v = check_inclusion(rec['expect'], base, res, fold)
-    return step_verdict(arm_mix_verdict(v, mix, target.last_arm_mix), rec['original'])
+        column = None
+
+        def check(b, r):
+            return check_inclusion(rec['expect'], b, r, fold)
+    v = arm_mix_verdict(check(base, res), mix, target.last_arm_mix)
+    return rejudge(v, check, base, res, mixed | target.last_mixed_columns, step_columns(rec['original']), column)
 
 
 def unique_pairs(path):

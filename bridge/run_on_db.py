@@ -62,7 +62,8 @@ class MySQLTarget:
         if not self.trusted_collations:
             self.name = 'the coarsest collation of the database (the server does not report collations of result columns)'
         self.last_collations = []
-        self.last_arm_mix = None
+        self.last_arm_mix = set()
+        self.last_mixed_columns = set()
         # table -> columns, for printing DISTINCT around a join (sql_bridge._join_columns)
         with self.conn.cursor() as cur:
             cur.execute('SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS '
@@ -99,7 +100,8 @@ class MySQLTarget:
                 self.last_collations = [self.columns.name(f.charsetnr) for f in cur._result.fields]
                 types = [d[1] for d in cur.description]
                 self.last_scales = [d[5] for d in cur.description]
-            self.last_arm_mix = None
+            self.last_arm_mix = set()
+            self.last_mixed_columns = set()
             compound = any(w in sql.upper() for w in ('UNION', 'INTERSECT', 'EXCEPT'))
             if compound:
                 # also when the collations are not trusted: the arms' types are (last_arm_mix)
@@ -107,11 +109,10 @@ class MySQLTarget:
             if not self.trusted_collations:
                 text = [n != 'binary' for n in self.last_collations]
                 self.last_collations = [MariaDBColumns.COARSEST if t else 'binary' for t in text]
-                if (compound and self.last_arm_mix is None and any(text)
-                        and any(w in sql.upper() for w in ('INTERSECT', 'EXCEPT'))):
+                if compound and any(text) and any(w in sql.upper() for w in ('INTERSECT', 'EXCEPT')):
                     # the arms' collations are unknown: which rows match may depend on the
                     # representative a de-duplication kept (as for 'collations' above)
-                    self.last_arm_mix = 'collations'
+                    self.last_arm_mix.add('collations')
             return rows, types
         except self.pymysql.err.MySQLError as e:
             code = e.args[0] if e.args else None
@@ -209,16 +210,17 @@ class MySQLTarget:
                 c.add(g)
                 f.add(code)
         out = []
-        for f in codes:
+        for i, f in enumerate(codes):
             numbers = f & self.NUMERIC_CODES
             # 6: the type of a bare NULL.  16: BIT, which the servers do not print as a
             # number (issues/005 is found through such a compound and must stay visible)
             if numbers - {16} and f - numbers - {6}:
-                self.last_arm_mix = 'types'
+                self.last_arm_mix.add('types')
+                self.last_mixed_columns.add(i)
         for c in combined:
             insensitive = [n for n in c if n and ('_ci' in n or '_ai' in n)]
-            if compares and insensitive and len({n for n in c if n != 'binary'}) > 1 and self.last_arm_mix is None:
-                self.last_arm_mix = 'collations'
+            if compares and insensitive and len({n for n in c if n != 'binary'}) > 1:
+                self.last_arm_mix.add('collations')
             if len(c) == 1:
                 out.append(next(iter(c)))
             elif len(insensitive) == 1 and all(n and n.endswith('_bin') or n == 'binary' or n in insensitive
@@ -312,26 +314,87 @@ FLIP_VALUE = {'Le': 'Ge', 'Ge': 'Le', 'TowardOne': 'AwayOne', 'AwayOne': 'Toward
 
 
 def arm_mix_verdict(verdict, *mixes):
-    """A violation of a compound whose arms mix type families is 'incomparable', one whose
-    INTERSECT / EXCEPT compares mixed collations is 'collation' (MySQLTarget.
-    _compound_collations); `mixes` are the last_arm_mix of the original and of the mutant."""
+    """A violation of a compound whose INTERSECT / EXCEPT compares mixed collations is
+    'collation' (MySQLTarget._compound_collations); `mixes` are the last_arm_mix of the
+    original and of the mutant.  (Mixed types are handled by rejudge, per column.)"""
     if verdict in ('ok', 'incomparable', 'collation'):
         return verdict
-    return 'incomparable' if 'types' in mixes else 'collation' if 'collations' in mixes else verdict
+    return 'collation' if any('collations' in (m or ()) for m in mixes) else verdict
 
 
 STEP_OF_INEXACT = re.compile(r'\b(FLOOR|CEIL|CEILING|ROUND|TRUNCATE|SIGN)\s*\(\s*\(*\s*(VAR_SAMP|VAR_POP|VARIANCE|STDDEV\w*|STD)\s*\(',
                              re.IGNORECASE)
 
 
-def step_verdict(verdict, sql):
-    """'other columns changed' is 'incomparable' when the query has a step function of a
-    variance or standard deviation: those are binary floats summed in the order of the
-    plan, and CEIL(1.0000000000000002) is 2 where CEIL(1.0) is 1 (a pair of the campaign
-    on MySQL 9: the mutation of another item changed the plan)."""
-    if verdict == 'other columns changed' and STEP_OF_INEXACT.search(sql):
-        return 'incomparable'
-    return verdict
+def step_columns(sql):
+    """The result columns that are a step function of a variance or a standard deviation in
+    some arm of the query: binary floats summed in the order of the plan, so that
+    CEIL(1.0000000000000002) is 2 where CEIL(1.0) is 1 (a pair of the campaign on MySQL 9)."""
+    if not STEP_OF_INEXACT.search(sql):
+        return set()
+    try:
+        import sqlglot
+        from sqlglot import exp
+        tree = sqlglot.parse_one(sql, read='mysql')
+    except Exception:
+        return set()
+    out, todo = set(), [tree]
+    while todo:
+        n = todo.pop()
+        if isinstance(n, (exp.Union, exp.Intersect, exp.Except)):
+            todo += [n.left, n.right]
+        elif isinstance(n, (exp.Paren, exp.Subquery)) and not n.alias:
+            todo.append(n.this)
+        elif isinstance(n, exp.Select):
+            out |= {i for i, e in enumerate(n.expressions) if STEP_OF_INEXACT.search(e.sql(dialect='mysql'))}
+    return out
+
+
+def _soften(rows, mixed, steps):
+    """The rows with the columns a server may render differently made comparable: in a
+    `mixed` column (a number in one arm, text in another) a text that is a number is that
+    number ('5' and '5.00' are 5); a `steps` column is dropped (NULL)."""
+    from decimal import Decimal, InvalidOperation
+    out = []
+    for row in rows:
+        r = list(row)
+        for i in mixed:
+            v = r[i]
+            if isinstance(v, (bytes, bytearray)):
+                try:
+                    v = bytes(v).decode('utf-8')
+                except UnicodeDecodeError:
+                    continue
+            if isinstance(v, str):
+                try:
+                    r[i] = Decimal(v.strip())
+                except InvalidOperation:
+                    pass
+        for i in steps:
+            r[i] = None
+        out.append(tuple(r))
+    return out
+
+
+def rejudge(verdict, check, base, res, mixed=(), steps=(), column=None):
+    """A violation judged again with the columns of `mixed` and `steps` made comparable
+    (_soften): 'incomparable' if it holds then, the violation itself otherwise.  `check`
+    judges two results; `column` (a value check) is never dropped.  This replaces two rules
+    that turned a whole pair 'incomparable' and hid issues 012 and 013 (round 16)."""
+    steps = set(steps) - {column}
+    if verdict in ('ok', 'incomparable', 'collation') or not (mixed or steps):
+        return verdict
+    again = check(_soften(base, mixed, steps), _soften(res, mixed, steps))
+    if again not in ('ok', 'collation'):
+        return verdict
+    for i in steps:
+        # a step function moves by one step at a boundary, not more: the sorted values of
+        # the column differ by at most 1, one by one
+        a = sorted(float(r[i]) for r in base if r[i] is not None)
+        b = sorted(float(r[i]) for r in res if r[i] is not None)
+        if len(a) != len(b) or any(abs(x - y) > 1 + 1e-9 for x, y in zip(a, b)):
+            return verdict
+    return 'incomparable'
 
 
 def printed_decimals(target, column, base_types, types, base_scales, rows=()):
@@ -445,6 +508,7 @@ def main():
         base_scales = getattr(target, 'last_scales', None)
         base_collations = target.last_collations
         base_mix = getattr(target, 'last_arm_mix', None)
+        base_mixed = set(getattr(target, 'last_mixed_columns', set()))
         if as_written is None or base is None:
             st['original_failed'] += 1
             continue
@@ -479,10 +543,13 @@ def main():
                     relation = FLIP_VALUE[relation]
                 loose = single or (types is not None and target.SINGLE in (base_types[column], types[column]))
                 decimals = printed_decimals(target, column, base_types, types, base_scales, (base, res))
-                verdict = check_value(relation, column, base, res, single_precision=loose, fold=fold,
-                                      output_decimals=decimals,
-                                      cover=bool(trs) and trs[0].cover_for(text),
-                                      strict_types=target.dialect == 'sqlite')    # the numeric probe passed
+                cover = bool(trs) and trs[0].cover_for(text)
+
+                def check(b, r, relation=relation, column=column, loose=loose, fold=fold, decimals=decimals,
+                          cover=cover):
+                    return check_value(relation, column, b, r, single_precision=loose, fold=fold,
+                                       output_decimals=decimals, cover=cover,
+                                       strict_types=target.dialect == 'sqlite')    # the numeric probe passed
                 label = '%s col %d' % (relation, column)
             else:
                 # set-semantic mutant, or a mutant of the HAVING predicate
@@ -494,10 +561,15 @@ def main():
                     continue
                 if args.flip:
                     direction = 'Down' if direction == 'Up' else 'Up'
-                verdict = check_inclusion(direction, base, res, fold)
+
+                def check(b, r, direction=direction, fold=fold):
+                    return check_inclusion(direction, b, r, fold)
+                column = None
                 label = direction
+            verdict = check(base, res)
             verdict = arm_mix_verdict(verdict, base_mix, getattr(target, 'last_arm_mix', None))
-            verdict = step_verdict(verdict, original)
+            verdict = rejudge(verdict, check, base, res, base_mixed | getattr(target, 'last_mixed_columns', set()),
+                              step_columns(original), column)
             if verdict == 'ok':
                 st['checked_ok'] += 1
                 by_rule[rule] += 1

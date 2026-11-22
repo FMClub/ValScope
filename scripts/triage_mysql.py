@@ -51,7 +51,7 @@ DISTINCT_AGGREGATE = re.compile(r'\b(COUNT|SUM|AVG|MIN|MAX)\s*\(\s*DISTINCT\b')
 
 
 def hint(original, mutant, index_only):
-    """The known issue (MariaDB; 015: MySQL; 016-019: TiDB; 020: PolarDB-X) that a reduced pair looks like, or ''.  A hint, not a
+    """The known issue (MariaDB; 015: MySQL; 016-019: TiDB; 020: PolarDB-X; 023: OceanBase) that a reduced pair looks like, or ''.  A hint, not a
     verdict: it is checked against the classified pairs of results/mariadb-campaign.jsonl
     (bridge/test_bridge.py), and a new defect can have the look of a known one."""
     o, both = original.upper(), (original + ' ' + mutant).upper()
@@ -78,6 +78,11 @@ def hint(original, mutant, index_only):
         return '008'        # MySQL: INTERSECT, and a NULL of an outer join or a COALESCE(x, 0)
     if ' LEFT JOIN ' in o and 'NOT (EXISTS ' in o and o.count('EXISTS ') >= 2:
         return '015'        # MySQL: LEFT JOIN with an EXISTS, under a NOT EXISTS
+    for col in set(re.findall(r'COUNT\s*\(\s*DISTINCT\s+(T\w+\.C\d+)\s*\)', both)):
+        c = re.escape(col)
+        if re.search(r'\b(SUM|AVG|VAR\w*|STD\w*)\s*\(\s*\(?\s*%s\s*[-+]\s*\(?-?\d' % c, both) \
+                and re.search(r'\b(SUM|AVG|VAR\w*|STD\w*)\s*\(\s*%s\s*\)' % c, both):
+            return '023'    # OceanBase: SUM(x - k) next to SUM(x) and COUNT(DISTINCT x)
     return ''
 
 

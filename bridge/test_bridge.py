@@ -827,6 +827,9 @@ report(hint('SELECT t1a.c4 AS k0 FROM t1 AS t1a WHERE t1a.c4 NOT IN (SELECT t3i1
 report(hint('(SELECT t3a.c9 AS k0 FROM t3 AS t3a) EXCEPT (SELECT SIGN(COUNT(t3a.c9)) AS k0 FROM t3 AS t3a HAVING (COUNT(DISTINCT t3a.c9 - 1)) <> (-1))',
             '(SELECT t3a.c9 AS k0 FROM t3 AS t3a) EXCEPT (SELECT SIGN(COUNT(t3a.c9)) AS k0 FROM t3 AS t3a HAVING 1 = 0)',
             False) == '020', 'triage: the PolarDB-X pair of seed 7 (issue 020)')
+report(hint('SELECT AVG((t3a.c6 - 2)) AS k1, AVG(t3a.c6) AS k2 FROM t3 AS t3a HAVING (COUNT(DISTINCT t3a.c6)) <> 10',
+            'SELECT AVG((t3a.c6 - 2)) AS k1, AVG(t3a.c6) AS k2 FROM t3 AS t3a', False) == '023',
+       'triage: the OceanBase pair of seed 35 (issue 023)')
 report(hint('SELECT t.a AS k0 FROM t AS t WHERE t.a > 1', 'SELECT t.a AS k0 FROM t AS t', False) == '',
        'triage: no hint for a pair that looks like no known issue')
 report(query_shape("SELECT t3a.c9 AS k0 FROM t3 AS t3a WHERE t3a.c1 > (-3) AND t3a.c2 = 'x'") ==

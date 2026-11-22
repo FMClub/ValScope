@@ -344,6 +344,27 @@ def _is_nan(v):
     return isinstance(v, float) and v != v
 
 
+_NAN = ('nan',)     # stands for NaN in a row; no value of a result is a tuple
+
+
+def _decimal_scales(*results):
+    """The columns of exact decimals which are printed at several scales, with the
+    shortest of them.  One plan can return an average as 0.3333 and another as
+    0.333333: the same value, as far as the shorter one says."""
+    exponents = {}
+    for rows in results:
+        for row in rows:
+            for i, v in enumerate(row):
+                if isinstance(v, Decimal) and v.is_finite():
+                    exponents.setdefault(i, set()).add(v.as_tuple().exponent)
+    return {i: max(es) for i, es in exponents.items() if len(es) > 1 and max(es) < 0}
+
+
+def _at_scales(rows, scales):
+    return [tuple(v.quantize(Decimal(1).scaleb(scales[i])) if i in scales and isinstance(v, Decimal)
+                  and v.is_finite() else v for i, v in enumerate(row)) for row in rows]
+
+
 def _float_columns(*results):
     """The positions of the columns which hold a binary float in one of the results."""
     return {i for rows in results for row in rows for i, v in enumerate(row) if isinstance(v, float)}
@@ -356,14 +377,14 @@ def bag(rows, fold=None, digits=None, approximate=None):
     if fold is None and digits is None:
         if any(_is_nan(v) for row in rows for v in row):
             # NaN is not equal to itself: two NaN are the same value of a result
-            rows = [tuple('NaN' if _is_nan(v) else v for v in row) for row in rows]
+            rows = [tuple(_NAN if _is_nan(v) else v for v in row) for row in rows]
         return collections.Counter(rows)
     folds = None
     out = collections.Counter()
     for row in rows:
         if folds is None or len(folds) != len(row):
             folds = _column_folds(fold, len(row))
-        out[tuple('NaN' if _is_nan(v) else
+        out[tuple(_NAN if _is_nan(v) else
                   _norm(v, f, digits if approximate is None or i in approximate else None)
                   for i, (v, f) in enumerate(zip(row, folds)))] += 1
     return out
@@ -380,7 +401,8 @@ def check_inclusion(direction, original_rows, mutant_rows, fold=None, coarser=Fa
     The columns which hold a binary floating-point value in one of the two results are
     compared after rounding to 12, then 9 significant digits: an aggregate such as AVG or
     SUM over DOUBLE can differ in its last bits between two plans of the same query (the
-    model computes exactly).  A column of integers and exact decimals is compared exactly.
+    model computes exactly).  A column of integers and exact decimals is compared exactly,
+    at the shortest scale its decimals are printed with when they have several.
 
     `coarser`: the fold is coarser than the collation the server de-duplicated with (a
     compound whose column has a _ci arm and a _bin one, MySQLTarget._compound_collations)."""
@@ -391,6 +413,9 @@ def check_inclusion(direction, original_rows, mutant_rows, fold=None, coarser=Fa
     if included(bag(small), bag(large)):
         return 'ok'
     floats = _float_columns(small, large)
+    scales = _decimal_scales(small, large)
+    if scales:
+        small, large = _at_scales(small, scales), _at_scales(large, scales)
     for digits in (12, 9):
         # values are compared by what they denote; only the float columns are rounded
         if included(bag(small, None, digits, floats), bag(large, None, digits, floats)):
@@ -480,6 +505,10 @@ def judge(expect, base, res, fold=None, cover=False, strict_types=False):
     if ' col ' in expect:
         relation, _, column = expect.split()
         return check_value(relation, int(column), base, res, fold=fold, cover=cover, strict_types=strict_types)
+    if expect == 'Same':
+        # the two results are the same bag: included both ways
+        verdicts = [check_inclusion(d, base, res, fold) for d in ('Up', 'Down')]
+        return 'violation' if 'violation' in verdicts else 'collation' if 'collation' in verdicts else 'ok'
     return check_inclusion(expect, base, res, fold)
 
 

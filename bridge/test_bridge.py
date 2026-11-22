@@ -342,7 +342,15 @@ report(check_inclusion('Up', [(Decimal('1234567890.12'),)], [(Decimal('123456789
        and check_inclusion('Up', [(123456789.4,)], [(123456789.4000000001,)]) == 'ok'
        and check_inclusion('Up', [(Decimal('2.5'),)], [(2.5000000000001,)]) == 'ok',
        'inclusion: exact decimals are compared exactly, binary floats with a tolerance')
-report(check_inclusion('Up', [(float('nan'),)], [(float('nan'),)]) == 'ok', 'inclusion: NaN is one value')
+report(check_inclusion('Up', [(float('nan'),)], [(float('nan'),)]) == 'ok'
+       and check_inclusion('Up', [(float('nan'),)], [('NaN',)]) == 'violation', 'inclusion: NaN is one value, not the text NaN')
+report(check_inclusion('Up', [(Decimal('0.333333333333'),)], [(Decimal('0.33333333333333'),)]) == 'ok'
+       and check_inclusion('Up', [(Decimal('0.3333'),)], [(Decimal('0.3334'),)]) == 'violation'
+       and check_inclusion('Up', [(Decimal('1.50'),)], [(Decimal('1.5'),)]) == 'ok',
+       'inclusion: a decimal printed at two scales is compared at the shorter one')
+from checker import judge  # noqa: E402
+report(judge('Same', [(1,), (2,)], [(2,), (1,)]) == 'ok' and judge('Same', [(1,), (2,)], [(1,)]) == 'violation',
+       'judge: Same is inclusion both ways')
 try:
     check_inclusion('Eq', [(1,), (2,)], [(1,)])
     report(False, 'inclusion: an unknown direction is refused')

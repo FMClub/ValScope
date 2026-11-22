@@ -54,6 +54,9 @@ class MySQLTarget:
         # the collation of every result column, reported by the server (checker.py)
         self.columns = MariaDBColumns(self.conn, mariadb_fold(self.conn, args.database))
         self.name = 'per result column (server metadata)'
+        self.trusted_collations = self._metadata_reports_collations()
+        if not self.trusted_collations:
+            self.name = 'the coarsest collation of the database (the server does not report collations of result columns)'
         self.last_collations = []
         self.last_arm_mix = None
         # table -> columns, for printing DISTINCT around a join (sql_bridge._join_columns)
@@ -93,7 +96,9 @@ class MySQLTarget:
                 types = [d[1] for d in cur.description]
                 self.last_scales = [d[5] for d in cur.description]
             self.last_arm_mix = None
-            if any(w in sql.upper() for w in ('UNION', 'INTERSECT', 'EXCEPT')):
+            if not self.trusted_collations:
+                self.last_collations = [n if n == 'binary' else MariaDBColumns.COARSEST for n in self.last_collations]
+            elif any(w in sql.upper() for w in ('UNION', 'INTERSECT', 'EXCEPT')):
                 self.last_collations = self._compound_collations(sql, self.last_collations)
             return rows, types
         except self.pymysql.err.MySQLError as e:
@@ -102,6 +107,20 @@ class MySQLTarget:
                 sys.exit('connection to the server lost (%s); the run is stopped' % (e,))
             ERRORS['%s %s' % (code, str(e.args[1] if len(e.args) > 1 else e)[:70])] += 1
             return None, None
+
+    def _metadata_reports_collations(self):
+        """Whether the server reports the collation of a result column in its metadata.
+        TiDB (v7.5, v8.5) reports utf8mb4_bin for every text column whatever its collation
+        (scripts/probe_collations.py); the checker would then compare 'a' and 'A' of a
+        case-insensitive column as different strings.  Checked on two literals."""
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute("SELECT _utf8mb4'a' COLLATE utf8mb4_general_ci, _utf8mb4'a' COLLATE utf8mb4_bin")
+                cur.fetchall()
+                got = [self.columns.name(f.charsetnr) for f in cur._result.fields]
+        except self.pymysql.err.MySQLError:
+            return True
+        return got == ['utf8mb4_general_ci', 'utf8mb4_bin']
 
     NUMERIC_CODES = {0, 1, 2, 3, 4, 5, 8, 9, 13, 16, 246}     # pymysql FIELD_TYPE: integers, DECIMAL, FLOAT, DOUBLE, YEAR, BIT
 

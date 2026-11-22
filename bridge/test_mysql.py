@@ -74,6 +74,14 @@ def main():
                arm_mix_verdict('Up violated', 'collations', None) == 'collation' and
                arm_mix_verdict('Up violated', None, None) == 'Up violated' and
                arm_mix_verdict('ok', 'types', None) == 'ok', 'a violation over mixed arms is not reported as one')
+        # a server that does not report the collations of result columns (TiDB): the
+        # coarsest collation of the database for every text column, binary kept
+        report(target.trusted_collations, 'this server reports the collations of result columns')
+        target.trusted_collations = False
+        target.run('SELECT t.a, t.b, t.n FROM t')
+        report(target.last_collations[:2] == [MariaDBColumns.COARSEST] * 2,
+               'untrusted metadata: text columns are compared with the coarsest collation %r' % target.last_collations)
+        target.trusted_collations = True
         target.run('SELECT t.a, t.b FROM t')
         report(target.last_collations == ['utf8mb4_general_ci', 'utf8mb4_bin'], 'plain columns %r' % target.last_collations)
         # every text column is decoded with its own character set

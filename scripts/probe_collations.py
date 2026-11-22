@@ -8,7 +8,9 @@ for a column makes the checker wrong: 'binary' for a case-insensitive column tur
 choice of 'a' or 'A' by a DISTINCT into a violation.  This script creates a scratch database
 with a utf8mb4_general_ci and a utf8mb4_bin column, runs a few queries through the same code
 path as a campaign and prints, per query, the collations the bridge would use and whether
-they agree with the columns' declared collations.  Exit status 1 when one does not.
+they agree with the columns' declared collations.  When the server is known not to report
+them (MySQLTarget.trusted_collations), the coarsest collation of the database ('*') is
+the right answer.  Exit status 1 when a probe gets something else.
 """
 import argparse
 import os
@@ -16,6 +18,7 @@ import sys
 import types
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'bridge'))
+from checker import MariaDBColumns  # noqa: E402
 from run_on_db import MySQLTarget  # noqa: E402
 
 DATABASE = 'vs_probe_collations'
@@ -51,10 +54,13 @@ def main():
     try:
         target = MySQLTarget(types.SimpleNamespace(host=a.host, port=a.port, user=a.user, password=a.password,
                                                    database=DATABASE))
+        print('the server reports the collations of result columns: %s' % target.trusted_collations)
+        print('the checker compares text with:', target.name)
         for sql, expected in PROBES:
             rows, _ = target.run(sql)
             got = list(target.last_collations)
-            ok = expected is None or got == expected
+            ok = expected is None or got == expected or (not target.trusted_collations and all(
+                g == MariaDBColumns.COARSEST for g in got))
             wrong += not ok
             print('%s\t%s\t%s rows\t%s' % ('ok' if ok else 'WRONG', got, None if rows is None else len(rows), sql))
     finally:

@@ -183,10 +183,19 @@ fixes of PR #1 are merged; the design problems below are still open.
    without `GROUP BY`), `issues/006` (new in the sixth round: a `BIT(8)` scalar subquery
    under a loose index scan returns 255). Reproduced on MariaDB 10.11.14; on MySQL 8.4.13
    (CI) the minimal cases of 005 and 006 give the correct results, so both are specific to
-   MariaDB. Percona, TiDB, OceanBase and PolarDB were not tested; causes not analysed.
+   MariaDB. OceanBase and PolarDB were not tested (Percona Server and TiDB: item 1d); causes
+   not analysed.
 1a. **MariaDB `AVG` under `SELECT DISTINCT`** (`issues/009`, sixth round, found by the DISTINCT
    value queries): the `AVG` of the last group on every row; still present in MariaDB
    11.8.9, not in MySQL. Issues 005 and 006 are also still present in MariaDB 11.8.9.
+1d. **Percona Server and TiDB (rounds 13-15).** Percona Server 8.4.11 shows issues 008 and 015
+   as MySQL 8.4 does. TiDB v7.5.1 and v8.5.3 have three candidates of their own:
+   `issues/016` (`NOT IN` with a condition on the outer row returns every row twice),
+   `issues/017` (an internal error on `SELECT DISTINCT` with an `OR` after `ANALYZE`) and
+   `issues/018` (a `UNION` of a `DECIMAL` and a `DOUBLE` arm rounds the `DOUBLE`). On TiDB the
+   tool itself was wrong at first: TiDB reports `utf8mb4_bin` for every text column of a
+   result and 0 decimals for unrounded floats (round 14). Open: the TiDB tracker was not
+   searched for any of the three; OceanBase and PolarDB-X were not tried.
 1c. **MariaDB over random databases (round 8 of `docs/JOURNAL.md`).** `bridge/campaign_mysql.py`
    (40 databases, 3200 queries) gave 123 violating pairs on 10.11.14, all classified
    (`results/mariadb-campaign.md`): 110 are issue 009, which turns out to be a family

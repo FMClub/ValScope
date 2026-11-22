@@ -7,7 +7,7 @@ Not reported upstream.
 
 ## Summary
 
-`data/tidb/rowid-intersect.sql`:
+`data/tidb/rowid-distinct-or.sql`:
 
 ```sql
 CREATE TABLE t1 (c1 BIGINT, c4 DOUBLE, rid INT PRIMARY KEY);

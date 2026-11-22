@@ -39,6 +39,7 @@ INTERNAL_ERROR = re.compile(r"can't find column|internal error|assertion|unexpec
 INTERNAL = {}
 # PolarDB-X starts every message with '[request id][host:port][database]': not part of the error
 REQUEST_ID = re.compile(r'^(\[[^\]]*\])+\s*')
+ERR_CODE = re.compile(r'^ERR-CODE: ')     # PolarDB-X: 'ERR-CODE: [PXC-4501][ERR_OPTIMIZER] ...'
 
 
 class MySQLTarget:
@@ -121,8 +122,8 @@ class MySQLTarget:
             code = e.args[0] if e.args else None
             if code in self.CONNECTION_LOST or isinstance(e, self.pymysql.err.InterfaceError):
                 sys.exit('connection to the server lost (%s); the run is stopped' % (e,))
-            message = REQUEST_ID.sub('', str(e.args[1] if len(e.args) > 1 else e))
-            ERRORS['%s %s' % (code, message[:70])] += 1
+            message = ERR_CODE.sub('', REQUEST_ID.sub('', str(e.args[1] if len(e.args) > 1 else e)))
+            ERRORS['%s %s' % (code, message[:120])] += 1
             if INTERNAL_ERROR.search(message) and message not in INTERNAL:
                 INTERNAL[message] = sql        # a valid query the server cannot run (issues/017)
             return None, None

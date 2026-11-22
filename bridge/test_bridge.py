@@ -892,9 +892,11 @@ report(' GLOB ' in rich_sqlite and '<=>' not in rich_sqlite, 'generator: --rich 
 from checker import approximate_key  # noqa: E402
 report(approximate_key('Ébc', 'utf8mb4_general_ci') == approximate_key('ebC', 'utf8mb4_unicode_ci')
        and approximate_key('Ébc', 'utf8mb4_bin') == 'Ébc', 'approximate collation keys without WEIGHT_STRING')
-from run_on_db import REQUEST_ID  # noqa: E402
+from run_on_db import ERR_CODE, REQUEST_ID  # noqa: E402
 report(REQUEST_ID.sub('', '[1a2b][10.0.0.1:8527][vs] Unknown column') == 'Unknown column'
-       and REQUEST_ID.sub('', 'Unknown [x] column') == 'Unknown [x] column', 'PolarDB-X request ids removed from errors')
+       and REQUEST_ID.sub('', 'Unknown [x] column') == 'Unknown [x] column'
+       and ERR_CODE.sub('', 'ERR-CODE: [PXC-4500][ERR_PARSER] EXCEPT ALL') == '[PXC-4500][ERR_PARSER] EXCEPT ALL',
+       'PolarDB-X request ids and ERR-CODE prefixes removed from errors')
 
 print('%d failures' % failures)
 sys.exit(1 if failures else 0)

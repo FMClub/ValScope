@@ -22,6 +22,6 @@ SELECT 'N7 one of a, A: (empty b) UNION (SELECT DISTINCT v FROM s)' AS q;
 (SELECT b.v FROM b WHERE 1 = 0) UNION (SELECT DISTINCT s.v FROM s);
 CREATE TABLE p (v VARCHAR(20) COLLATE utf8mb4_general_ci);
 INSERT INTO p VALUES ('a '), ('A'), ('');
-SELECT 'N8 two rows, the empty string and one of 'a ', A: (empty b) UNION (p UNION p), trailing space (pair 2)' AS q;
+SELECT 'N8 two rows, the empty string and one of a-space, A: (empty b) UNION (p UNION p), trailing space (pair 2)' AS q;
 (SELECT b.v FROM b WHERE 1 = 0) UNION ((SELECT p.v FROM p) UNION (SELECT p.v FROM p));
 USE information_schema; DROP DATABASE vs_nu;

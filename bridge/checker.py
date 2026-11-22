@@ -370,8 +370,15 @@ def check_inclusion(direction, original_rows, mutant_rows, fold=None):
         if included(bag(small, None, digits), bag(large, None, digits)):
             return 'ok'
     if nontrivial(fold):
+        # a set (no two rows equal) can hold two strings that the coarser collation makes
+        # one ('a' and 'A' of a UNION de-duplicated in utf8mb4_bin): under that collation
+        # they are one row, needed once (the OceanBase and MySQL nested UNIONs of round 19)
+        cap = len(set(small)) == len(small)
         for digits in (None, 12, 9):
-            if included(bag(small, fold, digits), bag(large, fold, digits)):
+            folded = bag(small, fold, digits)
+            if cap:
+                folded = collections.Counter(dict.fromkeys(folded, 1))
+            if included(folded, bag(large, fold, digits)):
                 return 'collation'
     return 'violation'
 

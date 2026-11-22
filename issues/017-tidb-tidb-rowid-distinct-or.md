@@ -53,7 +53,12 @@ the operand alone fails and only after `ANALYZE`, and the table above was taken 
 
 ## Limitations
 
-- TiDB v7.5.1 and v8.5.3 only. The TiDB tracker was not searched.
+- TiDB v7.5.1 and v8.5.3 only.
+- Upstream (web search, round 18; the tracker itself was not searched): TiDB's documentation
+  says `_tidb_rowid` does not exist for a table with a clustered primary key, which confirms
+  that the plan refers to a column that cannot be there. The forum has reports of the same
+  error family ("Can't find column Column#40 in schema", TiDB 7.1.0, on a table with a
+  clustered key and a new index), not of this query.
 - An error is not a wrong result, and ValScope does not judge errors: a mutant the server
   refuses is skipped. This one was noticed in the error summary of the campaign, which
   lists every message (`campaign_mysql.py`, "error xN"). Internal errors (1105) of TiDB are

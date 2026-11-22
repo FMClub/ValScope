@@ -66,7 +66,11 @@ the table above was written from those.
 
 ## Limitations
 
-- TiDB v7.5.1 and v8.5.3 only (the two images tried). Not searched in the TiDB tracker; a web
-  search was not made for this one yet.
+- TiDB v7.5.1 and v8.5.3 only (the two images tried).
+- Upstream (web search, round 18; the tracker itself was not searched): the nearest report is
+  TiDB issue 52902, "IndexHashJoin may produce redundant rows for anti semi left outer join",
+  fixed in 2024 (PR 52908). It is about another join operator; the plan here is a
+  `HashJoin` null-aware anti semi join, and v8.5.3 is newer than that fix. Not the same defect
+  as far as the titles show.
 - The cause is inferred from `EXPLAIN`.
 - The campaign's other TiDB pairs (value rules, `cond->TRUE`) were not analysed in this round.

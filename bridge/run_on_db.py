@@ -24,6 +24,7 @@ import json
 import os
 import re
 import sys
+from types import SimpleNamespace as types_ns
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import sql_bridge  # noqa: E402
@@ -261,10 +262,6 @@ class SQLiteTarget:
             return None, None
 
 
-def same_rows(a, b):
-    return check_inclusion('Up', a, b) == 'ok' and check_inclusion('Down', a, b) == 'ok'
-
-
 def sqlite_schema(db):
     """table -> columns of an SQLite database (sqlite_exec.SQLiteLib)."""
     schema = {}
@@ -397,16 +394,17 @@ def rejudge(verdict, check, base, res, mixed=(), steps=(), column=None):
     return 'incomparable'
 
 
-def printed_decimals(target, column, base_types, types, base_scales, rows=()):
+def printed_decimals(target, column, base_types, types, base_scales, rows=(), scales=None):
     """The number of decimals after which the mutated column may differ by one unit, or
     None.  The server rounds a binary float printed with a fixed number of decimals, and a
     DECIMAL (the result of a division: AVG) to its scale; when the two results round at
     different places the relation holds only up to one unit of the coarser one.  (Two
     DECIMALs of one scale are rounded alike, and rounding is monotone: no tolerance.)
-    `target.last_scales` are those of the mutant, `base_scales` those of the original.
+    `scales` are those of the mutant (default: target.last_scales), `base_scales` those of the original.
     `rows`: the two results; a number of decimals is used only if the values of the result
     that reports it have no more (TiDB reports 0 decimals for an unrounded STDDEV_SAMP)."""
-    scales = getattr(target, 'last_scales', None)
+    if scales is None:
+        scales = getattr(target, 'last_scales', None)
     if types is None or not base_scales or not scales:
         return None
     pair, both = {base_types[column], types[column]}, (base_scales[column], scales[column])
@@ -425,6 +423,49 @@ def printed_decimals(target, column, base_types, types, base_scales, rows=()):
             if isinstance(v, float) and abs(v - round(v, d)) > 1e-9 * max(1.0, abs(v)):
                 return None
     return d
+
+
+def capture(target, sql):
+    """Run `sql` and keep what a judgement needs of its result, or None if it failed."""
+    rows, types = target.run(sql)
+    if rows is None:
+        return None
+    return types_ns(rows=rows, types=types, collations=list(getattr(target, 'last_collations', [])),
+                    scales=getattr(target, 'last_scales', None), mix=set(getattr(target, 'last_arm_mix', None) or ()),
+                    mixed=set(getattr(target, 'last_mixed_columns', ())))
+
+
+def judge_results(target, base, res, expect, cover=False, single=False, sql=None):
+    """The verdict on two captured results (capture()) for the relation `expect`: 'Up' / 'Down'
+    (set inclusion), 'Same' (the translation check: both), or 'REL col N' (a value relation on
+    column N).  'ok', 'collation', 'incomparable', 'type_mismatch', or a violation.  `single`:
+    the query reads single-precision inputs; `sql`: the original, for its step-function
+    columns.  run_on_db.py, recheck_mysql.py and reduce_mysql.py all judge with this."""
+    fold = target.folds(base.collations, res.collations)
+    strict = target.dialect == 'sqlite'           # the numeric probe passed (see main)
+    if ' col ' in expect:
+        relation, _, column = expect.split()
+        column = int(column)
+        loose = single or (res.types is not None and target.SINGLE in (base.types[column], res.types[column]))
+        decimals = printed_decimals(target, column, base.types, res.types, base.scales, (base.rows, res.rows),
+                                    res.scales)
+
+        def check(b, r):
+            return check_value(relation, column, b, r, single_precision=loose, fold=fold,
+                               output_decimals=decimals, cover=cover, strict_types=strict)
+    else:
+        column = None
+        if expect != 'Same' and comparable_types(base.types, res.types, base.rows, res.rows):
+            return 'type_mismatch'
+        directions = ('Up', 'Down') if expect == 'Same' else (expect,)
+
+        def check(b, r):
+            verdicts = [check_inclusion(d, b, r, fold) for d in directions]
+            bad = [v for v in verdicts if v not in ('ok', 'collation')]
+            return bad[0] if bad else ('collation' if 'collation' in verdicts else 'ok')
+    verdict = arm_mix_verdict(check(base.rows, res.rows), base.mix, res.mix)
+    return rejudge(verdict, check, base.rows, res.rows, base.mixed | res.mixed,
+                   step_columns(sql) if sql else set(), column)
 
 
 def main():
@@ -503,16 +544,12 @@ def main():
                 if count is None or count[0][0] != 0:
                     st['non_numeric_input'] += 1
                     continue
-        as_written, _ = target.run(sql)
-        base, base_types = target.run(original)
-        base_scales = getattr(target, 'last_scales', None)
-        base_collations = target.last_collations
-        base_mix = getattr(target, 'last_arm_mix', None)
-        base_mixed = set(getattr(target, 'last_mixed_columns', set()))
-        if as_written is None or base is None:
+        written = capture(target, sql)
+        base = capture(target, original)
+        if written is None or base is None:
             st['original_failed'] += 1
             continue
-        if not same_rows(as_written, base):
+        if judge_results(target, written, base, 'Same') not in ('ok', 'collation', 'incomparable'):
             st['TRANSLATION_MISMATCH'] += 1
             print('TRANSLATION MISMATCH\n  written  : %s\n  reprinted: %s' % (sql, original))
             if out and not args.flip:
@@ -521,55 +558,40 @@ def main():
                 # a DBMS bug or a bridge bug; reduce_mysql.py reduces such a pair too
                 out.write(json.dumps({'rule': 'TRANSLATION', 'expect': 'Same', 'verdict': 'translation mismatch',
                                       'value': bool(args.value), 'query': sql, 'original': sql, 'mutant': original,
-                                      'original_rows': len(as_written), 'mutant_rows': len(base)}) + '\n')
+                                      'original_rows': len(written.rows), 'mutant_rows': len(base.rows)}) + '\n')
                 out.flush()
             continue
         st['supported'] += 1
         st['mutants_not_printable'] += skipped
         for mutant in mutants:
             text = mutant[-1]
-            res, types = target.run(text)
+            res = capture(target, text)
             if res is None:
                 st['mutant_failed'] += 1
                 if st['mutant_failed'] <= args.show_failed:     # the dialect of the printer, or of the server?
                     print('MUTANT FAILED (%s)\n  original: %s\n  mutant  : %s' % (mutant[1], original, text))
                 continue
-            fold = target.folds(base_collations, target.last_collations)
+            cover = False
             if args.value and len(mutant) == 4:
                 relation, rule, column, _ = mutant
                 if args.flip:
                     if relation not in FLIP_VALUE:
                         continue
                     relation = FLIP_VALUE[relation]
-                loose = single or (types is not None and target.SINGLE in (base_types[column], types[column]))
-                decimals = printed_decimals(target, column, base_types, types, base_scales, (base, res))
                 cover = bool(trs) and trs[0].cover_for(text)
-
-                def check(b, r, relation=relation, column=column, loose=loose, fold=fold, decimals=decimals,
-                          cover=cover):
-                    return check_value(relation, column, b, r, single_precision=loose, fold=fold,
-                                       output_decimals=decimals, cover=cover,
-                                       strict_types=target.dialect == 'sqlite')    # the numeric probe passed
                 label = '%s col %d' % (relation, column)
             else:
                 # set-semantic mutant, or a mutant of the HAVING predicate
                 direction, rule, _ = mutant
                 if args.value:
                     rule = 'HAVING ' + rule
-                if comparable_types(base_types, types, base, res):
-                    st['type_mismatch_skipped'] += 1
-                    continue
                 if args.flip:
                     direction = 'Down' if direction == 'Up' else 'Up'
-
-                def check(b, r, direction=direction, fold=fold):
-                    return check_inclusion(direction, b, r, fold)
-                column = None
                 label = direction
-            verdict = check(base, res)
-            verdict = arm_mix_verdict(verdict, base_mix, getattr(target, 'last_arm_mix', None))
-            verdict = rejudge(verdict, check, base, res, base_mixed | getattr(target, 'last_mixed_columns', set()),
-                              step_columns(original), column)
+            verdict = judge_results(target, base, res, label, cover=cover, single=single, sql=original)
+            if verdict == 'type_mismatch':
+                st['type_mismatch_skipped'] += 1
+                continue
             if verdict == 'ok':
                 st['checked_ok'] += 1
                 by_rule[rule] += 1
@@ -581,10 +603,9 @@ def main():
                     print('VIOLATION %s %s (%s)\n  original: %s\n  mutant  : %s'
                           % (label, rule, verdict, original, text))
                     if out:
-                        cover = bool(args.value and len(mutant) == 4 and trs and trs[0].cover_for(text))
                         out.write(json.dumps({'rule': rule, 'expect': label, 'verdict': verdict, 'distinct': cover,
-                                              'query': sql, 'original': original, 'mutant': text,
-                                              'original_rows': len(base), 'mutant_rows': len(res)}) + '\n')
+                                              'single': single, 'query': sql, 'original': original, 'mutant': text,
+                                              'original_rows': len(base.rows), 'mutant_rows': len(res.rows)}) + '\n')
                         out.flush()
     # mutants whose printed SQL did not parse back to the term of the verified engine
     if sql_bridge.STATS['not_in_dialect']:

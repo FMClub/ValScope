@@ -19,8 +19,7 @@ import types
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gen_mysql_db  # noqa: E402
-from checker import check_inclusion, check_value  # noqa: E402
-from run_on_db import MySQLTarget, arm_mix_verdict, printed_decimals, rejudge, step_columns  # noqa: E402
+from run_on_db import MySQLTarget, capture, judge_results  # noqa: E402
 
 DATABASE = 'vs_recheck'
 
@@ -36,31 +35,16 @@ def drop_indexes(cur):
 
 
 def judge(target, rec):
-    base, base_types = target.run(rec['original'])
-    bc, bs, mix = target.last_collations, getattr(target, 'last_scales', None), target.last_arm_mix
-    mixed = set(target.last_mixed_columns)
-    res, types_ = target.run(rec['mutant'])
+    """The verdict on a recorded pair, judged as run_on_db.py judges it (judge_results)."""
+    base = capture(target, rec['original'])
+    res = capture(target, rec['mutant'])
     if base is None or res is None:
         return 'error'
-    fold = target.folds(bc, target.last_collations)
     if rec['rule'] == 'TRANSLATION':
-        both = [check_inclusion(d, base, res, fold) for d in ('Up', 'Down')]
-        return 'ok' if all(v in ('ok', 'collation') for v in both) else 'translation mismatch'
-    if ' col ' in rec['expect']:
-        relation, _, column = rec['expect'].split()
-        column = int(column)
-        decimals = printed_decimals(target, column, base_types, types_, bs, (base, res))
-
-        def check(b, r):
-            return check_value(relation, column, b, r, fold=fold, cover=bool(rec.get('distinct')),
-                               output_decimals=decimals)
-    else:
-        column = None
-
-        def check(b, r):
-            return check_inclusion(rec['expect'], b, r, fold)
-    v = arm_mix_verdict(check(base, res), mix, target.last_arm_mix)
-    return rejudge(v, check, base, res, mixed | target.last_mixed_columns, step_columns(rec['original']), column)
+        v = judge_results(target, base, res, 'Same')
+        return v if v in ('ok', 'collation', 'incomparable') else 'translation mismatch'
+    return judge_results(target, base, res, rec['expect'], cover=bool(rec.get('distinct')),
+                         single=bool(rec.get('single')), sql=rec['original'])
 
 
 def unique_pairs(path):
@@ -77,7 +61,7 @@ def unique_pairs(path):
 
 
 def violated(verdict):
-    return verdict not in ('ok', 'collation', 'incomparable', 'error')
+    return verdict not in ('ok', 'collation', 'incomparable', 'type_mismatch', 'error')
 
 
 def recheck(recs, conn, no_indexes=False):

@@ -52,8 +52,7 @@ class Judge:
 
     def violated(self, original, mutant):
         """The pair, judged as recheck_mysql.py judges a recorded one."""
-        v = recheck_mysql.judge(self.t, dict(self.rec, original=original, mutant=mutant))
-        return v not in ('ok', 'collation', 'incomparable', 'error')
+        return recheck_mysql.violated(recheck_mysql.judge(self.t, dict(self.rec, original=original, mutant=mutant)))
 
     def pair(self, sql):
         if self.translation:

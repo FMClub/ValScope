@@ -38,8 +38,12 @@ A mutation that changes the type of one arm changes the type of the column: `AVG
 the `AVG` arm (a DECIMAL) into an integer, the column becomes `DOUBLE`, and a row of the
 *other* arm changes from 0.7854 to 0.7853981633974483. The checker allows one unit of the last
 printed decimal when a result reports a fixed number of decimals (`printed_decimals`), so
-such pairs are not reported; the five pairs of round 14 were reported only because of a
-mistake in that rule, fixed since.
+such pairs are not reported when TiDB reports the decimals it rounded to. It does not always:
+three `AVG->MAX` pairs of the campaign on seeds 1-40 (seeds 12, 14, 21) have an original column
+of floats rounded to 2 or 4 decimals with no fixed number of decimals in the metadata, e.g.
+`STDDEV_SAMP(...)` in a UNION with `AVG(...)` is 5.01 in the original and 5.0099900199501395
+in the mutant. Those pairs are this defect seen by ValScope (the original's values are the
+wrong ones), and are recorded as such; `scripts/triage_mysql.py` hints them.
 
 ## Limitations
 

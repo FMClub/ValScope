@@ -55,6 +55,8 @@ def hint(original, mutant, index_only):
     verdict: it is checked against the classified pairs of results/mariadb-campaign.jsonl
     (bridge/test_bridge.py), and a new defect can have the look of a known one."""
     o, both = original.upper(), (original + ' ' + mutant).upper()
+    if ' UNION ' in o and o.count('AVG(') > mutant.upper().count('AVG('):
+        return '018'        # TiDB: AVG (a DECIMAL) gone from a UNION arm changes how the others are rounded
     if ' NOT IN (SELECT ' in o and ' NOT IN (SELECT ' not in mutant.upper() and 'NOT (' in mutant.upper():
         return '016'        # TiDB: x NOT IN (q) and NOT (x IN (q)) differ (the translation check)
     having = o.rfind(' HAVING ')

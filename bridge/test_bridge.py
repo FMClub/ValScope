@@ -815,6 +815,9 @@ report(len(reduced) >= 32 and all(a == b if a in hinted else b == '' for a, b in
 report(hint('SELECT t1b.c1 AS k0 FROM t3 AS t3a LEFT JOIN (SELECT x.c1 AS c1 FROM t1 AS x WHERE EXISTS (SELECT s.c1 FROM t1 AS s)) '
             'AS t1b ON (1) WHERE NOT (EXISTS (SELECT u.c1 FROM t3 AS u WHERE (CAST(t3a.c6 AS SIGNED)) = 1))', '', False) == '015',
        'triage: the pair of issue 015 as the campaign on MySQL 9 found it')
+report(hint('(SELECT t3a.c2 AS k0, ATAN(AVG((t3a.c8 - 1))) AS k1 FROM t3 AS t3a GROUP BY t3a.c2) UNION ALL (SELECT DISTINCT t3a.c1 AS k0, AVG(t3a.c8) AS k1 FROM t3 AS t3a GROUP BY t3a.c1)',
+            '(SELECT t3a.c2 AS k0, ATAN(AVG((t3a.c8 - 1))) AS k1 FROM t3 AS t3a GROUP BY t3a.c2) UNION ALL (SELECT DISTINCT t3a.c1 AS k0, MAX(t3a.c8) AS k1 FROM t3 AS t3a GROUP BY t3a.c1)',
+            False) == '018', 'triage: AVG->MAX in a UNION arm (issue 018 on TiDB)')
 report(hint('SELECT t1a.c4 AS k0 FROM t1 AS t1a WHERE t1a.c4 NOT IN (SELECT t3i11.c1 FROM t3 AS t3i11 WHERE (t1a.c4 <=> NULL AND t3i11.c8 >= t1a.c1))',
             'SELECT t1a.c4 AS k0 FROM t1 AS t1a WHERE NOT (t1a.c4 IN (SELECT t3i11.c1 FROM t3 AS t3i11 WHERE ((t1a.c4 <=> NULL)) AND (t3i11.c8 >= t1a.c1)))',
             False) == '016', 'triage: a translation pair of issue 016 (NOT IN as written, NOT (... IN ...) re-printed)')

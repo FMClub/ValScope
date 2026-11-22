@@ -494,8 +494,8 @@ patch releases; locally it is strict (84 pairs of campaigns 2-6: 0 changed, 2 hi
 **Audit findings.**
 - The journal of round 16 named the wrong seed for the pairs hidden by the collation rule (83
   instead of 42); the script showed it at its first run. Corrected in place, with a note.
-- CI after the change of round 16 (`rejudge`): green on every job that has finished
-  (Coq 8.18, Rocq 9, MariaDB 10.11, 11.4, 11.8, MySQL 9, TiDB v8.5).
+- CI after the change of round 16 (`rejudge`): all eight jobs green (Coq 8.18, Rocq 9,
+  MariaDB 10.11, 11.4, 11.8, MySQL 8.4, MySQL 9, TiDB v8.5).
 
 **End of this run of rounds (13-17).** New candidates: `issues/016`, `017`, `018` (TiDB). Fixed
 false alarms of the tool: five on TiDB (round 14), two whole-pair tolerances narrowed (round 16),

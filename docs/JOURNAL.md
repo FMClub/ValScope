@@ -367,3 +367,42 @@ not by a rule: the bridge prints `NOT IN` as `NOT (... IN ...)`, and the two mus
 2. `issues/016` on MySQL and MariaDB 11.x, for the table.
 3. `bridge/test_mysql.py` and the CI do not cover TiDB at all; a CI job for TiDB would catch
    a regression of the bridge on its dialect.
+
+## Round 14 (2026-11-22)
+
+**Milestone.** The tool made trustworthy on TiDB, and a second TiDB candidate. TiDB reports
+`utf8mb4_bin` for every text column of a result, whatever its collation
+(`scripts/probe_collations.py`, now run before every dispatched campaign and in a new CI job
+for TiDB v8.5). `MySQLTarget` checks this at connection time and, when the metadata cannot be
+trusted, compares text with the coarsest collation of the database. `issues/017`: on TiDB
+v7.5.1 and v8.5.3, `SELECT DISTINCT c4 FROM t1 WHERE c1 = 10 OR c4 <= 10` fails with "Can't
+find column t1._tidb_rowid" after `ANALYZE TABLE`, when `t1` has a clustered integer key and
+a unique index on `(c1, c4)`.
+
+- Issue 016 checked on MySQL 9.7.4 and MariaDB 11.8.9: both correct.
+- Runs and campaigns now print internal errors of a server (an error that is the server's
+  fault, not the query's) with the first query of each; issue 017 had only been a line of the
+  error summary.
+- Triage hints for 016.
+
+**Audit findings (five false alarms on TiDB, all fixed; each fix was checked by rerunning the
+same campaign, seeds 1-40, three times).**
+- Text compared as binary (the metadata above): the `DISTINCT` pairs over `_ci` columns.
+- My first fix skipped the probing of compound arms on TiDB, which also turned off the
+  mixed-types rule: ten new pairs in the rerun. The arms are probed again.
+- `relation_holds` with a rounding tolerance near the pivot of `AwayOne` made the relation
+  stricter instead of looser (1.94 counted as "at 1, must stay"). A rounded value near the
+  pivot now allows any mutant value.
+- The tolerance came from TiDB reporting 0 decimals for an unrounded `STDDEV_SAMP`;
+  `printed_decimals` checks the values of the result that reports the decimals. My first
+  version checked both results and dropped the tolerance where it was right (five `AVG->MAX`
+  pairs of a UNION of a DECIMAL and a DOUBLE arm, which TiDB types as DECIMAL(.., 4)).
+- Lesson: on a new server, every tolerance and every piece of metadata is a hypothesis. The
+  campaign with the same seeds, rerun after each fix, is what showed the regressions of the
+  fixes themselves.
+
+**TODO for round 15.**
+1. Read the fourth rerun of the TiDB campaign; what remains must be issue 016 only.
+2. TiDB types `UNION` of DECIMAL and DOUBLE as DECIMAL and rounds the DOUBLE (MySQL: DOUBLE).
+   Write it down as an observation with a script; decide whether it is a defect.
+3. The second TiDB campaign (seeds 131-170, `--rich`) with the fixes.

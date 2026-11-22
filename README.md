@@ -578,7 +578,8 @@ hand or by `bridge/reduce_mysql.py` to a short script in `data/mariadb/` that CI
 MariaDB 10.11, 11.4 and 11.8 and on MySQL 8.4 and 9 (`.github/workflows/sql.yml` runs one
 script on any other image). None was reported upstream (no access
 to the trackers from the environment this was written in). The columns say where the
-script gives a wrong result.
+script gives a wrong result; Percona Server 8.4.11 behaves as MySQL 8.4 for 008 and 015, and
+TiDB is in the last column of 016.
 
 | Issue | What | MariaDB 10.11.14 | MariaDB 11.4.13 / 11.8.9 / 13.0.2 | MySQL 8.4.13 / 9.7.4 |
 | --- | --- | --- | --- | --- |
@@ -593,6 +594,7 @@ script gives a wrong result.
 | [013](issues/013-mariadb-decimal-negative-zero-group.md) | the DECIMAL `-0.00` (from `-3.00 % 3`) is grouped with `0.00` or apart depending on an unrelated aggregate | wrong | wrong | correct |
 | [014](issues/014-mariadb-subquery-cache-collation.md) | the subquery cache matches `'A'` and `'a'` of a `_ci` outer column although the subquery compares under `_bin`: the result depends on the order of the rows | wrong | wrong | correct |
 | [015](issues/015-mysql-left-join-semijoin-antijoin.md) | a LEFT JOIN loses its inner side (NULL-extended rows) when an `EXISTS` inside it and a `NOT EXISTS` outside it are both materialized on the constant 1 | correct | correct | wrong (8.0.46, 8.4.13, 9.7.4; 5.7.44 correct) |
+| [016](issues/016-tidb-null-aware-antijoin-left-cond.md) | TiDB: `x NOT IN (correlated subquery)` with a condition on the outer row alone (`t.b <=> NULL`) returns every row twice | correct | not run | not run; **TiDB v7.5.1, v8.5.3: wrong** |
 
 MariaDB 13.0.2 (the `latest` image, through `.github/workflows/sql.yml`) was checked for
 003 and 009 to 014, and a campaign on it found 003, 010, 012 and 013 again; 005 and 006 were

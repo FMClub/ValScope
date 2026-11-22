@@ -433,3 +433,42 @@ says its precision math is consistent with MySQL.
    loosened the checker too much would show as missing pairs).
 2. `README.md` and `docs/USAGE.md`: TiDB as a target (port, password, `--tidb`, what the
    checker does differently there).
+
+## Round 16 (2026-11-22)
+
+**Milestone.** A regression check of the checker against its own history. The 84 recorded
+MariaDB pairs of campaigns 2-6 were judged again with the present checker
+(`recheck_mysql.py`); 6 had become `incomparable`. Two tolerances of round 12 turned a whole
+pair incomparable when one column of the query had a property (a number arm and a text arm
+in a compound; a step function of a variance), and so hid five pairs of `issues/012`. Both are
+now applied per column: `rejudge` judges a violation again with only those columns made
+comparable (a numeric text as its number; a step-function column dropped if it moved by at
+most one step), and any other difference stays a violation.
+
+- After the change: the five issue-012 pairs are violated again; the false alarms the rules were
+  made for (round 9, seeds 78 and 80) stay `incomparable` / `collation`; the demo baseline
+  (18 known, 0 new) and the negative control (1181) are unchanged.
+- `last_arm_mix` is a set. A compound can mix types and collations; with a single value the
+  collation rule was skipped whenever the types rule fired first.
+- Reruns with the seeds of earlier campaigns: MariaDB 10.11.14 campaign 4, 8 of 8 recorded
+  pairs found again and nothing else; MySQL 9.7.4 seeds 131-170, the 6 pairs of issue 015 (the
+  6 false alarms of round 11 gone); MariaDB 13.0.2 seeds 231-280, 17 pairs of known issues (the
+  false alarm gone).
+- `docs/USAGE.md`: what differs per MySQL-protocol server (TiDB) and what the bridge does.
+
+**Audit findings.**
+- One recorded pair was misclassified: seed 196 of campaign 5, recorded as issue 013 in round
+  11 by its hint, is a false alarm (only `CEIL(VAR_SAMP)` of another column moved, by one step at
+  integer boundaries). The record now says `tool: step function`. A hint is not a verdict; the
+  rows of a pair are.
+- Two recorded issue-012 pairs (seed 83, an `EXCEPT` over a `_ci` and a `_bin` column) are hidden
+  by the collation rule, which still applies to the whole pair: which rows an `EXCEPT` keeps
+  depends on the representative, so making columns comparable does not repair it. Recorded
+  here as a known cost of that rule.
+
+**TODO for round 17.**
+1. The last round of this run: tidy the repository (scripts and data that served one
+   investigation only; `data/tidb/` has four scripts for issue 017), check that README, USAGE,
+   issue 004 and the results agree with each other.
+2. A recheck of the recorded pairs belongs in CI or in a script, so that the next change of
+   the checker is checked against its history as this one was.

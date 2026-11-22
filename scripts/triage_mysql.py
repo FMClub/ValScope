@@ -62,10 +62,12 @@ def server_family(version):
 
 
 def _sum_minus_constant(o, m, both, index_only):
+    """An aggregate of x - k, another aggregate of x (COUNT(x) too) and a COUNT(DISTINCT x)."""
     for col in set(re.findall(r'COUNT\s*\(\s*DISTINCT\s+(T\w+\.C\d+)\s*\)', both)):
         c = re.escape(col)
-        if re.search(r'\b(SUM|AVG|VAR\w*|STD\w*)\s*\(\s*\(?\s*%s\s*[-+]\s*\(?-?\d' % c, both) \
-                and re.search(r'\b(SUM|AVG|VAR\w*|STD\w*)\s*\(\s*%s\s*\)' % c, both):
+        shifted = re.findall(r'\b(?:SUM|AVG|VAR\w*|STD\w*)\s*\(\s*\(?\s*%s\s*[-+]\s*\(?-?\d' % c, o)
+        plain = re.findall(r'\b(?:SUM|AVG|COUNT|VAR\w*|STD\w*)\s*\(\s*\(?\s*%s\b' % c, o)
+        if shifted and len(plain) >= 2:
             return True
     return False
 

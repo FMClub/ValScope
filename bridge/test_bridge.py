@@ -841,6 +841,9 @@ ob141 = ('SELECT (t1a.c1 % 5) AS k0, MAX(t1a.c1) AS k1, SUM((t1a.c1 - 2)) AS k2,
          'SELECT (t1a.c1 % 5) AS k0, MAX(t1a.c1) AS k1, SUM((t1a.c1 - 2)) AS k2, (COUNT(DISTINCT t1a.c1) + 3) AS k3, ATAN(SUM(t1a.c1)) AS k4 FROM t1 AS t1a GROUP BY (t1a.c1 % 5)')
 report(hint(*ob141, False) == '013' and hint(*ob141, False, 'oceanbase') == '023' and hint(*ob141, False, 'mysql') == '',
        'triage: the hints of the server only (an OceanBase pair of issue 023 that looks like 013)')
+report(hint('SELECT DISTINCT (t2a.c14 % 2) AS k0, SUM((t2a.c14 - 3)) AS k1, COUNT(t2a.c14) AS k2, CEIL(STDDEV_SAMP((t2a.c14 - 1))) AS k3 FROM t2 AS t2a GROUP BY (t2a.c14 % 2)',
+            'SELECT DISTINCT (t2a.c14 % 2) AS k0, SUM((t2a.c14 - 3)) AS k1, COUNT(DISTINCT t2a.c14) AS k2, CEIL(STDDEV_SAMP((t2a.c14 - 1))) AS k3 FROM t2 AS t2a GROUP BY (t2a.c14 % 2)',
+            False, 'oceanbase') == '023', 'triage: the OceanBase pair of seed 169 (issue 023, no SUM(x) beside)')
 report([server_family(v) for v in ('10.11.14-MariaDB', '8.0.11-TiDB-v8.5.3', '5.7.25-OceanBase_CE-v4.4.2.1',
                                    '5.6.29-PXC-5.4.19-SNAPSHOT', '9.7.4', '8.4.11-11')]
        == ['mariadb', 'tidb', 'oceanbase', 'polardbx', 'mysql', 'mysql'], 'triage: the family of a server from its version')

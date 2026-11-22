@@ -95,8 +95,15 @@ CI runs a small campaign (seeds 1-12, `--focus`) on MySQL 8.4 and 9 and on Maria
 
 | Percona Server 8.4.11-12 (`percona/percona-server:8.4`) | seeds 131-160, `--rich` | 51869 | 7 | `issues/015`: 6 (the pairs of seed 144, as on MySQL 9), `issues/008` (NULL matches 0): 1 |
 | TiDB 7.5.1 (`pingcap/tidb:latest`, port 4000) | seeds 1-10, `--focus` | 8054 | 0 | TiDB refused 213 of 600 queries (a subquery in a join condition, `INTERSECT ALL`, `EXCEPT ALL`); the generator has `--tidb` since |
-| TiDB v8.5.3 | seeds 1-40, `--focus --tidb` | 105205 | 12 | 8 translation mismatches, `issues/016` (`NOT IN` and `NOT (... IN ...)` differ); 4 not analysed yet (`cond->TRUE`, `cmp-weaken`, `STDDEV_SAMP->VAR_SAMP`) |
-| TiDB v8.5.3 | seeds 131-170, `--rich --tidb` | 67522 | 9 | 5 translation mismatches, `issues/016`; 2 not analysed yet (`LIKE-generalise`, `cond->TRUE`) |
+| TiDB v8.5.3, first runs | seeds 1-40 `--focus --tidb`; 131-170 `--rich --tidb` | 105205; 67522 | 12; 9 | translation mismatches: `issues/016`; the rest were false alarms of the tool on TiDB (below) |
+| TiDB v8.5.3, after the fixes of round 14 | seeds 1-40, `--focus --tidb` | 105195 | 8 | `issues/016`: 5, `issues/018`: 3 |
+| TiDB v8.5.3, after the fixes of round 14 | seeds 131-170, `--rich --tidb` | 67401 | 6 | `issues/016`: 5, `issues/018`: 1 |
+
+On TiDB the tool itself had to be corrected first (round 14 of `docs/JOURNAL.md`): TiDB reports
+`utf8mb4_bin` for every text column of a result (so text is now compared with the coarsest
+collation of the database there), reports 0 decimals for unrounded floats, and types a UNION of
+DECIMAL and DOUBLE arms as DECIMAL (`issues/018`). The campaign on seeds 1-40 was rerun after
+each fix; `issues/017` (an internal error) was found in its error summary.
 
 The reproducers of `data/mariadb/` on MariaDB 13.0.2 (`sql.yml` with the directory): issues
 009, 010, 011, 012, 013 and 014 give the same wrong results as on 10.11.14; of issue 003

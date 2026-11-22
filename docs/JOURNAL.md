@@ -406,3 +406,30 @@ same campaign, seeds 1-40, three times).**
 2. TiDB types `UNION` of DECIMAL and DOUBLE as DECIMAL and rounds the DOUBLE (MySQL: DOUBLE).
    Write it down as an observation with a script; decide whether it is a defect.
 3. The second TiDB campaign (seeds 131-170, `--rich`) with the fixes.
+
+## Round 15 (2026-11-22)
+
+**Milestone.** Every pair of the two TiDB campaigns is accounted for: after the fixes of round 14
+the reruns leave only `issues/016` (ten pairs) and `issues/018` (four). `issues/018` (new): TiDB
+types a UNION of a `DECIMAL` and a `DOUBLE` arm as `DECIMAL` with the scale of the `DECIMAL`
+arm and rounds the `DOUBLE` to it; `SELECT ATAN(1) UNION ALL SELECT 1.5` gives 0.8 (MySQL 9.7.4
+and MariaDB: 0.7853981633974483). A web search found no report of it; TiDB's documentation
+says its precision math is consistent with MySQL.
+
+- The `AVG->MAX` pairs left on TiDB are this defect seen by ValScope: the original's values are
+  rounded wrongly, the mutant's (whose column became `DOUBLE`) are right. They are recorded as
+  issue 018, not hidden by a tolerance; triage has a hint for them.
+- `results/mariadb-campaign.md`: the TiDB campaigns before and after the fixes.
+
+**Audit findings.**
+- A tolerance that would hide these pairs (infer the rounding from the values when the server
+  reports none) was considered and not added: it would also hide a real error of one unit of
+  the last digit, on every server, to make a known defect of one server quiet. Where a
+  difference is a defect of the server, the right place for it is an issue.
+
+**TODO for round 16.**
+1. The MySQL / MariaDB / Percona campaigns ran before the four checker fixes of rounds 12-14;
+   rerun one of each with the same seeds to see that nothing known disappeared (a fix that
+   loosened the checker too much would show as missing pairs).
+2. `README.md` and `docs/USAGE.md`: TiDB as a target (port, password, `--tidb`, what the
+   checker does differently there).

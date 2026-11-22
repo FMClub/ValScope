@@ -278,6 +278,7 @@ value cannot be read off the result.
 | `scripts/check_violations.py` | Compares the violations of a run with a baseline of known ones (keys and signatures) |
 | `scripts/record_sqlite_pairs.py` | Adds the new pairs of an SQLite campaign to `results/`: confirm, bisect, reduce, bisect again, regenerate the reports |
 | `scripts/replay_reduced_sqlite.py` | Replays the reduced SQLite pairs of `results/` on their releases: every known bug must still be detected (CI) |
+| `scripts/compare_campaign.py`, `results/server-campaigns.json` | The pairs found on MySQL 9, MariaDB 13 and TiDB after the checker's fixes; a campaign run again with the same image, seeds and options is compared with them (the campaign workflow does it) |
 | `scripts/recheck_recorded.py` | Judges the recorded MariaDB pairs (`results/mariadb-campaign.jsonl`) again with the present checker: a pair of a server defect must still be violated, a false alarm must not |
 | `scripts/probe_collations.py` | Prints the collation the bridge reads for each result column of a few queries on a server; a wrong one would make the checker report false alarms |
 | `scripts/check_reduced_mysql.py` | Checks that a reduced script still shows its violation |

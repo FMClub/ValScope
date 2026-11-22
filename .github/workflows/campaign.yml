@@ -80,15 +80,20 @@ jobs:
           for o in $OPTIONS; do
             case "$o" in --focus|--rich|--value-ext|--no-value-distinct|--tidb) ;; *) echo "unknown option: $o" >&2; exit 1 ;; esac
           done
-          python3 bridge/campaign_mysql.py --seeds "$SEEDS" --queries "$QUERIES" $OPTIONS --password "$PASSWORD" --out campaign.jsonl | grep -v '^  ' | cut -c1-1500
+          python3 bridge/campaign_mysql.py --seeds "$SEEDS" --queries "$QUERIES" $OPTIONS --password "$PASSWORD" --out campaign.jsonl | cut -c1-3000
       - name: Triage
         env:
           PASSWORD: ${{ inputs.password != 'none' && inputs.password || '' }}
+          IMAGE: ${{ inputs.image }}
+          SEEDS: ${{ inputs.seeds }}
+          OPTIONS: ${{ inputs.options }}
         run: |
           mkdir -p triage
           if [ -s campaign.jsonl ]; then
             python3 scripts/triage_mysql.py campaign.jsonl --password "$PASSWORD" --out-dir triage --timeout 300
             for f in triage/pair-*.sql; do echo "=== $f"; cat "$f"; done | head -n 1500
+            # the same campaign recorded before (results/server-campaigns.json): the same pairs?
+            python3 scripts/compare_campaign.py triage/triage.jsonl --image "$IMAGE" --seeds "$SEEDS" --options "$OPTIONS" || true
           else
             echo "no violation"
           fi

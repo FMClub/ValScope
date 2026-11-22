@@ -1,0 +1,306 @@
+{
+ "about": "The violating pairs of campaigns on servers other than the local MariaDB, after the fixes of rounds 14-16 (docs/JOURNAL.md). A campaign with the same image, seeds and options must find the same pairs: scripts/compare_campaign.py.",
+ "campaigns": [
+  {
+   "image": "mariadb:latest",
+   "server": "13.0.2-MariaDB",
+   "seeds": "231-280",
+   "options": "--rich --value-ext --no-value-distinct",
+   "queries": 40,
+   "pairs": [
+    {
+     "rule": "DISTINCT-add",
+     "seeds": [
+      250,
+      254
+     ],
+     "pairs": 3,
+     "issue": "012"
+    },
+    {
+     "rule": "COUNT->COUNT-DISTINCT",
+     "seeds": [
+      232
+     ],
+     "pairs": 1,
+     "issue": "013"
+    },
+    {
+     "rule": "expr->expr+k",
+     "seeds": [
+      239
+     ],
+     "pairs": 1,
+     "issue": "010"
+    },
+    {
+     "rule": "expr->expr*k",
+     "seeds": [
+      239
+     ],
+     "pairs": 1,
+     "issue": "010"
+    },
+    {
+     "rule": "COUNT-DISTINCT->COUNT",
+     "seeds": [
+      240
+     ],
+     "pairs": 1,
+     "issue": "013"
+    },
+    {
+     "rule": "COUNT->COUNT-DISTINCT",
+     "seeds": [
+      241
+     ],
+     "pairs": 1,
+     "issue": "013"
+    },
+    {
+     "rule": "COUNT->COUNT-DISTINCT",
+     "seeds": [
+      247
+     ],
+     "pairs": 1,
+     "issue": "010"
+    },
+    {
+     "rule": "COUNT->COUNT-DISTINCT",
+     "seeds": [
+      247
+     ],
+     "pairs": 1,
+     "issue": "010"
+    },
+    {
+     "rule": "COUNT-DISTINCT->COUNT",
+     "seeds": [
+      248
+     ],
+     "pairs": 1,
+     "issue": "013"
+    },
+    {
+     "rule": "COUNT-DISTINCT->COUNT",
+     "seeds": [
+      253
+     ],
+     "pairs": 1,
+     "issue": "013"
+    },
+    {
+     "rule": "COUNT->COUNT-DISTINCT",
+     "seeds": [
+      253
+     ],
+     "pairs": 1,
+     "issue": "003"
+    },
+    {
+     "rule": "COUNT->COUNT-DISTINCT",
+     "seeds": [
+      253
+     ],
+     "pairs": 1,
+     "issue": "003"
+    },
+    {
+     "rule": "COUNT->COUNT-DISTINCT",
+     "seeds": [
+      255
+     ],
+     "pairs": 1,
+     "issue": "013"
+    },
+    {
+     "rule": "COUNT->COUNT-DISTINCT",
+     "seeds": [
+      258
+     ],
+     "pairs": 1,
+     "issue": "013"
+    },
+    {
+     "rule": "DISTINCT-add",
+     "seeds": [
+      268
+     ],
+     "pairs": 1,
+     "issue": "012"
+    }
+   ]
+  },
+  {
+   "image": "mysql:9",
+   "server": "9.7.4",
+   "seeds": "131-170",
+   "options": "--rich --value-ext",
+   "queries": 40,
+   "pairs": [
+    {
+     "rule": "cond->FALSE",
+     "seeds": [
+      144
+     ],
+     "pairs": 2,
+     "issue": "015"
+    },
+    {
+     "rule": "cmp-weaken",
+     "seeds": [
+      144
+     ],
+     "pairs": 2,
+     "issue": "015"
+    },
+    {
+     "rule": "cond->TRUE",
+     "seeds": [
+      144
+     ],
+     "pairs": 1,
+     "issue": "015"
+    },
+    {
+     "rule": "LEFT->INNER-JOIN",
+     "seeds": [
+      144
+     ],
+     "pairs": 1,
+     "issue": "015"
+    }
+   ]
+  },
+  {
+   "image": "pingcap/tidb:v8.5.3",
+   "server": "8.0.11-TiDB-v8.5.3",
+   "seeds": "1-40",
+   "options": "--focus --value-ext --tidb",
+   "queries": 40,
+   "pairs": [
+    {
+     "rule": "TRANSLATION",
+     "seeds": [
+      6
+     ],
+     "pairs": 1,
+     "issue": "016"
+    },
+    {
+     "rule": "AVG->MAX",
+     "seeds": [
+      12
+     ],
+     "pairs": 1,
+     "issue": "018"
+    },
+    {
+     "rule": "TRANSLATION",
+     "seeds": [
+      14
+     ],
+     "pairs": 1,
+     "issue": "016"
+    },
+    {
+     "rule": "AVG->MAX",
+     "seeds": [
+      14
+     ],
+     "pairs": 1,
+     "issue": "018"
+    },
+    {
+     "rule": "TRANSLATION",
+     "seeds": [
+      15
+     ],
+     "pairs": 1,
+     "issue": "016"
+    },
+    {
+     "rule": "TRANSLATION",
+     "seeds": [
+      21
+     ],
+     "pairs": 1,
+     "issue": "016"
+    },
+    {
+     "rule": "TRANSLATION",
+     "seeds": [
+      21
+     ],
+     "pairs": 1,
+     "issue": "016"
+    },
+    {
+     "rule": "AVG->MAX",
+     "seeds": [
+      21
+     ],
+     "pairs": 1,
+     "issue": "018"
+    }
+   ]
+  },
+  {
+   "image": "pingcap/tidb:v8.5.3",
+   "server": "8.0.11-TiDB-v8.5.3",
+   "seeds": "131-170",
+   "options": "--rich --value-ext --tidb",
+   "queries": 40,
+   "pairs": [
+    {
+     "rule": "TRANSLATION",
+     "seeds": [
+      139
+     ],
+     "pairs": 1,
+     "issue": "016"
+    },
+    {
+     "rule": "TRANSLATION",
+     "seeds": [
+      144
+     ],
+     "pairs": 1,
+     "issue": "016"
+    },
+    {
+     "rule": "TRANSLATION",
+     "seeds": [
+      151
+     ],
+     "pairs": 1,
+     "issue": "016"
+    },
+    {
+     "rule": "TRANSLATION",
+     "seeds": [
+      156
+     ],
+     "pairs": 1,
+     "issue": "016"
+    },
+    {
+     "rule": "AVG->MAX",
+     "seeds": [
+      161
+     ],
+     "pairs": 1,
+     "issue": "018"
+    },
+    {
+     "rule": "TRANSLATION",
+     "seeds": [
+      163
+     ],
+     "pairs": 1,
+     "issue": "016"
+    }
+   ]
+  }
+ ]
+}

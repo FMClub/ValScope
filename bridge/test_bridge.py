@@ -826,6 +826,13 @@ report(step_verdict('other columns changed', 'SELECT (t.a % 2) AS k0, COUNT(t.b)
        step_verdict('Le violated', 'SELECT t.a AS k0, CEIL(VAR_SAMP(t.a)) AS k1 FROM t AS t GROUP BY t.a') == 'Le violated',
        'runner: a step function of a variance makes "other columns changed" incomparable, nothing else')
 
+from run_on_db import INTERNAL_ERROR  # noqa: E402
+report(INTERNAL_ERROR.search("Can't find column vs_rowid.t1._tidb_rowid in schema Column: [vs_rowid.t1.c1]") and
+       not INTERNAL_ERROR.search("Expression #1 of SELECT list is not in GROUP BY clause and contains nonaggregated column") and
+       not INTERNAL_ERROR.search("TiDB do not support intersect all") and
+       not INTERNAL_ERROR.search("Incorrect DATE value: '7'"),
+       'runner: an internal error of the server is told apart from a refused query (issues/017)')
+
 # the rich generator writes the dialect of its database
 import subprocess  # noqa: E402
 gen = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'gen_fragment.py')

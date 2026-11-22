@@ -32,6 +32,10 @@ from checker import check_inclusion, check_value, comparable_types, MariaDBColum
 
 
 ERRORS = collections.Counter()
+# messages of errors that are the server's own fault, not the query's: the first query of each
+INTERNAL_ERROR = re.compile(r"can't find column|internal error|assertion|unexpected|index out of range|"
+                            r"runtime error|nil pointer|lost connection", re.IGNORECASE)
+INTERNAL = {}
 
 
 class MySQLTarget:
@@ -113,7 +117,10 @@ class MySQLTarget:
             code = e.args[0] if e.args else None
             if code in self.CONNECTION_LOST or isinstance(e, self.pymysql.err.InterfaceError):
                 sys.exit('connection to the server lost (%s); the run is stopped' % (e,))
-            ERRORS['%s %s' % (code, str(e.args[1] if len(e.args) > 1 else e)[:70])] += 1
+            message = str(e.args[1] if len(e.args) > 1 else e)
+            ERRORS['%s %s' % (code, message[:70])] += 1
+            if INTERNAL_ERROR.search(message) and message not in INTERNAL:
+                INTERNAL[message] = sql        # a valid query the server cannot run (issues/017)
             return None, None
 
     def _metadata_reports_collations(self):
@@ -520,6 +527,8 @@ def main():
         print('most frequent errors:')
         for msg, n in ERRORS.most_common(10):
             print('  %6d  %s' % (n, msg))
+    for message, sql in INTERNAL.items():
+        print('INTERNAL ERROR: %s\n  query: %s' % (message[:300], sql))
 
 
 if __name__ == '__main__':

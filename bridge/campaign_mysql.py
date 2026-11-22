@@ -66,7 +66,7 @@ def main():
     conn = ['--host', a.host, '--port', str(a.port), '--user', a.user, '--password', a.password,
             '--database', a.database]
     gen_opts = [o for o, on in (('--focus', a.focus), ('--rich', a.rich), ('--tidb', a.tidb)) if on]
-    total, pairs, errors, failed = collections.Counter(), set(), collections.Counter(), []
+    total, pairs, errors, failed, internal = collections.Counter(), set(), collections.Counter(), [], {}
     for seed in parse_range(a.seeds):
         used = gen_mysql_db.build(cur, a.database, seed)
         new = 0
@@ -84,6 +84,8 @@ def main():
             in_errors = False
             lines = r.stdout.splitlines()
             for i, line in enumerate(lines):
+                if line.startswith('INTERNAL ERROR:'):
+                    internal.setdefault(line, '[seed %d] %s' % (seed, lines[i + 1].split(': ', 1)[-1]))
                 if line.startswith('MUTANT FAILED') and len(failed) < 6:
                     failed.append('[seed %d] %s | original: %s | mutant: %s'
                                   % (seed, line, lines[i + 1].split(': ', 1)[-1], lines[i + 2].split(': ', 1)[-1]))
@@ -122,6 +124,8 @@ def main():
             print('error x%d: %s' % (count, message))
         for text in failed:     # examples: one per seed and kind of query, six at most
             print('refused: ' + text)
+    for message, example in internal.items():   # errors that are the server's fault: read them
+        print('%s\n  first query: %s' % (message, example))
     return 0
 
 

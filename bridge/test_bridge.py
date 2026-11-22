@@ -337,6 +337,17 @@ report('t.a' in probe and 't.b' in probe, 'type probe covers all select items')
 
 # ---- the checkers
 report(check_inclusion('Up', [(1,), (1,)], [(1,), (1,), (2,)]) == 'ok', 'inclusion respects multiplicities')
+from decimal import Decimal  # noqa: E402
+report(check_inclusion('Up', [(Decimal('1234567890.12'),)], [(Decimal('1234567890.99'),)]) == 'violation'
+       and check_inclusion('Up', [(123456789.4,)], [(123456789.4000000001,)]) == 'ok'
+       and check_inclusion('Up', [(Decimal('2.5'),)], [(2.5000000000001,)]) == 'ok',
+       'inclusion: exact decimals are compared exactly, binary floats with a tolerance')
+report(check_inclusion('Up', [(float('nan'),)], [(float('nan'),)]) == 'ok', 'inclusion: NaN is one value')
+try:
+    check_inclusion('Eq', [(1,), (2,)], [(1,)])
+    report(False, 'inclusion: an unknown direction is refused')
+except ValueError:
+    report(True, 'inclusion: an unknown direction is refused')
 report(check_inclusion('Up', [('a',), ('A',)], [('a',)], fold=SQLiteFold('NOCASE'), coarser=True) == 'collation'
        and check_inclusion('Up', [('a',), ('a',)], [('A',)], fold=SQLiteFold('NOCASE'), coarser=True) == 'violation'
        and check_inclusion('Up', [('a',), ('A',)], [('a',)], fold=SQLiteFold('NOCASE')) == 'violation',

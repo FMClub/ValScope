@@ -340,15 +340,32 @@ def nontrivial(fold):
     return not isinstance(fold, ExactFold) and not (isinstance(fold, SQLiteFold) and not fold.parts)
 
 
-def bag(rows, fold=None, digits=None):
+def _is_nan(v):
+    return isinstance(v, float) and v != v
+
+
+def _float_columns(*results):
+    """The positions of the columns which hold a binary float in one of the results."""
+    return {i for rows in results for row in rows for i, v in enumerate(row) if isinstance(v, float)}
+
+
+def bag(rows, fold=None, digits=None, approximate=None):
+    """`approximate`: the columns compared rounded to `digits` (all of them when None).
+    A column of exact decimals is not one of them: only a binary float differs in its
+    last bits between two plans."""
     if fold is None and digits is None:
+        if any(_is_nan(v) for row in rows for v in row):
+            # NaN is not equal to itself: two NaN are the same value of a result
+            rows = [tuple('NaN' if _is_nan(v) else v for v in row) for row in rows]
         return collections.Counter(rows)
     folds = None
     out = collections.Counter()
     for row in rows:
         if folds is None or len(folds) != len(row):
             folds = _column_folds(fold, len(row))
-        out[tuple(_norm(v, f, digits) for v, f in zip(row, folds))] += 1
+        out[tuple('NaN' if _is_nan(v) else
+                  _norm(v, f, digits if approximate is None or i in approximate else None)
+                  for i, (v, f) in enumerate(zip(row, folds)))] += 1
     return out
 
 
@@ -360,17 +377,23 @@ def check_inclusion(direction, original_rows, mutant_rows, fold=None, coarser=Fa
     """'ok', 'collation' or 'violation' (see the module docstring).  direction 'Up':
     the original must be included in the mutant; 'Down': the other way round.
 
-    Binary floating-point values are compared after rounding to 12, then 9 significant
-    digits: an aggregate such as AVG or SUM over DOUBLE can differ in its last bits
-    between two plans of the same query (the model computes exactly).
+    The columns which hold a binary floating-point value in one of the two results are
+    compared after rounding to 12, then 9 significant digits: an aggregate such as AVG or
+    SUM over DOUBLE can differ in its last bits between two plans of the same query (the
+    model computes exactly).  A column of integers and exact decimals is compared exactly.
 
     `coarser`: the fold is coarser than the collation the server de-duplicated with (a
     compound whose column has a _ci arm and a _bin one, MySQLTarget._compound_collations)."""
+    if direction not in ('Up', 'Down'):
+        # an unknown direction read as 'Down' would accept results that differ
+        raise ValueError('direction must be Up or Down, not %r' % (direction,))
     small, large = (original_rows, mutant_rows) if direction == 'Up' else (mutant_rows, original_rows)
     if included(bag(small), bag(large)):
         return 'ok'
+    floats = _float_columns(small, large)
     for digits in (12, 9):
-        if included(bag(small, None, digits), bag(large, None, digits)):
+        # values are compared by what they denote; only the float columns are rounded
+        if included(bag(small, None, digits, floats), bag(large, None, digits, floats)):
             return 'ok'
     if nontrivial(fold):
         # a set (no two rows equal) can hold two strings that the coarser collation makes
@@ -379,10 +402,10 @@ def check_inclusion(direction, original_rows, mutant_rows, fold=None, coarser=Fa
         # Only then: otherwise a set that loses 'A' and keeps 'a' is a violation (SQLite 3.26)
         cap = coarser and len(set(small)) == len(small)
         for digits in (None, 12, 9):
-            folded = bag(small, fold, digits)
+            folded = bag(small, fold, digits, floats)
             if cap:
                 folded = collections.Counter(dict.fromkeys(folded, 1))
-            if included(folded, bag(large, fold, digits)):
+            if included(folded, bag(large, fold, digits, floats)):
                 return 'collation'
     return 'violation'
 

@@ -59,7 +59,9 @@ MySQL.Generator.TRANSFORMS[exp.RegexpLike] = lambda self, e: '(%s REGEXP %s)' % 
     self.sql(e, 'this'), self.sql(e, 'expression'))
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_CLI = os.path.join(HERE, '..', 'cli', 'valscope_mutate')
+# VALSCOPE_MUTATE selects another mutator with the same interface: one extracted from a
+# development which adds rules of a class of worlds (README, "A rule of one dialect").
+DEFAULT_CLI = os.environ.get('VALSCOPE_MUTATE') or os.path.join(HERE, '..', 'cli', 'valscope_mutate')
 
 
 from common import Unsupported, parse_sexp, _strip_parens

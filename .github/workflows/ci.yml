@@ -299,3 +299,38 @@ jobs:
         run: |
           python3 bridge/campaign_mysql.py --seeds 1-12 --queries 40 --focus --value-ext --no-value-distinct --password 123456 --out /tmp/campaign.jsonl | grep -v '^  ' | cut -c1-1500
           if [ -s /tmp/campaign.jsonl ]; then python3 scripts/triage_mysql.py /tmp/campaign.jsonl --password 123456 --out-dir /tmp/triage --timeout 120; cat /tmp/triage/pair-*.sql 2>/dev/null | head -n 400; fi
+
+  tidb:
+    name: TiDB v8.5 (collation probe, issue 016, a small campaign)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    services:
+      db:
+        image: pingcap/tidb:v8.5.3
+        ports: ["3306:4000"]
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Coq, OCaml, the client and Python packages
+        run: |
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends coq ocaml ocaml-findlib make gcc mysql-client
+          python3 -m pip install --break-system-packages -r requirements.txt cryptography
+      - name: Check the proofs and build the mutator
+        run: make && make cli
+      - name: Wait for the server
+        run: |
+          for i in $(seq 1 60); do
+            if mysql -h127.0.0.1 -uroot -N -e "SELECT VERSION()" 2> /dev/null; then exit 0; fi
+            sleep 5
+          done
+          echo "the server did not start" >&2; exit 1
+      - name: The bridge does not trust the collations TiDB reports for result columns
+        run: |
+          python3 scripts/probe_collations.py
+          python3 -c "import sys, types; sys.path.insert(0, 'bridge'); from run_on_db import MySQLTarget; t = MySQLTarget(types.SimpleNamespace(host='127.0.0.1', port=3306, user='root', password='', database='mysql')); sys.exit(1 if t.trusted_collations else 0)"
+      - name: "issue 016: NOT IN with a condition on the outer row (expected 1 in every line unless the tag says otherwise)"
+        run: mysql -h127.0.0.1 -uroot --force --skip-column-names < data/tidb/not-in-correlated-empty.sql | grep -v "^[A-Z][a-zA-Z]*_[0-9]\|^[└├│ ]" || true
+      - name: Campaign over random databases (the candidates are printed, not judged)
+        run: |
+          python3 bridge/campaign_mysql.py --seeds 1-8 --queries 30 --focus --value-ext --tidb --out /tmp/campaign.jsonl | grep -v '^  ' | cut -c1-1500
+          if [ -s /tmp/campaign.jsonl ]; then python3 scripts/triage_mysql.py /tmp/campaign.jsonl --out-dir /tmp/triage --timeout 120; fi

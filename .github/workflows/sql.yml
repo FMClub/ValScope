@@ -21,6 +21,10 @@ on:
         description: "Password of root (123456 is set for MySQL and MariaDB images; TiDB: none, type the word none)"
         required: false
         default: "123456"
+      column_info:
+        description: "Print the metadata of every result column (mysql --column-type-info): yes or no"
+        required: false
+        default: "no"
 
 permissions:
   contents: read
@@ -56,6 +60,7 @@ jobs:
         env:
           PASSWORD: ${{ inputs.password != 'none' && inputs.password || '' }}
           SCRIPT: ${{ inputs.script }}
+          COLUMN_INFO: ${{ inputs.column_info }}
         run: |
           case "$SCRIPT" in *..*) echo "no .. in the path" >&2; exit 1 ;; esac
           case "$SCRIPT" in
@@ -63,7 +68,9 @@ jobs:
             data/*) files=$(ls "$SCRIPT"/*.sql) ;;      # a directory: every script in it
             *) echo "not under data/: $SCRIPT" >&2; exit 1 ;;
           esac
+          extra=""
+          if [ "$COLUMN_INFO" = yes ]; then extra="--column-type-info"; fi
           for f in $files; do
             echo "=== $f"
-            mysql -h127.0.0.1 -uroot --password="$PASSWORD" --force --skip-column-names --default-character-set=utf8mb4 < "$f" 2>&1 | grep -v "Using a password" || true
+            mysql -h127.0.0.1 -uroot --password="$PASSWORD" --force --skip-column-names --default-character-set=utf8mb4 $extra < "$f" 2>&1 | grep -v "Using a password" || true
           done

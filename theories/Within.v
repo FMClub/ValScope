@@ -10,12 +10,21 @@
     one in the worlds where [vadd] commutes up to the collation.  The rewritten
     condition has the same truth value, so the rule is given in both directions. *)
 
-From Coq Require Import List String.
+From Coq Require Import List String ZArith.
 Import ListNotations.
-From ValScope Require Import Bag Logic3 Pattern Syntax Semantics Approx Rule Engine Registry.
+From ValScope Require Import Bag Logic3 Pattern Syntax Semantics Approx Rule Engine Registry Counter.
 
 Definition add_commutes (db : db_t) : Prop :=
   forall x y, veq db (vadd db x y) (vadd db y x) = true.
+
+(** The class is not empty: the worlds of Counter.v are in it.  A rule of an empty
+    class would be sound for no reason, so a class comes with such a witness; that
+    the tested DBMS behaves as a world of the class is the claim that is trusted. *)
+Lemma add_commutes_inhabited : forall t, add_commutes (ex_world t).
+Proof.
+  intros t x y. simpl. destruct x, y; simpl; try reflexivity.
+  rewrite Z.add_comm. unfold veqb. destruct (value_eq_dec _ _); congruence.
+Qed.
 
 Definition f_add_swap (p : pred) : list pred :=
   match p with

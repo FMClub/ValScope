@@ -15,15 +15,18 @@ Makefile.coq: _CoqProject
 # Only the rules exported by Registry.v (with their theorems) can be used.
 cli: all
 	cp extracted/valscope_core.ml extracted/valscope_core.mli cli/
-	sed -i -E 's/^type (prule|qrule|vrule|prule_in|qrule_in) = \{.*\}$$/type \1  (* abstract: only the proved rules of Registry.v *)/' cli/valscope_core.mli
-	@grep -q '^type prule  (\* abstract' cli/valscope_core.mli || (echo "rule types not abstract"; exit 1)
+	perl -0pi -e 's/^type (prule|qrule|vrule|prule_in|qrule_in) =\s*\{.*?\}/type $$1  (* abstract: only the proved rules *)/gms' cli/valscope_core.mli
+	@if grep -Eq '^type (prule|qrule|vrule|prule_in|qrule_in) =' cli/valscope_core.mli; then echo "rule types not abstract"; exit 1; fi
+	@for t in prule qrule vrule prule_in qrule_in; do \
+	  grep -q "^type $$t  (\* abstract" cli/valscope_core.mli || { echo "rule type $$t missing from the interface"; exit 1; }; done
 	cd cli && ocamlfind ocamlopt -w -a valscope_core.mli valscope_core.ml main.ml -o valscope_mutate
 
 # A rule forged in OCaml must not compile against the interface.
 check-abstract: cli
-	@cd cli && if ocamlfind ocamlopt -w -a -c forge_rule.ml 2>/dev/null; then \
-	  echo "FAIL  an OCaml file could build a rule record"; rm -f forge_rule.cm* forge_rule.o; exit 1; \
-	else echo "ok    OCaml code cannot build a rule (rule types are abstract)"; fi
+	@cd cli && for f in forge_rule forge_rule_in; do \
+	  if ocamlfind ocamlopt -w -a -c $$f.ml 2>/dev/null; then \
+	    echo "FAIL  $$f.ml could build a rule record"; rm -f $$f.cm* $$f.o; exit 1; fi; done; \
+	echo "ok    OCaml code cannot build a rule (rule types are abstract)"
 
 # End-to-end test: SQL text -> mutants -> SQL text (needs python3 with sqlglot).
 test: cli check-abstract lint

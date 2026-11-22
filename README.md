@@ -188,7 +188,14 @@ original in every world of `W`. It is an instance of `mut_q_in_sound`, the sound
 the engine for any class of worlds; `mutate` is the case of all worlds
 (`mutate_within_all`). `theories/Within.v` has the complete example. A development
 that proves rules against another formal semantics of a dialect defines `W` as the
-worlds of that semantics, and extracts its `mutate_within W ...` in place of `mutate`.
+worlds of that semantics, and extracts its own closed mutator (as `mutate_add_commutes`
+here) in place of `mutate`.
+
+Two things are outside the theorem. A rule of an empty class is sound for no reason, so a
+class comes with a witness that it has a world (`add_commutes_inhabited`). And that the
+tested DBMS behaves as a world of `W` is the claim which is trusted, as it is for the
+class of all worlds. The class is erased by extraction: only closed mutators are
+extracted, never `mutate_within` or a rule of a class on its own.
 
 A value rule is added the same way (`theories/VRules.v`): a rewrite of a select item,
 a theorem relating the value of the rewritten item to the original on every group of
@@ -720,4 +727,5 @@ issues, in `results/mariadb-campaign.jsonl`; `scripts/recheck_recorded.py` judge
 - After extraction the proofs are erased. To keep OCaml code from building an unproved
   rule, `make cli` makes the rule types abstract in the interface the front end is
   compiled against; `make check-abstract` (part of `make test`) checks that a rule forged
-  in OCaml does not compile. The extracted code itself and Rocq's extraction stay trusted.
+  in OCaml does not compile, for the rules of every world and for those of a class of
+  worlds. The extracted code itself and Rocq's extraction stay trusted.

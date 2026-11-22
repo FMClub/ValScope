@@ -934,6 +934,18 @@ right operand of `EXCEPT`, and never enters the `ON` condition or the right inpu
 `LEFT JOIN`), so the proof only reasons about the root. A rule cannot be registered without
 its proof: the proof is a field of the rule record.
 
+A rule that holds in one dialect only is proved for a class `W` of worlds, with
+`q_le_within W` / `p_le_within W`, packaged with `mk_qrule_in` / `mk_prule_in` and given to
+`mutate_within W` (`theories/Within.v` is the example, README section "A rule of one
+dialect"). Three points to respect:
+
+- give a witness that the class is not empty (`add_commutes_inhabited`): every rule is
+  sound in an empty class;
+- that the tested DBMS behaves as a world of `W` is a claim outside the proofs, to be
+  stated with the campaign;
+- extract the closed mutator (`mutate_add_commutes`), not `mutate_within` or the rules:
+  the class is erased by extraction, and OCaml code could mix the rules of two classes.
+
 If the rule introduces a construct the bridge does not know (a new function, a new
 operator), also extend the printer in `bridge/sql_bridge.py` (`_e_sql`, `_p_sql`,
 `_q_sql`, `_a_sql`) and the S-expression parser and printer in `cli/main.ml`.

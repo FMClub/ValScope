@@ -59,7 +59,8 @@ def main():
         target.run('SELECT DISTINCT t.a FROM t EXCEPT ALL SELECT t.b FROM t')
         report('collations' in target.last_arm_mix, 'EXCEPT of a _ci arm and a _bin arm: mixed collations')
         target.run('SELECT DISTINCT t.a FROM t UNION ALL SELECT t.b FROM t')
-        report(not target.last_arm_mix, 'UNION ALL compares nothing: mixed collations do not matter')
+        report('collations' not in target.last_arm_mix, 'UNION ALL compares nothing: mixed collations do not matter')
+        report('coarser' in target.last_arm_mix, 'a _ci arm and a _bin arm: compared more coarsely than de-duplicated')
         target.run('(SELECT t.n FROM t UNION SELECT t.a FROM t) UNION ALL (SELECT t.n FROM t EXCEPT SELECT t.n + 0.5 FROM t)')
         report('types' in target.last_arm_mix, 'INT, DECIMAL and text arms, nested in parentheses: mixed types')
         target.run('SELECT d.n FROM (SELECT t.n FROM t UNION ALL SELECT t.n FROM t) AS d UNION SELECT t.a FROM t '

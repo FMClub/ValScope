@@ -238,7 +238,10 @@ class MySQLTarget:
                 self.last_arm_mix.add('collations')
             if len(c) == 1:
                 out.append(next(iter(c)))
-            elif len(insensitive) == 1 and all(n and n.endswith('_bin') or n == 'binary' or n in insensitive
+                continue
+            if len({n for n in c if n != 'binary'}) > 1:
+                self.last_arm_mix.add('coarser')    # compared more coarsely than de-duplicated
+            if len(insensitive) == 1 and all(n and n.endswith('_bin') or n == 'binary' or n in insensitive
                                                for n in c):
                 out.append(insensitive[0])      # one coarse collation over exact ones
             else:
@@ -515,8 +518,10 @@ def judge_results(target, base, res, expect, cover=False, single=False, sql=None
             return 'type_mismatch'
         directions = ('Up', 'Down') if expect == 'Same' else (expect,)
 
+        coarser = 'coarser' in (base.mix | res.mix)
+
         def check(b, r):
-            verdicts = [check_inclusion(d, b, r, fold) for d in directions]
+            verdicts = [check_inclusion(d, b, r, fold, coarser) for d in directions]
             bad = [v for v in verdicts if v not in ('ok', 'collation')]
             return bad[0] if bad else ('collation' if 'collation' in verdicts else 'ok')
     verdict = check(base.rows, res.rows)

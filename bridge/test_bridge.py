@@ -337,9 +337,10 @@ report('t.a' in probe and 't.b' in probe, 'type probe covers all select items')
 
 # ---- the checkers
 report(check_inclusion('Up', [(1,), (1,)], [(1,), (1,), (2,)]) == 'ok', 'inclusion respects multiplicities')
-report(check_inclusion('Up', [('a',), ('A',)], [('a',)], fold=SQLiteFold('NOCASE')) == 'collation'
-       and check_inclusion('Up', [('a',), ('a',)], [('A',)], fold=SQLiteFold('NOCASE')) == 'violation',
-       'a set may hold two strings one under the collation (needed once); a bag keeps its count')
+report(check_inclusion('Up', [('a',), ('A',)], [('a',)], fold=SQLiteFold('NOCASE'), coarser=True) == 'collation'
+       and check_inclusion('Up', [('a',), ('a',)], [('A',)], fold=SQLiteFold('NOCASE'), coarser=True) == 'violation'
+       and check_inclusion('Up', [('a',), ('A',)], [('a',)], fold=SQLiteFold('NOCASE')) == 'violation',
+       'a set de-duplicated more finely than compared may hold two strings one under the fold; a bag keeps its count')
 report(check_inclusion('Up', [(1,), (1,)], [(1,), (2,)]) == 'violation', 'missing duplicate is a violation')
 # inclusion is checked modulo the DBMS's equality, and only that equality
 report(check_inclusion('Up', [('A',)], [('a',)]) == 'violation', 'binary: a case difference is a violation')

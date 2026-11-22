@@ -356,13 +356,16 @@ def included(small, large):
     return all(large[row] >= n for row, n in small.items())
 
 
-def check_inclusion(direction, original_rows, mutant_rows, fold=None):
+def check_inclusion(direction, original_rows, mutant_rows, fold=None, coarser=False):
     """'ok', 'collation' or 'violation' (see the module docstring).  direction 'Up':
     the original must be included in the mutant; 'Down': the other way round.
 
     Binary floating-point values are compared after rounding to 12, then 9 significant
     digits: an aggregate such as AVG or SUM over DOUBLE can differ in its last bits
-    between two plans of the same query (the model computes exactly)."""
+    between two plans of the same query (the model computes exactly).
+
+    `coarser`: the fold is coarser than the collation the server de-duplicated with (a
+    compound whose column has a _ci arm and a _bin one, MySQLTarget._compound_collations)."""
     small, large = (original_rows, mutant_rows) if direction == 'Up' else (mutant_rows, original_rows)
     if included(bag(small), bag(large)):
         return 'ok'
@@ -372,8 +375,9 @@ def check_inclusion(direction, original_rows, mutant_rows, fold=None):
     if nontrivial(fold):
         # a set (no two rows equal) can hold two strings that the coarser collation makes
         # one ('a' and 'A' of a UNION de-duplicated in utf8mb4_bin): under that collation
-        # they are one row, needed once (the OceanBase and MySQL nested UNIONs of round 19)
-        cap = len(set(small)) == len(small)
+        # they are one row, needed once (the OceanBase and MySQL nested UNIONs of round 19).
+        # Only then: otherwise a set that loses 'A' and keeps 'a' is a violation (SQLite 3.26)
+        cap = coarser and len(set(small)) == len(small)
         for digits in (None, 12, 9):
             folded = bag(small, fold, digits)
             if cap:

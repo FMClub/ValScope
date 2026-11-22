@@ -387,6 +387,12 @@ report(relation_holds('AwayOne', 1.9445436482630056, 3.78125, 1e-9, 1.0) and
        'a rounding tolerance never makes a value move away from the pivot illegal (TiDB, STDDEV->VAR)')
 import types as _types  # noqa: E402
 from run_on_db import printed_decimals  # noqa: E402
+from decimal import Decimal as _D  # noqa: E402
+_dt = _types.SimpleNamespace(APPROXIMATE_TYPES={4, 5}, DECIMAL_TYPES={0, 246})
+report(printed_decimals(_dt, 0, [246], [246], [8], ([(_D('1.83333333'),)], [(_D('1.8333'),)]), [8]) == 4
+       and printed_decimals(_dt, 0, [246], [246], [8], ([(_D('1.83333333'),)], [(_D('1.83333333'),)]), [8]) is None
+       and printed_decimals(_dt, 0, [246], [246], [8], ([(None,)], [(_D('1.8333'),)]), [4]) == 4,
+       'decimals of DECIMALs: what the values were printed with, the reported scales without values (PolarDB-X)')
 _t = _types.SimpleNamespace(APPROXIMATE_TYPES={4, 5}, DECIMAL_TYPES={0, 246}, last_scales=[0])
 report(printed_decimals(_t, 0, [5], [5], [0], ([(1.9445436482630056,)], [(3.78125,)])) is None and
        printed_decimals(_t, 0, [5], [5], [0], ([(2.0,)], [(4.0,)])) == 0 and

@@ -24,6 +24,7 @@ import json
 import os
 import re
 import sys
+from decimal import Decimal
 from types import SimpleNamespace as types_ns
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -455,6 +456,13 @@ def rejudge(verdict, check, base, res, mixed=(), steps=(), column=None):
     return 'incomparable'
 
 
+def _decimal_places(rows, column):
+    """The largest number of decimals a Decimal of the column was printed with, or None."""
+    places = [-r[column].as_tuple().exponent for r in rows or ()
+              if isinstance(r[column], Decimal) and r[column].is_finite()]
+    return max(places) if places else None
+
+
 def printed_decimals(target, column, base_types, types, base_scales, rows=(), scales=None):
     """The number of decimals after which the mutated column may differ by one unit, or
     None.  The server rounds a binary float printed with a fixed number of decimals, and a
@@ -469,6 +477,12 @@ def printed_decimals(target, column, base_types, types, base_scales, rows=(), sc
     if types is None or not base_scales or not scales:
         return None
     pair, both = {base_types[column], types[column]}, (base_scales[column], scales[column])
+    if pair <= set(getattr(target, 'DECIMAL_TYPES', ())):
+        # what a DECIMAL was printed with is in its text: PolarDB-X reports other scales
+        # than it prints (an AVG over a derived column, round 20)
+        shown = [_decimal_places(result, column) for result in rows] if len(rows) == 2 else []
+        if len(shown) == 2 and None not in shown:
+            both = tuple(shown)
     printed = [d for d in both if d is not None and d < 31]
     if pair & set(target.APPROXIMATE_TYPES):
         d = min(printed) if printed else None

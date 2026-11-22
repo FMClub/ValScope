@@ -55,6 +55,8 @@ def hint(original, mutant, index_only):
     verdict: it is checked against the classified pairs of results/mariadb-campaign.jsonl
     (bridge/test_bridge.py), and a new defect can have the look of a known one."""
     o, both = original.upper(), (original + ' ' + mutant).upper()
+    if ' NOT IN (SELECT ' in o and ' NOT IN (SELECT ' not in mutant.upper() and 'NOT (' in mutant.upper():
+        return '016'        # TiDB: x NOT IN (q) and NOT (x IN (q)) differ (the translation check)
     having = o.rfind(' HAVING ')
     if ' OVER ' in both and DISTINCT_AGGREGATE.search(both) and (' JOIN ' in o or ' IN (SELECT ' in o):
         return '010'        # a window, a DISTINCT aggregate, a (semi-)join

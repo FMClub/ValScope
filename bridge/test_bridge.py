@@ -5,7 +5,7 @@ from decimal import Decimal
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sql_bridge import mutate_sql, mutate_value_sql, mutate_value, Translation, Unsupported  # noqa: E402
-from checker import check_inclusion, check_value, SQLiteFold  # noqa: E402
+from checker import check_inclusion, check_value, relation_holds, SQLiteFold  # noqa: E402
 
 failures = 0
 
@@ -377,6 +377,16 @@ report(check_value('Le', 1, [(1, 7.61111111)], [(1, 7.6111)]) != 'ok' and
        check_value('Le', 1, [(1, 7.61111111)], [(1, 7.6111)], output_decimals=4) == 'ok' and
        check_value('Le', 1, [(1, 7.62)], [(1, 7.6111)], output_decimals=4) != 'ok',
        'a float printed with 4 decimals may be off by one unit of the last digit, not more')
+report(relation_holds('AwayOne', 1.9445436482630056, 3.78125, 1e-9, 1.0) and
+       relation_holds('AwayOne', 1.004, 0.5, 1e-9, 0.01) and
+       not relation_holds('AwayOne', 1.0, 0.5) and not relation_holds('AwayOne', 1.9445, 1.5, 1e-9, 0.01),
+       'a rounding tolerance never makes a value move away from the pivot illegal (TiDB, STDDEV->VAR)')
+import types as _types  # noqa: E402
+from run_on_db import printed_decimals  # noqa: E402
+_t = _types.SimpleNamespace(APPROXIMATE_TYPES={4, 5}, DECIMAL_TYPES={0, 246}, last_scales=[0])
+report(printed_decimals(_t, 0, [5], [5], [0], ([(1.9445436482630056,)], [(3.78125,)])) is None and
+       printed_decimals(_t, 0, [5], [5], [0], ([(2.0,)], [(4.0,)])) == 0,
+       'a number of decimals the values do not have is not used')
 report(check_value('Le', 1, [(1, Decimal('3.3333333333'))], [(1, Decimal('3.333333'))]) != 'ok' and
        check_value('Le', 1, [(1, Decimal('3.3333333333'))], [(1, Decimal('3.333333'))], output_decimals=6) == 'ok' and
        check_value('Le', 1, [(1, Decimal('3.3334'))], [(1, Decimal('3.333333'))], output_decimals=6) != 'ok',

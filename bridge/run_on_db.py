@@ -319,23 +319,32 @@ def step_verdict(verdict, sql):
     return verdict
 
 
-def printed_decimals(target, column, base_types, types, base_scales):
+def printed_decimals(target, column, base_types, types, base_scales, rows=()):
     """The number of decimals after which the mutated column may differ by one unit, or
     None.  The server rounds a binary float printed with a fixed number of decimals, and a
     DECIMAL (the result of a division: AVG) to its scale; when the two results round at
     different places the relation holds only up to one unit of the coarser one.  (Two
     DECIMALs of one scale are rounded alike, and rounding is monotone: no tolerance.)
-    `target.last_scales` are those of the mutant, `base_scales` those of the original."""
+    `target.last_scales` are those of the mutant, `base_scales` those of the original.
+    `rows`: the two results; a number of decimals is used only if every value of the
+    column has no more (TiDB reports 0 decimals for an unrounded STDDEV_SAMP)."""
     scales = getattr(target, 'last_scales', None)
     if types is None or not base_scales or not scales:
         return None
     pair, both = {base_types[column], types[column]}, (base_scales[column], scales[column])
     printed = [d for d in both if d is not None and d < 31]
     if pair & set(target.APPROXIMATE_TYPES):
-        return min(printed) if printed else None
-    if pair <= set(getattr(target, 'DECIMAL_TYPES', ())) and len(set(printed)) == 2:
-        return min(printed)
-    return None
+        d = min(printed) if printed else None
+    elif pair <= set(getattr(target, 'DECIMAL_TYPES', ())) and len(set(printed)) == 2:
+        d = min(printed)
+    else:
+        return None
+    for result in rows:
+        for row in result or ():
+            v = row[column]
+            if isinstance(v, float) and abs(v - round(v, d)) > 1e-9 * max(1.0, abs(v)):
+                return None
+    return d
 
 
 def main():
@@ -452,7 +461,7 @@ def main():
                         continue
                     relation = FLIP_VALUE[relation]
                 loose = single or (types is not None and target.SINGLE in (base_types[column], types[column]))
-                decimals = printed_decimals(target, column, base_types, types, base_scales)
+                decimals = printed_decimals(target, column, base_types, types, base_scales, (base, res))
                 verdict = check_value(relation, column, base, res, single_precision=loose, fold=fold,
                                       output_decimals=decimals,
                                       cover=bool(trs) and trs[0].cover_for(text),

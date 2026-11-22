@@ -398,7 +398,11 @@ def relation_holds(relation, a, b, tol=REL_TOL, abs_tol=0.0):
     if relation == 'Ge':
         return c.le(b, a)
     pivot = 0 if relation == 'AwayZero' else 1
-    if c.near(a, pivot):
+    if abs_tol and abs(float(a) - pivot) <= abs_tol:
+        # the printed value was rounded: the true one may be on either side of the pivot,
+        # and each side allows the mutant value to move the other way
+        return True
+    if _Cmp(tol).near(a, pivot):
         return c.near(a, b, 10)     # both branches apply: the value must stay
     above = c.le(pivot, a)
     if relation in ('AwayZero', 'AwayOne'):

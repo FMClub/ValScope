@@ -48,7 +48,7 @@ def judge(target, rec):
     if ' col ' in rec['expect']:
         relation, _, column = rec['expect'].split()
         column = int(column)
-        decimals = printed_decimals(target, column, base_types, types_, bs)
+        decimals = printed_decimals(target, column, base_types, types_, bs, (base, res))
         v = check_value(relation, column, base, res, fold=fold, cover=bool(rec.get('distinct')),
                         output_decimals=decimals)
     else:

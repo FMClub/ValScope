@@ -600,6 +600,7 @@ TiDB is in the last column of 016.
 | [016](issues/016-tidb-null-aware-antijoin-left-cond.md) | TiDB: `x NOT IN (correlated subquery)` with a condition on the outer row alone (`t.b <=> NULL`) returns every row twice | correct | correct (11.8.9) | correct (9.7.4); **TiDB v7.5.1, v8.5.3: wrong** |
 | [017](issues/017-tidb-tidb-rowid-distinct-or.md) | TiDB: `SELECT DISTINCT` with an `OR` over two columns of a unique index fails with "Can't find column t1._tidb_rowid" after `ANALYZE` (an error, not a wrong result) | runs | not run | not run; **TiDB v7.5.1, v8.5.3: error** |
 | [018](issues/018-tidb-union-decimal-double-rounding.md) | TiDB: a `UNION` of a `DECIMAL` and a `DOUBLE` arm rounds the `DOUBLE` to the `DECIMAL`'s scale (`ATAN(1) UNION ALL 1.5` gives 0.8) | correct | not run | correct (9.7.4); **TiDB v8.5.3: wrong** |
+| [019](issues/019-tidb-nested-intersect-date-null.md) | TiDB: `A INTERSECT (B INTERSECT C)` keeps a row of a `VARCHAR` `A` that matches only the NULL of a `DATE` column (left-deep is right) | correct | not run | correct (9.7.4); **TiDB v8.5.3: wrong** |
 
 MariaDB 13.0.2 (the `latest` image, through `.github/workflows/sql.yml`) was checked for
 003 and 009 to 014, and a campaign on it found 003, 010, 012 and 013 again; 005 and 006 were
@@ -607,7 +608,7 @@ not run there.
 
 Not counted: [002](issues/002-mariadb-enum-max-having.md) (probably intended behaviour) and
 [007](issues/007-sqlite-compound-collation.md) (SQLite, perhaps intended). The campaigns over
-random databases that found 012 to 018 and re-found the others are in
+random databases that found 012 to 019 and re-found the others are in
 [`results/mariadb-campaign.md`](results/mariadb-campaign.md) (the 207 MariaDB pairs, with their
 issues, in `results/mariadb-campaign.jsonl`; `scripts/recheck_recorded.py` judges them again).
 

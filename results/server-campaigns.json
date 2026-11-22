@@ -242,6 +242,14 @@
      ],
      "pairs": 1,
      "issue": "018"
+    },
+    {
+     "rule": "INTERSECT->UNION",
+     "seeds": [
+      8
+     ],
+     "pairs": 1,
+     "issue": "019"
     }
    ]
   },

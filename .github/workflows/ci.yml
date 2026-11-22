@@ -333,6 +333,8 @@ jobs:
           python3 -c "import sys, types; sys.path.insert(0, 'bridge'); from run_on_db import MySQLTarget; t = MySQLTarget(types.SimpleNamespace(host='127.0.0.1', port=3306, user='root', password='', database='mysql')); sys.exit(1 if t.trusted_collations else 0)"
       - name: "issue 016: NOT IN with a condition on the outer row (expected 1 in every line unless the tag says otherwise)"
         run: mysql -h127.0.0.1 -uroot --force --skip-column-names < data/tidb/not-in-correlated-empty.sql | grep -v "^[A-Z][a-zA-Z]*_[0-9]\|^[└├│ ]" || true
+      - name: "issue 016 in a compound: the translation pair of seed 6 (expected the same count, 1, for written and reprinted)"
+        run: mysql -h127.0.0.1 -uroot --force --skip-column-names < data/tidb/translation-seed6.sql | grep "count" || true
       - name: Campaign over random databases (the candidates are printed, not judged)
         run: |
           python3 bridge/campaign_mysql.py --seeds 1-8 --queries 30 --focus --value-ext --tidb --out /tmp/campaign.jsonl | grep -v '^  ' | cut -c1-1500

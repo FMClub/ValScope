@@ -1,5 +1,6 @@
 -- The TRANSLATION pair of seed 6 on TiDB v8.5.3 (round 18): the query as written (NOT IN) and as
 -- re-printed by the bridge (NOT (... IN ...)).  The rows of both, with their count and the hex of k0.
+-- expected: count 1 for both (TiDB v8.5.3: 2 for written, issues/016: the NOT IN arm returns its row twice)
 DROP DATABASE IF EXISTS vs_t6; CREATE DATABASE vs_t6; USE vs_t6;
 CREATE TABLE `t1` (
   `c1` decimal(10,2) DEFAULT NULL,

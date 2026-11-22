@@ -473,3 +473,34 @@ most one step), and any other difference stays a violation.
    issue 004 and the results agree with each other.
 2. A recheck of the recorded pairs belongs in CI or in a script, so that the next change of
    the checker is checked against its history as this one was.
+
+## Round 17 (2026-11-22)
+
+**Milestone.** The check of round 16 made permanent: `scripts/recheck_recorded.py` judges the
+207 recorded MariaDB pairs again with the present checker and fails when a pair of a server
+defect is no longer violated, or a false alarm is violated again. Known, deliberate exceptions
+are listed in the script with their reason (seed 42: the collation rule). It runs in the CI job
+for MariaDB 10.11, not blocking, because plan-dependent pairs (issue 003) may differ between
+patch releases; locally it is strict (84 pairs of campaigns 2-6: 0 changed, 2 hidden on purpose).
+
+**Tidying.**
+- Removed the `column_info` option of `sql.yml` and its script: the mysql client prints no
+  column metadata in batch mode; `scripts/probe_collations.py` replaced it.
+- `data/tidb/rowid-intersect.sql` renamed `rowid-distinct-or.sql` (it has no INTERSECT left).
+- README, `issues/004` and `results/` brought into agreement: the record has 207 pairs, 206 of
+  server defects and one false alarm; the campaigns found issues 012 to 018; issue 004 lists
+  Percona Server and TiDB.
+
+**Audit findings.**
+- The journal of round 16 named the wrong seed for the pairs hidden by the collation rule (83
+  instead of 42); the script showed it at its first run. Corrected in place, with a note.
+- CI after the change of round 16 (`rejudge`): green on every job that has finished
+  (Coq 8.18, Rocq 9, MariaDB 10.11, 11.4, 11.8, MySQL 9, TiDB v8.5).
+
+**End of this run of rounds (13-17).** New candidates: `issues/016`, `017`, `018` (TiDB). Fixed
+false alarms of the tool: five on TiDB (round 14), two whole-pair tolerances narrowed (round 16),
+one misclassified record corrected. Open, for a next run:
+1. The collation rule still hides any defect of an `INTERSECT` / `EXCEPT` over mixed
+   collations (two recorded pairs of issue 012).
+2. None of the candidates was reported upstream; the TiDB tracker was not searched.
+3. OceanBase and PolarDB-X were not tried.

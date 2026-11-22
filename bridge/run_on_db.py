@@ -341,8 +341,8 @@ def printed_decimals(target, column, base_types, types, base_scales, rows=()):
     different places the relation holds only up to one unit of the coarser one.  (Two
     DECIMALs of one scale are rounded alike, and rounding is monotone: no tolerance.)
     `target.last_scales` are those of the mutant, `base_scales` those of the original.
-    `rows`: the two results; a number of decimals is used only if every value of the
-    column has no more (TiDB reports 0 decimals for an unrounded STDDEV_SAMP)."""
+    `rows`: the two results; a number of decimals is used only if the values of the result
+    that reports it have no more (TiDB reports 0 decimals for an unrounded STDDEV_SAMP)."""
     scales = getattr(target, 'last_scales', None)
     if types is None or not base_scales or not scales:
         return None
@@ -354,7 +354,9 @@ def printed_decimals(target, column, base_types, types, base_scales, rows=()):
         d = min(printed)
     else:
         return None
-    for result in rows:
+    for scale, result in zip(both, rows):
+        if scale != d:
+            continue            # the other result is not rounded there; its values may have more
         for row in result or ():
             v = row[column]
             if isinstance(v, float) and abs(v - round(v, d)) > 1e-9 * max(1.0, abs(v)):

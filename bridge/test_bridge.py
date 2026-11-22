@@ -385,8 +385,10 @@ import types as _types  # noqa: E402
 from run_on_db import printed_decimals  # noqa: E402
 _t = _types.SimpleNamespace(APPROXIMATE_TYPES={4, 5}, DECIMAL_TYPES={0, 246}, last_scales=[0])
 report(printed_decimals(_t, 0, [5], [5], [0], ([(1.9445436482630056,)], [(3.78125,)])) is None and
-       printed_decimals(_t, 0, [5], [5], [0], ([(2.0,)], [(4.0,)])) == 0,
-       'a number of decimals the values do not have is not used')
+       printed_decimals(_t, 0, [5], [5], [0], ([(2.0,)], [(4.0,)])) == 0 and
+       printed_decimals(_types.SimpleNamespace(APPROXIMATE_TYPES={4, 5}, DECIMAL_TYPES={0, 246}, last_scales=[31]),
+                        0, [246], [5], [4], ([(0.7854,)], [(0.7853981633974483,)])) == 4,
+       'a number of decimals the values do not have is not used; the unrounded result may have more')
 report(check_value('Le', 1, [(1, Decimal('3.3333333333'))], [(1, Decimal('3.333333'))]) != 'ok' and
        check_value('Le', 1, [(1, Decimal('3.3333333333'))], [(1, Decimal('3.333333'))], output_decimals=6) == 'ok' and
        check_value('Le', 1, [(1, Decimal('3.3334'))], [(1, Decimal('3.333333'))], output_decimals=6) != 'ok',

@@ -183,7 +183,7 @@ fixes of PR #1 are merged; the design problems below are still open.
    without `GROUP BY`), `issues/006` (new in the sixth round: a `BIT(8)` scalar subquery
    under a loose index scan returns 255). Reproduced on MariaDB 10.11.14; on MySQL 8.4.13
    (CI) the minimal cases of 005 and 006 give the correct results, so both are specific to
-   MariaDB. OceanBase and PolarDB were not tested (Percona Server and TiDB: item 1d); causes
+   MariaDB. Percona Server and TiDB: item 1d; OceanBase and PolarDB-X: item 1e; causes
    not analysed.
 1a. **MariaDB `AVG` under `SELECT DISTINCT`** (`issues/009`, sixth round, found by the DISTINCT
    value queries): the `AVG` of the last group on every row; still present in MariaDB
@@ -195,7 +195,22 @@ fixes of PR #1 are merged; the design problems below are still open.
    `issues/018` (a `UNION` of a `DECIMAL` and a `DOUBLE` arm rounds the `DOUBLE`). On TiDB the
    tool itself was wrong at first: TiDB reports `utf8mb4_bin` for every text column of a
    result and 0 decimals for unrounded floats (round 14). Open: the TiDB tracker was not
-   searched for any of the three; OceanBase and PolarDB-X were not tried.
+   searched for any of the three.
+1e. **OceanBase and PolarDB-X (round 19).** OceanBase CE 4.4.2.1 has one candidate,
+   `issues/023` (`SUM(x - k)` next to `SUM(x)` and `COUNT(DISTINCT x)` is computed as
+   `SUM(x) - k * COUNT(DISTINCT x)`), behind 27 of the 33 pairs of its two campaigns; the
+   other 6 were false alarms of the checker (a nested `UNION` de-duplicated in the outer
+   collation, as MySQL 9 does; fixed). PolarDB-X 5.4.19 has three: `issues/020` (a constant
+   false `HAVING` of a global aggregate ignored in an `INTERSECT` / `EXCEPT` arm), `issues/021`
+   (a correlated `IN` over a DISTINCT derived table NULL where its subquery is empty) and
+   `issues/022` (an `INTERSECT` / `EXCEPT` arm with a DISTINCT derived table and a `LEFT JOIN`
+   loses its `WHERE ... IN (subquery)`). The tool needed changes first: `--no-set-all`
+   (OceanBase refuses `INTERSECT ALL` / `EXCEPT ALL`), no `WEIGHT_STRING` and untrusted result
+   collations on PolarDB-X, request ids in its error messages, driver errors, `DELETE` without
+   `WHERE` forbidden, and a server wait that requires DDL. Open: the trackers were not
+   searched; one release of each, in its all-in-one container; about 45% of the generated
+   queries fail on PolarDB-X (an `AssertionError: Do not support RexSubQuery`, unsupported
+   functions), so its coverage is smaller than elsewhere.
 1c. **MariaDB over random databases (round 8 of `docs/JOURNAL.md`).** `bridge/campaign_mysql.py`
    (40 databases, 3200 queries) gave 123 violating pairs on 10.11.14, all classified
    (`results/mariadb-campaign.md`): 110 are issue 009, which turns out to be a family

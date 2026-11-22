@@ -44,7 +44,7 @@ database `test` from `data/mariadb/`. Logs and violations are written to `out/`.
 | `scripts/` | `setup_mariadb.sh` (set up the sample database), `demo.sh` (end-to-end run), CI helpers |
 | `data/` | Sample MariaDB database and 870 queries produced by the original Python generator |
 | `docs/` | `USAGE.md`: the step-by-step guide; `JOURNAL.md`: the log of work rounds |
-| `results/` | The SQLite campaigns: 64 confirmed violations from 5 bugs (4 withdrawn), reduced pairs, commits; the campaigns over random databases on MariaDB (six campaigns, 207 pairs: 206 assigned to issues 003, 009, 010, 012, 013, 014, one false alarm found later) and on MySQL, Percona Server and TiDB |
+| `results/` | The SQLite campaigns: 64 confirmed violations from 5 bugs (4 withdrawn), reduced pairs, commits; the campaigns over random databases on MariaDB (six campaigns, 207 pairs: 206 assigned to issues 003, 009, 010, 012, 013, 014, one false alarm found later) and on MySQL, Percona Server, TiDB, PolarDB-X and OceanBase |
 | `issues/` | Problem reports and candidate DBMS bugs |
 
 The idea: **a mutation rule is a theorem**. Once the theorem is proved, a generic,
@@ -279,7 +279,7 @@ value cannot be read off the result.
 | `scripts/check_violations.py` | Compares the violations of a run with a baseline of known ones (keys and signatures) |
 | `scripts/record_sqlite_pairs.py` | Adds the new pairs of an SQLite campaign to `results/`: confirm, bisect, reduce, bisect again, regenerate the reports |
 | `scripts/replay_reduced_sqlite.py` | Replays the reduced SQLite pairs of `results/` on their releases: every known bug must still be detected (CI) |
-| `scripts/compare_campaign.py`, `results/server-campaigns.json` | The pairs found on MySQL 9, MariaDB 13 and TiDB after the checker's fixes; a campaign run again with the same image, seeds and options is compared with them (the campaign workflow does it) |
+| `scripts/compare_campaign.py`, `results/server-campaigns.json` | The pairs found on MySQL 9, MariaDB 13, TiDB, PolarDB-X and OceanBase after the checker's fixes; a campaign run again with the same image, seeds and options is compared with them (the campaign workflow does it) |
 | `scripts/recheck_recorded.py` | Judges the recorded MariaDB pairs (`results/mariadb-campaign.jsonl`) again with the present checker: a pair of a server defect must still be violated, a false alarm must not |
 | `scripts/probe_collations.py` | Prints the collation the bridge reads for each result column of a few queries on a server; a wrong one would make the checker report false alarms |
 | `scripts/check_reduced_mysql.py` | Checks that a reduced script still shows its violation |
@@ -554,6 +554,7 @@ give a verdict of their own (`incomparable`, `collation`, `type_mismatch_skipped
 | Other columns equal after rounding floats to 12, then 9 significant digits; DECIMALs with a fraction one decimal shorter (`_norm`) | `AVG(x) * 2` is 5.3333 or 5.3334 depending on whether the `AVG` went through a temporary table | a value of an unmutated column wrong in its last digits |
 | A column that is `FLOOR` / `CEIL` / `ROUND` / `SIGN` of a variance or standard deviation, not the mutated one, differs by at most one step per value (`rejudge`, `step_columns`) | the last bit of a float decides between 1 and 2 | a defect that moves such a value by exactly one step |
 | Strings equal under the collation of their result column (`fold`; verdict `collation`) | `DISTINCT` and `GROUP BY` keep one of `'a'` and `'A'`, unspecified which | a wrong string that is collation-equal to the right one |
+| Under that collation, two rows of a set (a result without duplicates) that it makes one count once (`check_inclusion`; `collation`) | a `UNION` nested in another is de-duplicated in the outer column's collation (MySQL 9, OceanBase), so `'a'` and `'A'` both stay, while the result it is compared with kept one | a lost row whose strings are case or space variants of a kept one |
 | In a compound column that is a number in one arm and text or a date in another (`BIT` excepted), a text that is a number is compared as that number (`rejudge`, `last_mixed_columns`) | the text of a number (`'0'`, `'0.00'`) depends on which arms meet first and on materialization | a defect that only changes how a number is written in such a column |
 | `INTERSECT` / `EXCEPT` over arms with a `_ci` and another collation, when a row that differs holds a string with a letter, an accent or a trailing space (`last_arm_mix`, `collation_can_explain`; `collation`) | which rows match depends on the representative a `DISTINCT` kept | a wrong row of such a compound whose strings have case or space variants |
 | The two results type a column differently (number in one, text in the other): the check is skipped | the values cannot be compared as SQL values | a wrong value that comes with a type change (on SQLite with numeric inputs, text on one side only **is** reported: `strict_types`) |
@@ -583,7 +584,7 @@ MariaDB 10.11, 11.4 and 11.8 and on MySQL 8.4 and 9 (`.github/workflows/sql.yml`
 script on any other image). None was reported upstream (no access
 to the trackers from the environment this was written in). The columns say where the
 script gives a wrong result; Percona Server 8.4.11 behaves as MySQL 8.4 for 008 and 015, and
-TiDB is in the last column of 016.
+TiDB, PolarDB-X and OceanBase are in the last column of 016 to 023.
 
 | Issue | What | MariaDB 10.11.14 | MariaDB 11.4.13 / 11.8.9 / 13.0.2 | MySQL 8.4.13 / 9.7.4 |
 | --- | --- | --- | --- | --- |
@@ -602,6 +603,10 @@ TiDB is in the last column of 016.
 | [017](issues/017-tidb-tidb-rowid-distinct-or.md) | TiDB: `SELECT DISTINCT` with an `OR` over two columns of a unique index fails with "Can't find column t1._tidb_rowid" after `ANALYZE` (an error, not a wrong result) | runs | not run | not run; **TiDB v7.5.1, v8.5.3: error** |
 | [018](issues/018-tidb-union-decimal-double-rounding.md) | TiDB: a `UNION` of a `DECIMAL` and a `DOUBLE` arm rounds the `DOUBLE` to the `DECIMAL`'s scale (`ATAN(1) UNION ALL 1.5` gives 0.8) | correct | not run | correct (9.7.4); **TiDB v8.5.3: wrong** |
 | [019](issues/019-tidb-nested-intersect-date-null.md) | TiDB: `A INTERSECT (B INTERSECT C)` keeps a row of a `VARCHAR` `A` that matches only the NULL of a `DATE` column (left-deep is right) | correct | not run | correct (9.7.4); **TiDB v8.5.3: wrong** |
+| [020](issues/020-polardbx-setop-global-aggregate-having-false.md) | PolarDB-X: an `INTERSECT` / `EXCEPT` arm that aggregates without `GROUP BY` ignores a constant false `HAVING` (returns the aggregates of no rows: `COUNT` 0, `MIN` NULL) | correct | not run | correct (9.7.4); **PolarDB-X 5.4.19: wrong** |
+| [021](issues/021-polardbx-correlated-in-distinct-derived-null.md) | PolarDB-X: a correlated `x IN (SELECT ... FROM (SELECT DISTINCT * FROM t))` is NULL instead of 0 for a row whose subquery is empty, when the table holds a NULL | correct | not run | correct (9.7.4); **PolarDB-X 5.4.19: wrong** |
+| [022](issues/022-polardbx-setop-distinct-left-join-where-lost.md) | PolarDB-X: in an `INTERSECT` / `EXCEPT` arm, `(SELECT DISTINCT * FROM u) LEFT JOIN u ... WHERE b.x IN (subquery)` loses its `WHERE` | correct | not run | correct (9.7.4); **PolarDB-X 5.4.19: wrong** |
+| [023](issues/023-oceanbase-sum-minus-constant-count-distinct.md) | OceanBase: `SUM(x - k)` next to `SUM(x)` and `COUNT(DISTINCT x)` is `SUM(x) - k * COUNT(DISTINCT x)` (also `AVG`, `VAR_SAMP`, `STDDEV_SAMP`; a negative variance) | correct | not run | correct (9.7.4); **OceanBase CE 4.4.2.1: wrong** |
 
 MariaDB 13.0.2 (the `latest` image, through `.github/workflows/sql.yml`) was checked for
 003 and 009 to 014, and a campaign on it found 003, 010, 012 and 013 again; 005 and 006 were
@@ -609,7 +614,7 @@ not run there.
 
 Not counted: [002](issues/002-mariadb-enum-max-having.md) (probably intended behaviour) and
 [007](issues/007-sqlite-compound-collation.md) (SQLite, perhaps intended). The campaigns over
-random databases that found 012 to 019 and re-found the others are in
+random databases that found 012 to 023 and re-found the others are in
 [`results/mariadb-campaign.md`](results/mariadb-campaign.md) (the 207 MariaDB pairs, with their
 issues, in `results/mariadb-campaign.jsonl`; `scripts/recheck_recorded.py` judges them again).
 

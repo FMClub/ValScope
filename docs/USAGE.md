@@ -417,14 +417,31 @@ What differs per server, and what the bridge does about it:
   column type; the checker allows one unit of that digit, but only when the values of that
   result have no more decimals than reported (TiDB reports 0 for unrounded floats).
 - **Generated queries.** `campaign_mysql.py --tidb` avoids what TiDB refuses: a subquery in a
-  join condition, `INTERSECT ALL`, `EXCEPT ALL`.
+  join condition, `INTERSECT ALL`, `EXCEPT ALL`.  `--no-set-all` avoids only `INTERSECT ALL` and `EXCEPT ALL` (OceanBase 4.4 refuses them with
+  error 1064); the other random choices are unchanged.
+- **No `WEIGHT_STRING`.** PolarDB-X has none, so the keys of a `_ci` / `_ai` collation are
+  approximated (case and accents removed) and its result collations are not trusted: text is
+  compared with the coarsest collation of the database, as on TiDB.
+- **Driver errors.** A value the driver cannot convert (seen on PolarDB-X) fails that query only;
+  the connection is opened again. Request ids that PolarDB-X puts before its error messages
+  (`[...][host:port][db]`) are removed, so the error summary groups them.
+- **Statements refused.** PolarDB-X forbids `DELETE` without `WHERE`: the reducer empties a
+  table with `TRUNCATE TABLE`.
 - **Errors.** Every message the server returned is summed at the end of a run; messages that
   are the server's own fault (an internal error such as "Can't find column ..._tidb_rowid") are
   printed with the first query that produced them (`INTERNAL ERROR:`).
 
 The two workflows started by hand, `.github/workflows/campaign.yml` and `sql.yml`, take the
-image, the port and the password (`none` for no password): TiDB is `pingcap/tidb:v8.5.3`,
-port `4000`, password `none`.
+image, the port, the user and the password (`none` for no password):
+
+| Server | Image | Port | User | Password | Campaign options |
+| --- | --- | --- | --- | --- | --- |
+| TiDB | `pingcap/tidb:v8.5.3` | 4000 | `root` | `none` | `--tidb` |
+| OceanBase CE | `oceanbase/oceanbase-ce:latest` (4.4.2.1; started in its `mini` mode) | 2881 | `root@test` | `none` | `--no-set-all`; `wait_minutes` 15 |
+| PolarDB-X | `polardbx/polardb-x:latest` (5.4.19 snapshot, all-in-one) | 8527 | `polardbx_root` | `123456` | none; `wait_minutes` 15 |
+
+The workflows wait until the server accepts a `CREATE DATABASE`: OceanBase answers queries
+minutes before its tenant accepts DDL.
 
 ### 6.6 A whole campaign
 

@@ -98,12 +98,27 @@ CI runs a small campaign (seeds 1-12, `--focus`) on MySQL 8.4 and 9 and on Maria
 | TiDB v8.5.3, first runs | seeds 1-40 `--focus --tidb`; 131-170 `--rich --tidb` | 105205; 67522 | 12; 9 | translation mismatches: `issues/016`; the rest were false alarms of the tool on TiDB (below) |
 | TiDB v8.5.3, after the fixes of round 14 | seeds 1-40, `--focus --tidb` | 105195 | 8 | `issues/016`: 5, `issues/018`: 3 |
 | TiDB v8.5.3, after the fixes of round 14 | seeds 131-170, `--rich --tidb` | 67401 | 6 | `issues/016`: 5, `issues/018`: 1 |
+| OceanBase CE 4.4.2.1 (`oceanbase/oceanbase-ce:latest`, port 2881), first run | seeds 1-10, `--focus --value-ext` | 11378 | 0 | 155 of 600 queries refused (`INTERSECT ALL` / `EXCEPT ALL`, error 1064): `--no-set-all` since |
+| OceanBase CE 4.4.2.1 | seeds 1-40, `--focus --value-ext --no-set-all` | 118709 | 18, then 12 | `issues/023`: 12; 6 false alarms of nested `UNION`s (fixed in the checker; after the fix 12) |
+| OceanBase CE 4.4.2.1 | seeds 131-170, `--rich --value-ext --no-set-all` | 73075 | 15 | `issues/023`: 15 (4 of them hinted 013 / 009 by triage, whose older hints come first) |
+| PolarDB-X 5.4.19 snapshot (`polardbx/polardb-x:latest`, port 8527), first run | seeds 1-10, `--focus --value-ext` | 4804 | 3 | `issues/020`: 3; 4 runs failed (no `WEIGHT_STRING`, a driver error: tool fixed) |
+| PolarDB-X 5.4.19 snapshot, after the fixes | seeds 1-10, `--focus --value-ext` | 6107 | 5 | `issues/020`: 3, `issues/021`: 1, `issues/022`: 1; 270 of 600 queries fail on the server |
 
 On TiDB the tool itself had to be corrected first (round 14 of `docs/JOURNAL.md`): TiDB reports
 `utf8mb4_bin` for every text column of a result (so text is now compared with the coarsest
 collation of the database there), reports 0 decimals for unrounded floats, and types a UNION of
 DECIMAL and DOUBLE arms as DECIMAL (`issues/018`). The campaign on seeds 1-40 was rerun after
 each fix; `issues/017` (an internal error) was found in its error summary.
+
+On OceanBase and PolarDB-X (round 19 of `docs/JOURNAL.md`) the tool needed changes first:
+`--no-set-all` for OceanBase; on PolarDB-X no `WEIGHT_STRING` (approximate collation keys,
+untrusted result collations), request ids in its error messages, values the driver cannot
+convert, `DELETE` without `WHERE` forbidden (the reducer truncates); and a server wait that
+requires DDL. The six false alarms of OceanBase were nested `UNION`s: OceanBase and MySQL 9
+de-duplicate a `UNION` nested in another in the outer column's collation
+(`data/oceanbase/nested-union-collation.sql`), so a set kept `'a'` and `'A'`, which the checker
+then counted twice; under a collation a set's rows that it makes one now count once.
+The reproducers are in `data/oceanbase/` and `data/polardbx/`.
 
 The reproducers of `data/mariadb/` on MariaDB 13.0.2 (`sql.yml` with the directory): issues
 009, 010, 011, 012, 013 and 014 give the same wrong results as on 10.11.14; of issue 003

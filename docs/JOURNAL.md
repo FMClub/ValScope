@@ -549,3 +549,60 @@ recorded pairs blocking.
 1. The SQLite tools still each read their records and build their databases themselves (one
    loader would do).
 3. OceanBase and PolarDB-X were not tried.
+
+## Round 19 (2026-11-22)
+
+**Milestone 1: one loader for the SQLite tools.** `bridge/sqlite_records.py` reads the records
+of SQLite pairs, builds their databases (a seed of `gen_sqlite_db.py`, or the statements of a
+reduced pair) and judges a pair (`verdict`); `confirm_sqlite.py`, `bisect_sqlite.py`,
+`reduce_sqlite.py`, `scripts/replay_reduced_sqlite.py` and `scripts/record_sqlite_pairs.py` no
+longer each read and build for themselves. Before and after, on the same inputs: the 64
+reduced pairs replay; the confirmation table of the 64 pairs is identical; the bisection of
+pair 1 and the reduction of pair 53 (26 statements to 6, the same 124-character query) give the
+same output.
+
+**Milestone 2: OceanBase and PolarDB-X.** Campaigns through `campaign.yml` on OceanBase CE
+4.4.2.1 (seeds 1-40 `--focus`, 131-170 `--rich`, both `--value-ext --no-set-all`) and on
+PolarDB-X 5.4.19 (seeds 1-10 `--focus --value-ext`); every pair reproduced with `sql.yml` on
+the server, on MySQL 9 and on the local MariaDB, and recorded in `results/server-campaigns.json`.
+- `issues/023` (OceanBase): `SUM(x - k)` next to `SUM(x)` and `COUNT(DISTINCT x)` is
+  `SUM(x) - k * COUNT(DISTINCT x)`; also `AVG`, `VAR_SAMP` (a negative variance),
+  `STDDEV_SAMP`. All 27 server pairs of the two campaigns once the false alarms were fixed.
+- `issues/020` (PolarDB-X): an `INTERSECT` / `EXCEPT` arm that aggregates without `GROUP BY`
+  ignores a constant false `HAVING` (3 pairs). My first reproducer missed it: its comparison
+  values happened not to meet the row of the aggregates of no rows.
+- `issues/021` (PolarDB-X): a correlated `IN` over `(SELECT DISTINCT * FROM t)` is NULL instead
+  of 0 where the subquery is empty and the table holds a NULL.
+- `issues/022` (PolarDB-X): an `INTERSECT` / `EXCEPT` arm `(SELECT DISTINCT * FROM u) LEFT JOIN u
+  ... WHERE b.x IN (subquery)` loses its `WHERE`. It needs a table whose `DISTINCT` does
+  something: my first small table had a primary key and the case did not reproduce.
+
+**What the tool needed first.**
+- OceanBase refuses `INTERSECT ALL` / `EXCEPT ALL` (155 of 600 queries): `--no-set-all`.
+- PolarDB-X: the campaign stopped on the `INTERNAL ERROR` lines after the error summary (one
+  tested `parse_run`); `CREATE DATABASE` on a connection whose database was dropped is refused
+  (`USE information_schema` first); no `WEIGHT_STRING` (approximate keys for `_ci` / `_ai`);
+  values the driver cannot convert (the query fails, the connection is opened again); request
+  ids before error messages (removed); `DELETE` without `WHERE` forbidden (the reducer
+  truncates).
+- `sql.yml` / `campaign.yml` waited for `SELECT VERSION()`, which OceanBase answers before its
+  tenant accepts DDL: a probe script ran against a server that refused every `CREATE`. The
+  wait now requires a `CREATE DATABASE`.
+
+**Audit finding.** Six OceanBase pairs (nested `UNION`s, seeds 8, 12, 16) were false alarms of
+the checker, not of the server: OceanBase and MySQL 9 de-duplicate a `UNION` nested in another
+in the outer column's (binary) collation, so the set keeps `'a'` and `'A'`; the checker folds
+with the coarsest collation of the arms and then counted that row twice against a result that
+kept one. Under a collation, a set's rows that it makes one now count once (verdict
+`collation`). The 84 recorded MariaDB pairs, the MariaDB demo (11642 / 4190 / 3492 / 3714 / 2735
+checks, 21 violations, negative control 1181 / 1008) are unchanged; the rerun of OceanBase seeds
+1-40 lost exactly those six (`collation` 97 to 103). One real difference remains and is not
+counted: `(empty) UNION (SELECT DISTINCT v FROM s)` keeps both `'a'` and `'A'` on OceanBase, one
+on MySQL; modulo the collation the two are the same set.
+
+**TODO for round 20.**
+1. Triage hints come in a fixed order; four OceanBase pairs of issue 023 are hinted 013 / 009.
+   A hint could say which server it is for.
+2. About 45% of the generated queries fail on PolarDB-X (`Do not support RexSubQuery`,
+   unsupported functions); a `--polardbx` generator option would test more of it.
+3. The trackers of OceanBase and PolarDB-X were not searched for 020-023.

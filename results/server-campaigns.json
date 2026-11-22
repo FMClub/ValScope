@@ -1,5 +1,5 @@
 {
- "about": "The violating pairs of campaigns on servers other than the local MariaDB, after the fixes of rounds 14-16 (docs/JOURNAL.md). A campaign with the same image, seeds and options must find the same pairs: scripts/compare_campaign.py.",
+ "about": "The violating pairs of campaigns on servers other than the local MariaDB, after the fixes of rounds 14-16 (OceanBase and PolarDB-X: round 19) (docs/JOURNAL.md). A campaign with the same image, seeds and options must find the same pairs: scripts/compare_campaign.py.",
  "campaigns": [
   {
    "image": "mariadb:latest",
@@ -307,6 +307,217 @@
      ],
      "pairs": 1,
      "issue": "016"
+    }
+   ]
+  },
+  {
+   "image": "oceanbase/oceanbase-ce:latest",
+   "server": "5.7.25-OceanBase_CE-v4.4.2.1",
+   "seeds": "1-40",
+   "options": "--focus --value-ext --no-set-all",
+   "queries": 40,
+   "pairs": [
+    {
+     "rule": "COUNT->COUNT-DISTINCT",
+     "seeds": [
+      31
+     ],
+     "pairs": 1,
+     "issue": "023"
+    },
+    {
+     "rule": "AVG->MAX",
+     "seeds": [
+      35
+     ],
+     "pairs": 1,
+     "issue": "023"
+    },
+    {
+     "rule": "HAVING OR-drop-operand",
+     "seeds": [
+      35
+     ],
+     "pairs": 2,
+     "issue": "023"
+    },
+    {
+     "rule": "HAVING cond->FALSE",
+     "seeds": [
+      35
+     ],
+     "pairs": 3,
+     "issue": "023"
+    },
+    {
+     "rule": "HAVING cond->TRUE",
+     "seeds": [
+      35
+     ],
+     "pairs": 5,
+     "issue": "023"
+    }
+   ]
+  },
+  {
+   "image": "oceanbase/oceanbase-ce:latest",
+   "server": "5.7.25-OceanBase_CE-v4.4.2.1",
+   "seeds": "131-170",
+   "options": "--rich --value-ext --no-set-all",
+   "queries": 40,
+   "pairs": [
+    {
+     "rule": "COUNT-DISTINCT->COUNT",
+     "seeds": [
+      133
+     ],
+     "pairs": 1,
+     "issue": "023"
+    },
+    {
+     "rule": "AVG->MAX",
+     "seeds": [
+      140
+     ],
+     "pairs": 1,
+     "issue": "023"
+    },
+    {
+     "rule": "COUNT-DISTINCT->COUNT",
+     "seeds": [
+      140
+     ],
+     "pairs": 1,
+     "issue": "023"
+    },
+    {
+     "rule": "COUNT->COUNT-DISTINCT",
+     "seeds": [
+      141
+     ],
+     "pairs": 1,
+     "issue": "023"
+    },
+    {
+     "rule": "COUNT->COUNT-DISTINCT",
+     "seeds": [
+      142
+     ],
+     "pairs": 1,
+     "issue": "023"
+    },
+    {
+     "rule": "HAVING OR-drop-operand",
+     "seeds": [
+      143
+     ],
+     "pairs": 1,
+     "issue": "023"
+    },
+    {
+     "rule": "HAVING cond->FALSE",
+     "seeds": [
+      143
+     ],
+     "pairs": 1,
+     "issue": "023"
+    },
+    {
+     "rule": "HAVING cond->TRUE",
+     "seeds": [
+      143
+     ],
+     "pairs": 3,
+     "issue": "023"
+    },
+    {
+     "rule": "COUNT-DISTINCT->COUNT",
+     "seeds": [
+      144
+     ],
+     "pairs": 1,
+     "issue": "023"
+    },
+    {
+     "rule": "COUNT->COUNT-DISTINCT",
+     "seeds": [
+      150
+     ],
+     "pairs": 1,
+     "issue": "023"
+    },
+    {
+     "rule": "COUNT->COUNT-DISTINCT",
+     "seeds": [
+      162
+     ],
+     "pairs": 1,
+     "issue": "023"
+    },
+    {
+     "rule": "COUNT->COUNT-DISTINCT",
+     "seeds": [
+      166
+     ],
+     "pairs": 1,
+     "issue": "023"
+    },
+    {
+     "rule": "COUNT->COUNT-DISTINCT",
+     "seeds": [
+      169
+     ],
+     "pairs": 1,
+     "issue": "023"
+    }
+   ]
+  },
+  {
+   "image": "polardbx/polardb-x:latest",
+   "server": "5.6.29-PXC-5.4.19-SNAPSHOT",
+   "seeds": "1-10",
+   "options": "--focus --value-ext",
+   "queries": 30,
+   "pairs": [
+    {
+     "rule": "DISTINCT-add",
+     "seeds": [
+      3
+     ],
+     "pairs": 1,
+     "issue": "021"
+    },
+    {
+     "rule": "HAVING cond->FALSE",
+     "seeds": [
+      4
+     ],
+     "pairs": 1,
+     "issue": "020"
+    },
+    {
+     "rule": "HAVING cond->FALSE",
+     "seeds": [
+      5
+     ],
+     "pairs": 1,
+     "issue": "020"
+    },
+    {
+     "rule": "DISTINCT-add",
+     "seeds": [
+      7
+     ],
+     "pairs": 1,
+     "issue": "022"
+    },
+    {
+     "rule": "HAVING cond->FALSE",
+     "seeds": [
+      7
+     ],
+     "pairs": 1,
+     "issue": "020"
     }
    ]
   }

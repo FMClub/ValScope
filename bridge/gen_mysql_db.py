@@ -84,6 +84,9 @@ def numeric_columns(seed):
 def build(cursor, database, seed):
     """Drop and create `database` and run the statements of the seed; returns the statements
     that succeeded (a UNIQUE index on duplicates fails and is skipped)."""
+    # leave the database first: PolarDB-X refuses any statement, CREATE DATABASE too, on a
+    # connection whose current database was dropped
+    cursor.execute('USE information_schema')
     cursor.execute('DROP DATABASE IF EXISTS `%s`' % database)
     cursor.execute('CREATE DATABASE `%s`' % database)
     cursor.execute('USE `%s`' % database)

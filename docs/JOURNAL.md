@@ -504,3 +504,44 @@ one misclassified record corrected. Open, for a next run:
    collations (two recorded pairs of issue 012).
 2. None of the candidates was reported upstream; the TiDB tracker was not searched.
 3. OceanBase and PolarDB-X were not tried.
+
+## Round 18 (2026-11-22)
+
+**Milestone.** One judgement for every runner. The verdict pipeline existed twice on the
+MySQL side (run_on_db.py and recheck_mysql.py, where recheck had drifted: no single-precision
+tolerance, no strict types, no type-mismatch skip; the translation check compared exactly
+where every other check allowed the collation) and five times on the SQLite side. Now
+`capture()` / `judge_results()` in `run_on_db.py` serve run_on_db, recheck_mysql and
+reduce_mysql, and `checker.judge()` serves the five SQLite tools. Before and after, on the
+same inputs: MariaDB demo 11642 / 4190 / 3492 / 3714 / 2735 checks and 21 known violations,
+negative control 1181 / 1008; SQLite demo 2029 / 703; 64 reduced SQLite pairs replay; the CI
+SQLite campaign 5662 checks; 84 recorded MariaDB pairs unchanged.
+
+- `results/server-campaigns.json` and `scripts/compare_campaign.py`: the pairs of the
+  campaigns on MySQL 9, MariaDB 13 and TiDB, compared with a rerun by the campaign workflow.
+  (The workflow's artifacts cannot be downloaded from here; campaigns are deterministic, so
+  the record is rule, seeds, number of pairs and issue.)
+- The recheck of the recorded MariaDB pairs is blocking in CI (10.11.19 agrees with 10.11.14).
+- `issues/019` (new, TiDB v8.5.3): `A INTERSECT (B INTERSECT C)` keeps a row of a `VARCHAR`
+  `A` that matches only the NULL of a `DATE` column.
+- Upstream leads for issues 016 and 017 written into the issues (web search only).
+
+**Audit findings.**
+- The refactor made the translation check modulo collation, and on TiDB this hid the
+  translation pair of seed 6 (issue 016 inside a compound): the collation rule applied to every
+  INTERSECT / EXCEPT over text there. It now applies only when the rows that differ hold a
+  string that a collation can make equal to another (a letter, an accent, a trailing space).
+  That also uncovered issue 019 (seed 8). The two recorded pairs of seed 42 stay hidden; their
+  differing rows do hold such strings.
+- Seed 7 of the same rerun was a false alarm on TiDB and MySQL 9 alike: in a column with a text
+  arm, `'0'` and `'0.00'` were kept apart in one result and merged in the other. Two results
+  that are sets are now compared as sets after their numbers are read as numbers; a bag keeps
+  its duplicates (or issue 016 would disappear again).
+- My own comparison script double-counted groups that triage had split by shape; fixed.
+
+**TODO for round 19.**
+1. Read the reruns of TiDB (seeds 1-40) and MariaDB 13 (seeds 231-280): both must match the
+   record exactly.
+2. The SQLite tools still each read their records and build their databases themselves;
+   `campaign_sqlite.py` compares written and re-printed queries with its own `same_rows`.
+3. OceanBase and PolarDB-X were not tried.

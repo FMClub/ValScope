@@ -11,6 +11,7 @@
     add --no-value-distinct: value queries without DISTINCT / UNION (on MariaDB, issues/009 hides the rest)
     add --tidb: no subquery in a join condition, no INTERSECT ALL / EXCEPT ALL
     add --no-set-all: no INTERSECT ALL / EXCEPT ALL (OceanBase)
+    add --no-group-window: no window over the groups of a value query (PolarDB-X: --tidb --no-group-window)
     add --schema FILE.json for another schema (see below)
 
 By default the schema is the sample schema of the Python generator (tables t1, t2, t3).
@@ -31,6 +32,7 @@ SMALL = False     # small values in the tables (gen_mysql_db.py): small constant
 NO_VALUE_DISTINCT = False   # no DISTINCT / UNION over value queries (MariaDB: issues/009 hides the rest)
 TIDB = False      # no subquery in a join condition, no INTERSECT ALL / EXCEPT ALL (TiDB 7.5 refuses them)
 NO_SET_ALL = False  # no INTERSECT ALL / EXCEPT ALL (OceanBase 4.4 refuses them; implied by TIDB)
+NO_GROUP_WINDOW = False  # no window over the groups of a value query (PolarDB-X fails on most)
 RICH = False      # opaque predicates and derived tables that stress the SQLite planner
 FOCUS = False     # more compound queries and more DISTINCT
 VALUE_EXT = False # value queries with windows over groups, a DISTINCT arm in a UNION ALL,
@@ -340,7 +342,7 @@ def _value_query_base(rng):
                 'SUM(%s.%s) OVER (PARTITION BY %s.%s)' % (alias, o, alias, p),
                 'COUNT(*) OVER (PARTITION BY %s.%s)' % (alias, p),
                 'MAX(%s.%s) OVER (PARTITION BY %s.%s ORDER BY %s.%s)' % (alias, o, alias, p, alias, o)])]
-    if VALUE_EXT and group:
+    if VALUE_EXT and group and not NO_GROUP_WINDOW:
         # 30%: a window over the groups (VUnion.v: tmutate_frame), over keys and aggregates
         side = random.Random('gwindow:%s:%s:%s' % (t, where, ','.join(items)))
         if side.random() < 0.3:
@@ -419,6 +421,8 @@ if __name__ == '__main__':
         TIDB = True
     if '--no-set-all' in sys.argv:
         NO_SET_ALL = True
+    if '--no-group-window' in sys.argv:
+        NO_GROUP_WINDOW = True
     argv = sys.argv[1:]
     if '--mysql-seed' in argv:
         # the databases of gen_mysql_db.py; value queries over their exact numeric columns
@@ -444,7 +448,7 @@ if __name__ == '__main__':
         i = argv.index('--schema')
         use_schema(argv[i + 1])
         del argv[i:i + 2]
-    args = [a for a in argv if a not in ('--value', '--sqlite', '--rich', '--focus', '--value-ext', '--no-value-distinct', '--tidb', '--no-set-all')]
+    args = [a for a in argv if a not in ('--value', '--sqlite', '--rich', '--focus', '--value-ext', '--no-value-distinct', '--tidb', '--no-set-all', '--no-group-window')]
     n = int(args[0])
     rng = random.Random(int(args[1]) if len(args) > 1 else 0)
     for _ in range(n):

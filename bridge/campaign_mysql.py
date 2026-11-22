@@ -74,9 +74,11 @@ def main():
     ap.add_argument('--value-ext', action='store_true')
     ap.add_argument('--no-value-distinct', action='store_true',
                     help='value queries without DISTINCT / UNION (MariaDB: issues/009 hides the rest)')
-    ap.add_argument('--tidb', action='store_true',   # also for PolarDB-X, which refuses the same
+    ap.add_argument('--tidb', action='store_true',   # also for PolarDB-X (with --no-group-window)
                     help='queries TiDB accepts: no subquery in a join condition, no INTERSECT ALL / EXCEPT ALL')
     ap.add_argument('--no-set-all', action='store_true', help='queries without INTERSECT ALL / EXCEPT ALL (OceanBase)')
+    ap.add_argument('--no-group-window', action='store_true',
+                    help='value queries without a window over their groups (PolarDB-X fails on most)')
     ap.add_argument('--flip', action='store_true', help='negative control')
     ap.add_argument('--host', default='127.0.0.1')
     ap.add_argument('--port', type=int, default=3306)
@@ -94,7 +96,7 @@ def main():
     conn = ['--host', a.host, '--port', str(a.port), '--user', a.user, '--password', a.password,
             '--database', a.database]
     gen_opts = [o for o, on in (('--focus', a.focus), ('--rich', a.rich), ('--tidb', a.tidb),
-                                ('--no-set-all', a.no_set_all)) if on]
+                                ('--no-set-all', a.no_set_all), ('--no-group-window', a.no_group_window)) if on]
     total, pairs, errors, failed, internal = collections.Counter(), set(), collections.Counter(), [], {}
     for seed in parse_range(a.seeds):
         used = gen_mysql_db.build(cur, a.database, seed)

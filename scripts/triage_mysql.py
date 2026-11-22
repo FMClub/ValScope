@@ -101,8 +101,8 @@ HINTS = [
      lambda o, m, both, ix: ' LEFT JOIN ' in o and 'NOT (EXISTS ' in o and o.count('EXISTS ') >= 2),
     ('023', {'oceanbase'}, _sum_minus_constant),    # SUM(x - k) next to SUM(x) and COUNT(DISTINCT x)
     ('024', {'polardbx'},       # UNION ALL with a parenthesized UNION on its right (or the other way round)
-     lambda o, m, both, ix: bool(re.search(r'UNION ALL \(\(SELECT .*\) UNION \(SELECT ', m)
-                                 or re.search(r' UNION \(\(SELECT .*\) UNION ALL \(SELECT ', m))),
+     lambda o, m, both, ix: any(re.search(r'UNION ALL \(\(SELECT .*\) UNION \(SELECT ', q)
+                                or re.search(r' UNION \(\(SELECT .*\) UNION ALL \(SELECT ', q) for q in (o, m))),
     ('022', {'polardbx'},       # an INTERSECT / EXCEPT arm: DISTINCT table LEFT JOIN, WHERE ... IN (subquery)
      lambda o, m, both, ix: (' INTERSECT ' in m or ' EXCEPT ' in m) and ' LEFT JOIN ' in m
      and '(SELECT DISTINCT * FROM ' in m and ' IN (SELECT ' in m),

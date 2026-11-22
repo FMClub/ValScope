@@ -896,6 +896,7 @@ report(_run['totals']['checked_ok'] == 10 and _run['errors'] == {'1055 Expressio
        'campaign: an internal error after the error summary is not read as a count (it stopped the PolarDB-X campaign)')
 
 # the rich generator writes the dialect of its database
+import re  # noqa: E402
 import subprocess  # noqa: E402
 gen = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'gen_fragment.py')
 rich_mysql = subprocess.run([sys.executable, gen, '--rich', '--mysql-seed', '3', '300', '3'],
@@ -903,6 +904,16 @@ rich_mysql = subprocess.run([sys.executable, gen, '--rich', '--mysql-seed', '3',
 sqlite_only = [w for w in (' GLOB ', 'likely(', 'NOCASE', '||', 'AS TEXT', 'AS INTEGER') if w in rich_mysql]
 report(not sqlite_only and '<=>' in rich_mysql and 'CONCAT(' in rich_mysql,
        'generator: --rich for a MySQL database has no SQLite spelling (%s)' % sqlite_only)
+value_args = ['--value', '--value-ext', '--focus', '--mysql-seed', '5', '200', '7']
+with_w = subprocess.run([sys.executable, gen] + value_args, capture_output=True, text=True, check=True).stdout.splitlines()
+without_w = subprocess.run([sys.executable, gen, '--no-group-window'] + value_args,
+                           capture_output=True, text=True, check=True).stdout.splitlines()
+overs = lambda qs: sum(q.count(' OVER ') for q in qs)  # noqa: E731
+report(len(with_w) == len(without_w) and overs(without_w) < overs(with_w)
+       and all(b.startswith(re.split(r' (?:UNION|INTERSECT|EXCEPT)\b', a)[0])
+               for a, b in zip(with_w, without_w) if ' OVER ' not in a),
+       'generator: --no-group-window drops windows; a query without one keeps its first arm '
+       '(a second arm, drawn among candidates without a window, may change or appear)')
 rich_sqlite = subprocess.run([sys.executable, gen, '--rich', '--sqlite-seed', '3', '300', '3'],
                              capture_output=True, text=True, check=True).stdout
 report(' GLOB ' in rich_sqlite and '<=>' not in rich_sqlite, 'generator: --rich for SQLite keeps its spelling')

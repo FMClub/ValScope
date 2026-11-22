@@ -845,6 +845,9 @@ report(hint('SELECT t1a.c1 AS k1 FROM t1 AS t1a WHERE NOT (t1a.c1 IN (SELECT t1i
                 '(SELECT t2a.c1 AS k0, t2a.c2 AS k1 FROM t2 AS t2a) EXCEPT (SELECT t1a.c1 AS k0, t1b.c1 AS k1 FROM (SELECT DISTINCT * FROM t1 AS t1a) AS t1a LEFT JOIN t1 AS t1b ON (0) WHERE (t1b.c1, t1b.c4) IN (SELECT t2i21.c3, t2i21.c15 FROM t2 AS t2i21))',
                 False, 'polardbx') == '022',
        'triage: the PolarDB-X pairs of issues 021 and 022')
+report(hint('((SELECT t1a.c1 AS k0 FROM t1 AS t1a) INTERSECT (SELECT t3a.c9 AS k0 FROM t3 AS t3a)) UNION ALL ((SELECT t1a.c4 AS k0 FROM t1 AS t1a) UNION (SELECT t2a.c3 AS k0 FROM t2 AS t2a))',
+            '((SELECT t1a.c1 AS k0 FROM t1 AS t1a) UNION (SELECT t3a.c9 AS k0 FROM t3 AS t3a)) UNION ALL ((SELECT t1a.c4 AS k0 FROM t1 AS t1a) UNION (SELECT t2a.c3 AS k0 FROM t2 AS t2a))',
+            False, 'polardbx') == '024', 'triage: the PolarDB-X pair of issue 024')
 report(hint('SELECT t.a AS k0 FROM t AS t WHERE t.a > 1', 'SELECT t.a AS k0 FROM t AS t', False) == '',
        'triage: no hint for a pair that looks like no known issue')
 report(query_shape("SELECT t3a.c9 AS k0 FROM t3 AS t3a WHERE t3a.c1 > (-3) AND t3a.c2 = 'x'") ==

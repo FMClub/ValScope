@@ -335,6 +335,8 @@ jobs:
         run: mysql -h127.0.0.1 -uroot --force --skip-column-names < data/tidb/not-in-correlated-empty.sql | grep -v "^[A-Z][a-zA-Z]*_[0-9]\|^[└├│ ]" || true
       - name: "issue 016 in a compound: the translation pair of seed 6 (expected the same count, 1, for written and reprinted)"
         run: mysql -h127.0.0.1 -uroot --force --skip-column-names < data/tidb/translation-seed6.sql | grep "count" || true
+      - name: "issue 019: A INTERSECT (B INTERSECT C) with a DATE column (expected no row after I2, I3, I5, I7, I8, I9)"
+        run: mysql -h127.0.0.1 -uroot --force --skip-column-names < data/tidb/intersect-date-int.sql || true
       - name: Campaign over random databases (the candidates are printed, not judged)
         run: |
           python3 bridge/campaign_mysql.py --seeds 1-8 --queries 30 --focus --value-ext --tidb --out /tmp/campaign.jsonl | grep -v '^  ' | cut -c1-1500

@@ -72,7 +72,7 @@ jobs:
           WAIT: ${{ inputs.wait_minutes }}
         run: |
           for i in $(seq 1 $((WAIT * 12))); do
-            if mysql -h127.0.0.1 -u"$DBUSER" --password="$PASSWORD" -N -e "SELECT VERSION()" 2> /dev/null; then exit 0; fi
+            if mysql -h127.0.0.1 -u"$DBUSER" --password="$PASSWORD" -N -e "SELECT VERSION(); CREATE DATABASE IF NOT EXISTS vs_ready; DROP DATABASE vs_ready" 2> /dev/null; then exit 0; fi   # DDL too: OceanBase answers queries before its tenant accepts DDL
             sleep 5
           done
           echo "the server did not start" >&2; docker ps -a; exit 1

@@ -338,3 +338,32 @@ issue 008 in a much simpler form: MySQL takes the NULL of one operand of `INTERS
 2. The negative control (`--flip`) after these changes: the checker must still report
    violations by the hundred.
 3. CI: green after the changes? The MySQL baseline (issue 008's pair) must still appear.
+
+## Round 13 (2026-11-22)
+
+**Milestone.** A fourth server family: TiDB. A campaign on `pingcap/tidb:v8.5.3` (port 4000, no
+password; the workflows now take both as inputs) found `issues/016`: `x NOT IN (correlated
+subquery)` whose subquery has a condition on the outer row alone (`t.b <=> NULL`, `t.b IS NULL`)
+returns every outer row twice, in v7.5.1 and v8.5.3. It was found by the translation check,
+not by a rule: the bridge prints `NOT IN` as `NOT (... IN ...)`, and the two must agree.
+
+- `--tidb` (generator and campaign): no subquery in a join condition, no `INTERSECT ALL` /
+  `EXCEPT ALL`; TiDB 7.5.1 refused 213 of 600 queries without it. Other streams unchanged.
+- Percona Server 8.4.11-12: issues 015 and 008, as on MySQL 8.4.
+- README: one table of every tolerance of the checker, what it accepts, why, and what it can
+  hide (the TODO of round 12).
+- CI after the four new tolerances: the negative control still reports 1181 / 963 (MySQL)
+  and 182 / 223 (MariaDB) violations; the MySQL baseline still finds the pair of issue 008.
+
+**Audit findings.**
+- The README row of issue 016 first said "correct" for MySQL, which was never run. Corrected
+  to "not run". A cell of that table is a measurement or it is marked as missing.
+- The local MariaDB stops when the session's worker restarts; `scripts/setup_mariadb.sh`
+  brings it back.
+
+**TODO for round 14.**
+1. The six TiDB pairs that are not translation mismatches: triage them (reduced scripts are
+   in the workflow logs).
+2. `issues/016` on MySQL and MariaDB 11.x, for the table.
+3. `bridge/test_mysql.py` and the CI do not cover TiDB at all; a CI job for TiDB would catch
+   a regression of the bridge on its dialect.

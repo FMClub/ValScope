@@ -95,6 +95,8 @@ CI runs a small campaign (seeds 1-12, `--focus`) on MySQL 8.4 and 9 and on Maria
 
 | Percona Server 8.4.11-12 (`percona/percona-server:8.4`) | seeds 131-160, `--rich` | 51869 | 7 | `issues/015`: 6 (the pairs of seed 144, as on MySQL 9), `issues/008` (NULL matches 0): 1 |
 | TiDB 7.5.1 (`pingcap/tidb:latest`, port 4000) | seeds 1-10, `--focus` | 8054 | 0 | TiDB refused 213 of 600 queries (a subquery in a join condition, `INTERSECT ALL`, `EXCEPT ALL`); the generator has `--tidb` since |
+| TiDB v8.5.3 | seeds 1-40, `--focus --tidb` | 105205 | 12 | 8 translation mismatches, `issues/016` (`NOT IN` and `NOT (... IN ...)` differ); 4 not analysed yet (`cond->TRUE`, `cmp-weaken`, `STDDEV_SAMP->VAR_SAMP`) |
+| TiDB v8.5.3 | seeds 131-170, `--rich --tidb` | 67522 | 9 | 5 translation mismatches, `issues/016`; 2 not analysed yet (`LIKE-generalise`, `cond->TRUE`) |
 
 The reproducers of `data/mariadb/` on MariaDB 13.0.2 (`sql.yml` with the directory): issues
 009, 010, 011, 012, 013 and 014 give the same wrong results as on 10.11.14; of issue 003

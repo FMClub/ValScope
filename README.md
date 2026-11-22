@@ -597,6 +597,7 @@ TiDB is in the last column of 016.
 | [015](issues/015-mysql-left-join-semijoin-antijoin.md) | a LEFT JOIN loses its inner side (NULL-extended rows) when an `EXISTS` inside it and a `NOT EXISTS` outside it are both materialized on the constant 1 | correct | correct | wrong (8.0.46, 8.4.13, 9.7.4; 5.7.44 correct) |
 | [016](issues/016-tidb-null-aware-antijoin-left-cond.md) | TiDB: `x NOT IN (correlated subquery)` with a condition on the outer row alone (`t.b <=> NULL`) returns every row twice | correct | correct (11.8.9) | correct (9.7.4); **TiDB v7.5.1, v8.5.3: wrong** |
 | [017](issues/017-tidb-tidb-rowid-distinct-or.md) | TiDB: `SELECT DISTINCT` with an `OR` over two columns of a unique index fails with "Can't find column t1._tidb_rowid" after `ANALYZE` (an error, not a wrong result) | runs | not run | not run; **TiDB v7.5.1, v8.5.3: error** |
+| [018](issues/018-tidb-union-decimal-double-rounding.md) | TiDB: a `UNION` of a `DECIMAL` and a `DOUBLE` arm rounds the `DOUBLE` to the `DECIMAL`'s scale (`ATAN(1) UNION ALL 1.5` gives 0.8) | correct | not run | correct (9.7.4); **TiDB v8.5.3: wrong** |
 
 MariaDB 13.0.2 (the `latest` image, through `.github/workflows/sql.yml`) was checked for
 003 and 009 to 014, and a campaign on it found 003, 010, 012 and 013 again; 005 and 006 were

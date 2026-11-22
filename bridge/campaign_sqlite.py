@@ -35,7 +35,7 @@ from gen_sqlite_db import build  # noqa: E402
 from sqlite_exec import SQLiteLib  # noqa: E402
 import sql_bridge  # noqa: E402
 from sql_bridge import mutate_sql, mutate_value, Unsupported  # noqa: E402
-from checker import check_inclusion, judge, sqlite_fold  # noqa: E402
+from checker import judge, sqlite_fold  # noqa: E402
 from run_on_db import sqlite_exact_columns, sqlite_schema  # noqa: E402
 
 ERRORS = collections.Counter()
@@ -49,10 +49,6 @@ def run(db, sql):
         return None
 
 
-
-
-def same_rows(a, b):
-    return check_inclusion('Up', a, b) == 'ok' and check_inclusion('Down', a, b) == 'ok'
 
 
 def verdict_for(kind, mutant, base, res, fold=None, cover=False):
@@ -201,12 +197,16 @@ def main():
                     if count is None or count[0][0] != 0:
                         st['non_numeric_input'] += 1
                         continue
-                written, base = run(db, sql), run(db, original)
+                written = run(db, sql)
+                written_collations = db.last_collations
+                base = run(db, original)
                 base_collations = db.last_collations
                 if written is None or base is None:
                     st['original_failed'] += 1
                     continue
-                if not same_rows(written, base):
+                # the two must agree modulo the collation, as every other check (run_on_db.py)
+                tfold = db.folds(written_collations, base_collations, db.fallback)
+                if any(judge(d, written, base, fold=tfold) not in ('ok', 'collation') for d in ('Up', 'Down')):
                     st['TRANSLATION_MISMATCH'] += 1
                     print('TRANSLATION MISMATCH [%s seed %d]\n  written  : %s\n  reprinted: %s'
                           % (db.version, seed, sql, original))

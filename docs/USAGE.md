@@ -406,6 +406,26 @@ The SQL dialect is MySQL for every server reached this way. If the server reject
 construct (for example `INTERSECT` on older MySQL versions), the affected queries are
 counted as `original_failed` or `mutant_failed`, never as violations.
 
+What differs per server, and what the bridge does about it:
+
+- **Collations of result columns.** The checker compares strings modulo the collation the
+  server reports for each result column. At connection time `MySQLTarget` checks that the
+  server reports them (two literals with known collations); TiDB v7.5 and v8.5 report
+  `utf8mb4_bin` for every text column, so there text is compared with the coarsest collation
+  of the database instead (`scripts/probe_collations.py` prints what the bridge reads).
+- **Decimals of floats.** A server may print a float rounded to the number of decimals of its
+  column type; the checker allows one unit of that digit, but only when the values of that
+  result have no more decimals than reported (TiDB reports 0 for unrounded floats).
+- **Generated queries.** `campaign_mysql.py --tidb` avoids what TiDB refuses: a subquery in a
+  join condition, `INTERSECT ALL`, `EXCEPT ALL`.
+- **Errors.** Every message the server returned is summed at the end of a run; messages that
+  are the server's own fault (an internal error such as "Can't find column ..._tidb_rowid") are
+  printed with the first query that produced them (`INTERNAL ERROR:`).
+
+The two workflows started by hand, `.github/workflows/campaign.yml` and `sql.yml`, take the
+image, the port and the password (`none` for no password): TiDB is `pingcap/tidb:v8.5.3`,
+port `4000`, password `none`.
+
 ### 6.6 A whole campaign
 
 A loop over generator seeds, with all violations collected in one file:

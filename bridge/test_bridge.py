@@ -842,6 +842,9 @@ report(rejudge(inc([('5',)], [('5.00',), ('7',)]), inc, [('5',)], [('5.00',), ('
        rejudge(chk([(1, 2, 1)], [(1, 1, 1)]), chk, [(1, 2, 1)], [(1, 1, 1)], steps={1}, column=1) not in ('ok', 'incomparable') and
        rejudge(chk([(1, 2, 1)], [(1, 3, 5)]), chk, [(1, 2, 1)], [(1, 3, 5)], steps={2}, column=1) not in ('ok', 'incomparable'),
        'runner: only the mixed or step columns are made comparable; any other difference stays a violation')
+report(rejudge(inc([('0.00',), ('0',)], [('0',)]), inc, [('0.00',), ('0',)], [('0',)], mixed={0}) == 'incomparable' and
+       rejudge(inc([('0',), ('0',)], [('0',)]), inc, [('0',), ('0',)], [('0',)], mixed={0}) not in ('ok', 'incomparable'),
+       'runner: two results that are sets may differ in how many ways a number was written; a bag keeps its duplicates')
 
 from run_on_db import INTERNAL_ERROR  # noqa: E402
 report(INTERNAL_ERROR.search("Can't find column vs_rowid.t1._tidb_rowid in schema Column: [vs_rowid.t1.c1]") and

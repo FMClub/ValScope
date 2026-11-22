@@ -393,6 +393,22 @@ def _soften(rows, mixed, steps):
     return out
 
 
+def _is_set(rows):
+    try:
+        return len(set(rows)) == len(rows)
+    except TypeError:
+        return False
+
+
+def _unique(rows):
+    out, seen = [], set()
+    for r in rows:
+        if r not in seen:
+            seen.add(r)
+            out.append(r)
+    return out
+
+
 def rejudge(verdict, check, base, res, mixed=(), steps=(), column=None):
     """A violation judged again with the columns of `mixed` and `steps` made comparable
     (_soften): 'incomparable' if it holds then, the violation itself otherwise.  `check`
@@ -401,7 +417,13 @@ def rejudge(verdict, check, base, res, mixed=(), steps=(), column=None):
     steps = set(steps) - {column}
     if verdict in ('ok', 'incomparable', 'collation') or not (mixed or steps):
         return verdict
-    again = check(_soften(base, mixed, steps), _soften(res, mixed, steps))
+    soft_base, soft_res = _soften(base, mixed, steps), _soften(res, mixed, steps)
+    if column is None and mixed and _is_set(base) and _is_set(res):
+        # both results are sets, and the server de-duplicated by the text it wrote: rows that
+        # differ only in how a number is written ('0', '0.00') were kept apart in one result
+        # and merged in the other (the TiDB and MySQL 9 pair of seed 7, round 18)
+        soft_base, soft_res = _unique(soft_base), _unique(soft_res)
+    again = check(soft_base, soft_res)
     if again not in ('ok', 'collation'):
         return verdict
     for i in steps:

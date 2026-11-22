@@ -81,6 +81,10 @@ def main():
         target.run('SELECT t.a, t.b, t.n FROM t')
         report(target.last_collations[:2] == [MariaDBColumns.COARSEST] * 2,
                'untrusted metadata: text columns are compared with the coarsest collation %r' % target.last_collations)
+        target.run('SELECT t.n FROM t UNION SELECT t.a FROM t')
+        report(target.last_arm_mix == 'types', 'untrusted metadata: the arms of a compound are still probed for types')
+        target.run('SELECT t.a FROM t EXCEPT SELECT t.b FROM t')
+        report(target.last_arm_mix == 'collations', 'untrusted metadata: EXCEPT over text is judged modulo collation')
         target.trusted_collations = True
         target.run('SELECT t.a, t.b FROM t')
         report(target.last_collations == ['utf8mb4_general_ci', 'utf8mb4_bin'], 'plain columns %r' % target.last_collations)

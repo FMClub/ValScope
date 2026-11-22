@@ -96,10 +96,18 @@ class MySQLTarget:
                 types = [d[1] for d in cur.description]
                 self.last_scales = [d[5] for d in cur.description]
             self.last_arm_mix = None
-            if not self.trusted_collations:
-                self.last_collations = [n if n == 'binary' else MariaDBColumns.COARSEST for n in self.last_collations]
-            elif any(w in sql.upper() for w in ('UNION', 'INTERSECT', 'EXCEPT')):
+            compound = any(w in sql.upper() for w in ('UNION', 'INTERSECT', 'EXCEPT'))
+            if compound:
+                # also when the collations are not trusted: the arms' types are (last_arm_mix)
                 self.last_collations = self._compound_collations(sql, self.last_collations)
+            if not self.trusted_collations:
+                text = [n != 'binary' for n in self.last_collations]
+                self.last_collations = [MariaDBColumns.COARSEST if t else 'binary' for t in text]
+                if (compound and self.last_arm_mix is None and any(text)
+                        and any(w in sql.upper() for w in ('INTERSECT', 'EXCEPT'))):
+                    # the arms' collations are unknown: which rows match may depend on the
+                    # representative a de-duplication kept (as for 'collations' above)
+                    self.last_arm_mix = 'collations'
             return rows, types
         except self.pymysql.err.MySQLError as e:
             code = e.args[0] if e.args else None

@@ -23,7 +23,6 @@ a failure leaves results/ as it was.  The narrative (results/sqlite-campaign.md,
 entry in "The bugs" of sqlite-bisect.md for a bug with new commits) is written by hand.
 """
 import argparse
-import ast
 import contextlib
 import io
 import json
@@ -36,10 +35,11 @@ ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 BRIDGE = os.path.join(ROOT, 'bridge')
 RES = os.path.join(ROOT, 'results')
 sys.path.insert(0, BRIDGE)
+import sqlite_records  # noqa: E402
 
 
 def read(path):
-    return [json.loads(line) for line in open(path) if line.strip()]
+    return sqlite_records.read(path)
 
 
 def run(args, out=None):
@@ -51,8 +51,7 @@ def run(args, out=None):
 
 
 def database(rec):
-    d = rec['database']
-    return ast.literal_eval(d) if isinstance(d, str) else d
+    return sqlite_records.statements_of(rec)
 
 
 def main():

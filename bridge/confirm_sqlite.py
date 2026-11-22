@@ -11,27 +11,13 @@ the library given with --latest (the newest release, built from source), or the 
 that Python ships.  A bug that the Python SQLite still has is confirmed only with --latest.
 """
 import argparse
-import json
 import os
 import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from gen_sqlite_db import build  # noqa: E402
+import sqlite_records  # noqa: E402
 from sqlite_exec import SQLiteLib  # noqa: E402
-from checker import judge, sqlite_fold  # noqa: E402
-
-
-def recheck(rec, db, fallback):
-    try:
-        base = db.query(rec['original'])
-        base_collations = db.last_collations
-        res = db.query(rec['mutant'])
-    except Exception as e:
-        return 'error: %s' % e, None, None
-    # per result column where the library reports the collation, else the coarsest one
-    fold = db.folds(base_collations, db.last_collations, fallback)
-    return judge(rec['expect'], base, res, fold=fold, cover=rec.get('distinct', False), strict_types=True), base, res
 
 
 def main():
@@ -41,18 +27,15 @@ def main():
                     help='the reference library (default: the SQLite that Python ships)')
     ap.add_argument('files', nargs='+')
     args = ap.parse_args()
-    recs = [json.loads(line) for f in args.files for line in open(f)]
+    recs = sqlite_records.read(*args.files)
     tmp = tempfile.mkdtemp(prefix='vs_confirm_')
     cache = {}
 
-    def db_for(lib, seed, focus):
-        key = (lib, seed, focus)
+    def db_for(lib, rec):
+        key = (lib, rec['seed'], sqlite_records.focus_of(rec))
         if key not in cache:
-            path = os.path.join(tmp, '%s_%d_%d.db' % (os.path.basename(lib or 'python'), seed, focus))
-            db = SQLiteLib(lib, path)
-            used = build(db, seed, focus)
-            fold = sqlite_fold(used)
-            cache[key] = (db, fold)
+            path = os.path.join(tmp, '%s_%d_%d.db' % (os.path.basename(lib or 'python'), key[1], key[2]))
+            cache[key] = sqlite_records.database(lib, path, rec)
         return cache[key]
 
     libs = [None if lib == 'python' else lib for lib in args.libs]
@@ -61,8 +44,8 @@ def main():
     for i, rec in enumerate(recs, 1):
         per_version = {}
         for lib in libs + [None] + ([args.latest] if args.latest else []):
-            db, fold = db_for(lib, rec['seed'], rec.get('focus', False))
-            per_version[db.version] = recheck(rec, db, fold)
+            db, used = db_for(lib, rec)
+            per_version[db.version] = sqlite_records.verdict(db, rec, used)
         own = per_version[rec['version']][0]
         latest_version = SQLiteLib(args.latest, ':memory:').version
         latest = per_version[latest_version][0]

@@ -37,11 +37,9 @@ import sqlglot
 from sqlglot import exp
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from checker import judge, sqlite_fold  # noqa: E402
-from gen_sqlite_db import build as build_db  # noqa: E402
 from run_on_db import sqlite_exact_columns, sqlite_schema  # noqa: E402
 from sql_bridge import mutate_sql, mutate_value  # noqa: E402
-from sqlite_exec import SQLiteLib  # noqa: E402
+import sqlite_records  # noqa: E402
 
 CLAUSES = ('where', 'group', 'having', 'order', 'limit', 'distinct')
 
@@ -125,37 +123,29 @@ class Judge:
         self.cover = bool(rec.get('distinct'))
         self.dbs = []
         for i, (lib, want) in enumerate(witnesses):
-            db = SQLiteLib(lib, os.path.join(tmp, 'w%d.db' % i))
-            stmts = build_db(db, rec['seed'], rec.get('focus') in (True, 'True'))
+            db, stmts = sqlite_records.database(lib, os.path.join(tmp, 'w%d.db' % i), rec)
             if i == 0:
                 self.statements, self.db = stmts, db
             # a witness that cannot run every statement of the database would judge another one
-            self.dbs.append((db if stmts == self.statements else None, want, sqlite_fold(stmts)))
+            self.dbs.append((db if stmts == self.statements else None, want, stmts))
         self.lib = witnesses[0][0]
         self.schema = sqlite_schema(self.db)
         self.exact = sqlite_exact_columns(self.db, self.schema)
 
-    def verdict(self, db, fallback, original, mutant, relation=None):
-        try:
-            base = db.query(original)
-            coll = db.last_collations
-            res = db.query(mutant)
-        except Exception:
-            return None, None
-        fold = db.folds(coll, db.last_collations, fallback)
+    def verdict(self, db, used, original, mutant, relation=None):
         label = '%s col %d' % relation if self.kind == 'value' else self.expect
-        v = judge(label, base, res, fold=fold, cover=self.cover, strict_types=True)
-        if v == 'incomparable':
+        v, base, res = sqlite_records.verdict(db, self.rec, used, original, mutant, expect=label)
+        if v == 'incomparable' or v.startswith('error'):
             return None, None
         return ('good' if v in ('ok', 'collation') else 'bad'), (base, res)
 
     def holds(self, original, mutant, relation=None):
         """Rows on the reporting release when every witness gives its wanted verdict."""
         rows = None
-        for i, (db, want, fallback) in enumerate(self.dbs):
+        for i, (db, want, used) in enumerate(self.dbs):
             if db is None:
                 return None
-            v, r = self.verdict(db, fallback, original, mutant, relation)
+            v, r = self.verdict(db, used, original, mutant, relation)
             if v != want:
                 return None
             if i == 0:
@@ -200,16 +190,12 @@ class Judge:
         """The same, on databases made of these statements (database reduction)."""
         rel = self._relation(self.expect)
         for i, (lib, want) in enumerate(self.witnesses):
-            path = os.path.join(self.tmp, 'd%d.db' % i)
-            if os.path.exists(path):
-                os.remove(path)
-            db = SQLiteLib(lib, path)
-            for st in statements:
-                try:
-                    db.executescript(st)
-                except Exception:
-                    return False
-            v, _ = self.verdict(db, sqlite_fold(statements), original, mutant, rel)
+            try:
+                db, used = sqlite_records.database(lib, os.path.join(self.tmp, 'd%d.db' % i),
+                                                   {'database': statements}, strict=True)
+            except Exception:
+                return False
+            v, _ = self.verdict(db, used, original, mutant, rel)
             if v != want:
                 return False
         return True
@@ -304,7 +290,7 @@ def main():
                     help='also reduce the database, and write DIR/pair-N.sql: the statements of the '
                          'reduced database, then the original and the mutant')
     args = ap.parse_args()
-    recs = [json.loads(line) for line in open(args.file) if line.strip()]
+    recs = sqlite_records.read(args.file)
     libs = dict(x.split('=', 1) if '=' in x else (None, x) for x in args.lib)
     bounds, builder = {}, None
     if args.boundaries:

@@ -38,10 +38,8 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from checker import judge as judge_relation, sqlite_fold  # noqa: E402
-from gen_sqlite_db import build as build_db  # noqa: E402
 import sqlite_exec  # noqa: E402
-from sqlite_exec import SQLiteLib  # noqa: E402
+import sqlite_records  # noqa: E402
 
 CFLAGS = ['-O1', '-shared', '-fPIC', '-DSQLITE_THREADSAFE=0', '-DSQLITE_ENABLE_STAT4',
           '-DSQLITE_ENABLE_COLUMN_METADATA']
@@ -90,27 +88,18 @@ def verdict(builder, sha, rec, tmp):
     lib = builder.lib(sha)
     if lib is None:
         return 'skip'
-    path = os.path.join(tmp, 'v.db')
-    if os.path.exists(path):
-        os.remove(path)
     try:
-        db = SQLiteLib(lib, path)
-        used = make_database(db, rec)
-        if rec.get('_used') is not None and used != rec['_used']:
-            # an older SQLite could not run some statement of the database (a WITHOUT ROWID
-            # table, a partial index, ...): the queries would run on another database
-            return 'skip'
-        fallback = sqlite_fold(used)
-        base = db.query(rec['original'])
-        base_coll = db.last_collations
-        res = db.query(rec['mutant'])
+        db, used = sqlite_records.database(lib, os.path.join(tmp, 'v.db'), rec, compat=rec.get('_compat', False))
     except Exception:
         return 'skip'
-    fold = db.folds(base_coll, db.last_collations, fallback)
-    v = judge_relation(rec['expect'], base, res, fold=fold, cover=rec.get('distinct', False), strict_types=True)
+    if rec.get('_used') is not None and used != rec['_used']:
+        # an older SQLite could not run some statement of the database (a WITHOUT ROWID
+        # table, a partial index, ...): the queries would run on another database
+        return 'skip'
+    v, _, _ = sqlite_records.verdict(db, rec, used)
     if v in ('ok', 'collation'):
         return 'good'
-    if v == 'incomparable':
+    if v == 'incomparable' or v.startswith('error'):
         return 'skip'
     return 'bad'
 
@@ -121,28 +110,7 @@ def reference_database(builder, sha, rec, tmp):
     lib = builder.lib(sha)
     if lib is None:
         return None
-    path = os.path.join(tmp, 'ref.db')
-    if os.path.exists(path):
-        os.remove(path)
-    return make_database(SQLiteLib(lib, path), rec)
-
-
-def make_database(db, rec):
-    """The database of a pair: the statements of a reduced pair (reduce_sqlite.py --sql
-    writes them to 'database'), else those of its seed; with '_compat', tables are made
-    without WITHOUT ROWID.  Returns the statements that succeeded."""
-    if rec.get('database') is None:
-        return build_db(db, rec['seed'], rec.get('focus') in (True, 'True'), compat=rec.get('_compat', False))
-    used = []
-    for st in rec['database']:
-        if rec.get('_compat'):
-            st = st.replace(') WITHOUT ROWID;', ');')
-        try:
-            db.executescript(st)
-            used.append(st)
-        except Exception:
-            pass
-    return used
+    return sqlite_records.database(lib, os.path.join(tmp, 'ref.db'), rec, compat=rec.get('_compat', False))[1]
 
 
 def judge(builder, sha, rec, tmp, cache):

@@ -10,30 +10,21 @@ the checker (or the execution layer) changed its verdict on a known bug: the run
 Pairs whose release has no library here are counted as skipped.
 """
 import argparse
-import ast
-import json
 import os
 import sys
 import tempfile
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 sys.path.insert(0, os.path.join(ROOT, 'bridge'))
-from checker import judge, sqlite_fold  # noqa: E402
-from sqlite_exec import SQLiteLib  # noqa: E402
+import sqlite_records  # noqa: E402
 
 
 def verdict(lib, rec, path):
-    stmts = rec['database']
-    stmts = ast.literal_eval(stmts) if isinstance(stmts, str) else stmts
-    db = SQLiteLib(lib, path)
-    for s in stmts:
-        db.query(s)
-    fallback = sqlite_fold(stmts)
-    base = db.query(rec['original'])
-    coll = db.last_collations
-    res = db.query(rec['mutant'])
-    fold = db.folds(coll, db.last_collations, fallback)
-    return judge(rec['expect'], base, res, fold=fold, cover=bool(rec.get('distinct')), strict_types=True)
+    try:
+        db, used = sqlite_records.database(lib, path, rec, strict=True)
+    except Exception as e:
+        return 'error: the database: %s' % e
+    return sqlite_records.verdict(db, rec, used)[0]
 
 
 def main():
@@ -43,7 +34,7 @@ def main():
     ap.add_argument('--file', default=os.path.join(ROOT, 'results', 'sqlite-reduced.jsonl'))
     a = ap.parse_args()
     libs = dict(x.split('=', 1) for x in a.lib)
-    recs = [json.loads(line) for line in open(a.file) if line.strip()]
+    recs = sqlite_records.read(a.file)
     tmp = tempfile.mkdtemp(prefix='vs_replay_')
     bad, skipped = [], 0
     for i, rec in enumerate(recs, 1):
@@ -52,7 +43,7 @@ def main():
             skipped += 1
             continue
         v = verdict(lib, rec, os.path.join(tmp, 'p%d.db' % i))
-        if v in ('ok', 'collation', 'incomparable'):
+        if v in ('ok', 'collation', 'incomparable') or v.startswith('error'):
             bad.append('pair %d (%s, SQLite %s): no longer violated (%s)' % (i, rec['rule'], rec['version'], v))
         if a.latest:
             v = verdict(a.latest, rec, os.path.join(tmp, 'p%d-latest.db' % i))

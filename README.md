@@ -269,6 +269,7 @@ value cannot be read off the result.
 | `bridge/sqlite_exec.py` | Runs SQL on any SQLite shared library through ctypes |
 | `bridge/build_old_sqlite.sh` | Builds old SQLite releases as shared libraries |
 | `bridge/campaign_sqlite.py` | Differential campaign on several SQLite releases |
+| `bridge/sqlite_records.py` | The records of SQLite pairs, their databases (from the seed or from the statements of a reduced pair) and their verdicts, for the SQLite tools below |
 | `bridge/confirm_sqlite.py` | Re-checks recorded violations from scratch and writes a report |
 | `bridge/bisect_sqlite.py` | Finds the SQLite commits that introduced and fixed each recorded violation |
 | `bridge/reduce_sqlite.py`, `bridge/reduce_mysql.py` | Reduce a violating pair (query, data, indexes), re-running the verified mutator at every step |

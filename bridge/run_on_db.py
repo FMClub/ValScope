@@ -35,7 +35,8 @@ from checker import check_inclusion, check_value, comparable_types, MariaDBColum
 ERRORS = collections.Counter()
 # messages of errors that are the server's own fault, not the query's: the first query of each
 INTERNAL_ERROR = re.compile(r"can't find column|internal error|assertion|unexpected|index out of range|"
-                            r"runtime error|nil pointer|lost connection", re.IGNORECASE)
+                            r"runtime error|nil pointer|lost connection|java\.lang\.\w+(Exception|Error)",
+                            re.IGNORECASE)      # PolarDB-X: a Java exception of its optimizer
 INTERNAL = {}
 # PolarDB-X starts every message with '[request id][host:port][database]': not part of the error
 REQUEST_ID = re.compile(r'^(\[[^\]]*\])+\s*')
@@ -127,7 +128,7 @@ class MySQLTarget:
             if INTERNAL_ERROR.search(message) and message not in INTERNAL:
                 INTERNAL[message] = sql        # a valid query the server cannot run (issues/017)
             return None, None
-        except (ValueError, TypeError, UnicodeDecodeError, OverflowError) as e:
+        except (ValueError, TypeError, UnicodeDecodeError, ArithmeticError) as e:   # decimal.InvalidOperation too
             # the driver could not convert a value the server sent (PolarDB-X): the query is
             # counted as failed, and the connection, left in the middle of a result, is opened
             # again with the session setting the column metadata depends on

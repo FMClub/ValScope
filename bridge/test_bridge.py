@@ -867,8 +867,10 @@ from run_on_db import INTERNAL_ERROR  # noqa: E402
 report(INTERNAL_ERROR.search("Can't find column vs_rowid.t1._tidb_rowid in schema Column: [vs_rowid.t1.c1]") and
        not INTERNAL_ERROR.search("Expression #1 of SELECT list is not in GROUP BY clause and contains nonaggregated column") and
        not INTERNAL_ERROR.search("TiDB do not support intersect all") and
-       not INTERNAL_ERROR.search("Incorrect DATE value: '7'"),
-       'runner: an internal error of the server is told apart from a refused query (issues/017)')
+       not INTERNAL_ERROR.search("Incorrect DATE value: '7'") and
+       INTERNAL_ERROR.search('[PXC-4501][ERR_OPTIMIZER] optimize error by java.lang.IllegalArgumentException') and
+       not INTERNAL_ERROR.search('[PXC-4500][ERR_PARSER] EXCEPT ALL not support!'),
+       'runner: an internal error of the server is told apart from a refused query (issues/017, PolarDB-X)')
 
 from run_on_db import collation_can_explain  # noqa: E402
 report(not collation_can_explain([('0',), ('0',)], [('0',)]) and not collation_can_explain([(1, '2024-01-01')], [(2, '2024-01-01')]) and

@@ -74,7 +74,7 @@ def main():
     ap.add_argument('--value-ext', action='store_true')
     ap.add_argument('--no-value-distinct', action='store_true',
                     help='value queries without DISTINCT / UNION (MariaDB: issues/009 hides the rest)')
-    ap.add_argument('--tidb', action='store_true',
+    ap.add_argument('--tidb', action='store_true',   # also for PolarDB-X, which refuses the same
                     help='queries TiDB accepts: no subquery in a join condition, no INTERSECT ALL / EXCEPT ALL')
     ap.add_argument('--no-set-all', action='store_true', help='queries without INTERSECT ALL / EXCEPT ALL (OceanBase)')
     ap.add_argument('--flip', action='store_true', help='negative control')

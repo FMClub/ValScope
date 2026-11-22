@@ -584,7 +584,7 @@ MariaDB 10.11, 11.4 and 11.8 and on MySQL 8.4 and 9 (`.github/workflows/sql.yml`
 script on any other image). None was reported upstream (no access
 to the trackers from the environment this was written in). The columns say where the
 script gives a wrong result; Percona Server 8.4.11 behaves as MySQL 8.4 for 008 and 015, and
-TiDB, PolarDB-X and OceanBase are in the last column of 016 to 023.
+TiDB, PolarDB-X and OceanBase are in the last column of 016 to 024.
 
 | Issue | What | MariaDB 10.11.14 | MariaDB 11.4.13 / 11.8.9 / 13.0.2 | MySQL 8.4.13 / 9.7.4 |
 | --- | --- | --- | --- | --- |
@@ -607,6 +607,7 @@ TiDB, PolarDB-X and OceanBase are in the last column of 016 to 023.
 | [021](issues/021-polardbx-correlated-in-distinct-derived-null.md) | PolarDB-X: a correlated `x IN (SELECT ... FROM (SELECT DISTINCT * FROM t))` is NULL instead of 0 for a row whose subquery is empty, when the table holds a NULL | correct | not run | correct (9.7.4); **PolarDB-X 5.4.19: wrong** |
 | [022](issues/022-polardbx-setop-distinct-left-join-where-lost.md) | PolarDB-X: in an `INTERSECT` / `EXCEPT` arm, `(SELECT DISTINCT * FROM u) LEFT JOIN u ... WHERE b.x IN (subquery)` loses its `WHERE` | correct | not run | correct (9.7.4); **PolarDB-X 5.4.19: wrong** |
 | [023](issues/023-oceanbase-sum-minus-constant-count-distinct.md) | OceanBase: `SUM(x - k)` next to `SUM(x)` and `COUNT(DISTINCT x)` is `SUM(x) - k * COUNT(DISTINCT x)` (also `AVG`, `VAR_SAMP`, `STDDEV_SAMP`; a negative variance) | correct | not run | correct (9.7.4); **OceanBase CE 4.4.2.1: wrong** |
+| [024](issues/024-polardbx-right-union-operand-parentheses.md) | PolarDB-X: the parentheses of a `UNION` on the right of a `UNION ALL` (or of a `UNION ALL` on the right of a `UNION`) are dropped: `t UNION ALL (2 UNION 3)` loses the duplicates of `t` | correct | not run | correct (9.7.4); **PolarDB-X 5.4.19: wrong** |
 
 MariaDB 13.0.2 (the `latest` image, through `.github/workflows/sql.yml`) was checked for
 003 and 009 to 014, and a campaign on it found 003, 010, 012 and 013 again; 005 and 006 were
@@ -614,7 +615,7 @@ not run there.
 
 Not counted: [002](issues/002-mariadb-enum-max-having.md) (probably intended behaviour) and
 [007](issues/007-sqlite-compound-collation.md) (SQLite, perhaps intended). The campaigns over
-random databases that found 012 to 023 and re-found the others are in
+random databases that found 012 to 024 and re-found the others are in
 [`results/mariadb-campaign.md`](results/mariadb-campaign.md) (the 207 MariaDB pairs, with their
 issues, in `results/mariadb-campaign.jsonl`; `scripts/recheck_recorded.py` judges them again).
 

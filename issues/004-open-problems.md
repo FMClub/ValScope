@@ -200,7 +200,7 @@ fixes of PR #1 are merged; the design problems below are still open.
    `issues/023` (`SUM(x - k)` next to `SUM(x)` and `COUNT(DISTINCT x)` is computed as
    `SUM(x) - k * COUNT(DISTINCT x)`), behind 27 of the 33 pairs of its two campaigns; the
    other 6 were false alarms of the checker (a nested `UNION` de-duplicated in the outer
-   collation, as MySQL 9 does; fixed). PolarDB-X 5.4.19 has three: `issues/020` (a constant
+   collation, as MySQL 9 does; fixed). PolarDB-X 5.4.19 has four (024 in round 20): `issues/020` (a constant
    false `HAVING` of a global aggregate ignored in an `INTERSECT` / `EXCEPT` arm), `issues/021`
    (a correlated `IN` over a DISTINCT derived table NULL where its subquery is empty) and
    `issues/022` (an `INTERSECT` / `EXCEPT` arm with a DISTINCT derived table and a `LEFT JOIN`
@@ -209,9 +209,11 @@ fixes of PR #1 are merged; the design problems below are still open.
    collations on PolarDB-X, request ids in its error messages, driver errors, `DELETE` without
    `WHERE` forbidden, and a server wait that requires DDL. Open: the trackers were not
    searched directly (round 20: a web search found no PolarDB-X report and one OceanBase lead,
-   #1964); one release of each, in its all-in-one container; about 45% of the generated
-   queries fail on PolarDB-X (an `AssertionError: Do not support RexSubQuery`, unsupported
-   functions), so its coverage is smaller than elsewhere.
+   #1964); one release of each, in its all-in-one container. With `--tidb --no-group-window`
+   (round 20) 15% of the generated queries still fail on PolarDB-X, not 45%: mostly
+   `AssertionError: Do not support RexSubQuery` and `IllegalArgumentException` of its optimizer;
+   that campaign also found `issues/024` (the parentheses of a `UNION` on the right of a
+   `UNION ALL` dropped).
 1c. **MariaDB over random databases (round 8 of `docs/JOURNAL.md`).** `bridge/campaign_mysql.py`
    (40 databases, 3200 queries) gave 123 violating pairs on 10.11.14, all classified
    (`results/mariadb-campaign.md`): 110 are issue 009, which turns out to be a family

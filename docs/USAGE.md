@@ -417,8 +417,15 @@ What differs per server, and what the bridge does about it:
   column type; the checker allows one unit of that digit, but only when the values of that
   result have no more decimals than reported (TiDB reports 0 for unrounded floats).
 - **Generated queries.** `campaign_mysql.py --tidb` avoids what TiDB refuses: a subquery in a
-  join condition, `INTERSECT ALL`, `EXCEPT ALL`.  `--no-set-all` avoids only `INTERSECT ALL` and `EXCEPT ALL` (OceanBase 4.4 refuses them with
-  error 1064); the other random choices are unchanged.
+  join condition, `INTERSECT ALL`, `EXCEPT ALL`; PolarDB-X refuses the same.  `--no-set-all`
+  avoids only `INTERSECT ALL` and `EXCEPT ALL` (OceanBase 4.4 refuses them with error 1064);
+  the other random choices are unchanged.  `--no-group-window` leaves out the windows over the
+  groups of a value query (`COUNT(*) OVER ()`, `DENSE_RANK() OVER (ORDER BY key)`), on which
+  PolarDB-X's optimizer throws exceptions; they come from a stream of their own, so only a
+  second arm drawn among candidates without a window can change.
+- **Internal errors.** A Java exception of PolarDB-X (`java.lang.IllegalArgumentException`,
+  `AssertionError`) counts as an internal error of the server and is printed with the first
+  query that raised it.
 - **No `WEIGHT_STRING`.** PolarDB-X has none, so the keys of a `_ci` / `_ai` collation are
   approximated (case and accents removed) and its result collations are not trusted: text is
   compared with the coarsest collation of the database, as on TiDB.
@@ -438,7 +445,7 @@ image, the port, the user and the password (`none` for no password):
 | --- | --- | --- | --- | --- | --- |
 | TiDB | `pingcap/tidb:v8.5.3` | 4000 | `root` | `none` | `--tidb` |
 | OceanBase CE | `oceanbase/oceanbase-ce:latest` (4.4.2.1; started in its `mini` mode) | 2881 | `root@test` | `none` | `--no-set-all`; `wait_minutes` 15 |
-| PolarDB-X | `polardbx/polardb-x:latest` (5.4.19 snapshot, all-in-one) | 8527 | `polardbx_root` | `123456` | none; `wait_minutes` 15 |
+| PolarDB-X | `polardbx/polardb-x:latest` (5.4.19 snapshot, all-in-one) | 8527 | `polardbx_root` | `123456` | `--tidb --no-group-window` (15% of the queries refused instead of 45%); `wait_minutes` 15 |
 
 The workflows wait until the server accepts a `CREATE DATABASE`: OceanBase answers queries
 minutes before its tenant accepts DDL.

@@ -100,6 +100,11 @@ HINTS = [
     ('015', {'mysql'},          # LEFT JOIN with an EXISTS, under a NOT EXISTS
      lambda o, m, both, ix: ' LEFT JOIN ' in o and 'NOT (EXISTS ' in o and o.count('EXISTS ') >= 2),
     ('023', {'oceanbase'}, _sum_minus_constant),    # SUM(x - k) next to SUM(x) and COUNT(DISTINCT x)
+    ('022', {'polardbx'},       # an INTERSECT / EXCEPT arm: DISTINCT table LEFT JOIN, WHERE ... IN (subquery)
+     lambda o, m, both, ix: (' INTERSECT ' in m or ' EXCEPT ' in m) and ' LEFT JOIN ' in m
+     and '(SELECT DISTINCT * FROM ' in m and ' IN (SELECT ' in m),
+    ('021', {'polardbx'},       # a correlated IN over (SELECT DISTINCT * FROM t)
+     lambda o, m, both, ix: ' IN (SELECT ' in m and '(SELECT DISTINCT * FROM ' in m[m.index(' IN (SELECT '):]),
 ]
 
 

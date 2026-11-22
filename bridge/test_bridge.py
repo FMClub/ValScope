@@ -806,12 +806,12 @@ report({'Union', 'In', 'Where'} <= shape, 'adaptive: coverage features of a term
 # the hints of scripts/triage_mysql.py agree with the pairs classified by hand
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'scripts'))
 import json  # noqa: E402
-from triage_mysql import hint, shape as query_shape  # noqa: E402
+from triage_mysql import hint, server_family, shape as query_shape  # noqa: E402
 recorded = [json.loads(line) for line in open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..',
                                                            'results', 'mariadb-campaign.jsonl'))]
 reduced = [r for r in recorded if 'reduced_original' in r and not r['issue'].startswith('tool')]   # 'tool': a false alarm found later
-wrong = [(r['issue'], hint(r['reduced_original'], r['reduced_mutant'], r['without_indexes'] == 'ok'))
-         for r in reduced]
+wrong = [(r['issue'], hint(r['reduced_original'], r['reduced_mutant'], r['without_indexes'] == 'ok', server))
+         for r in reduced for server in (None, 'mariadb')]
 hinted = ('003', '009', '010', '012', '013')      # issue 014 cannot be told from the text of the query
 report(len(reduced) >= 32 and all(a == b if a in hinted else b == '' for a, b in wrong),
        'triage: the hint is the recorded issue for all %d reduced pairs (%s)'
@@ -831,6 +831,13 @@ report(hint('(SELECT t3a.c9 AS k0 FROM t3 AS t3a) EXCEPT (SELECT SIGN(COUNT(t3a.
 report(hint('SELECT AVG((t3a.c6 - 2)) AS k1, AVG(t3a.c6) AS k2 FROM t3 AS t3a HAVING (COUNT(DISTINCT t3a.c6)) <> 10',
             'SELECT AVG((t3a.c6 - 2)) AS k1, AVG(t3a.c6) AS k2 FROM t3 AS t3a', False) == '023',
        'triage: the OceanBase pair of seed 35 (issue 023)')
+ob141 = ('SELECT (t1a.c1 % 5) AS k0, MAX(t1a.c1) AS k1, SUM((t1a.c1 - 2)) AS k2, (COUNT(t1a.c1) + 3) AS k3, ATAN(SUM(t1a.c1)) AS k4 FROM t1 AS t1a GROUP BY (t1a.c1 % 5)',
+         'SELECT (t1a.c1 % 5) AS k0, MAX(t1a.c1) AS k1, SUM((t1a.c1 - 2)) AS k2, (COUNT(DISTINCT t1a.c1) + 3) AS k3, ATAN(SUM(t1a.c1)) AS k4 FROM t1 AS t1a GROUP BY (t1a.c1 % 5)')
+report(hint(*ob141, False) == '013' and hint(*ob141, False, 'oceanbase') == '023' and hint(*ob141, False, 'mysql') == '',
+       'triage: the hints of the server only (an OceanBase pair of issue 023 that looks like 013)')
+report([server_family(v) for v in ('10.11.14-MariaDB', '8.0.11-TiDB-v8.5.3', '5.7.25-OceanBase_CE-v4.4.2.1',
+                                   '5.6.29-PXC-5.4.19-SNAPSHOT', '9.7.4', '8.4.11-11')]
+       == ['mariadb', 'tidb', 'oceanbase', 'polardbx', 'mysql', 'mysql'], 'triage: the family of a server from its version')
 report(hint('SELECT t.a AS k0 FROM t AS t WHERE t.a > 1', 'SELECT t.a AS k0 FROM t AS t', False) == '',
        'triage: no hint for a pair that looks like no known issue')
 report(query_shape("SELECT t3a.c9 AS k0 FROM t3 AS t3a WHERE t3a.c1 > (-3) AND t3a.c2 = 'x'") ==

@@ -11,7 +11,7 @@ person classifies.  This script does the mechanical part for every pair:
 2. the pair without the secondary indexes (violated with them only: the access path);
 3. the reduction (bridge/reduce_mysql.py --build-seed) to a short query and few rows;
 4. the shape of the reduced original: its text with names and constants removed;
-5. a hint: the known issue whose look the reduced pair has (hint()).
+5. a hint: the known issue of this server whose look the reduced pair has (hint()).
 
 It writes DIR/pair-N.sql (the reduced scripts), DIR/triage.jsonl (the records with the
 fields `recheck`, `no_indexes`, `reduced_original`, `reduced_mutant`, `shape`, `hint`) and prints a
@@ -50,39 +50,70 @@ def shape(sql):
 DISTINCT_AGGREGATE = re.compile(r'\b(COUNT|SUM|AVG|MIN|MAX)\s*\(\s*DISTINCT\b')
 
 
-def hint(original, mutant, index_only):
-    """The known issue (MariaDB; 015: MySQL; 016-019: TiDB; 020: PolarDB-X; 023: OceanBase) that a reduced pair looks like, or ''.  A hint, not a
-    verdict: it is checked against the classified pairs of results/mariadb-campaign.jsonl
-    (bridge/test_bridge.py), and a new defect can have the look of a known one."""
-    o, both = original.upper(), (original + ' ' + mutant).upper()
-    m = mutant.upper()
-    if ('HAVING 1 = 0' in m or 'HAVING FALSE' in m) and (' INTERSECT ' in m or ' EXCEPT ' in m) \
-            and ' GROUP BY ' not in m:
-        return '020'        # PolarDB-X: an INTERSECT / EXCEPT arm, aggregates, no GROUP BY, constant false HAVING
-    if ' UNION ' in o and o.count('AVG(') > mutant.upper().count('AVG('):
-        return '018'        # TiDB: AVG (a DECIMAL) gone from a UNION arm changes how the others are rounded
-    if ' NOT IN (SELECT ' in o and ' NOT IN (SELECT ' not in mutant.upper() and 'NOT (' in mutant.upper():
-        return '016'        # TiDB: x NOT IN (q) and NOT (x IN (q)) differ (the translation check)
-    having = o.rfind(' HAVING ')
-    if ' OVER ' in both and DISTINCT_AGGREGATE.search(both) and (' JOIN ' in o or ' IN (SELECT ' in o):
-        return '010'        # a window, a DISTINCT aggregate, a (semi-)join
-    if having >= 0 and ' IN (SELECT ' in o[having:]:
-        return '003'        # HAVING <aggregate> IN (subquery)
-    if index_only and ' IN (SELECT ' in o:
-        return '012'        # IN (subquery) that needs an index to go wrong
-    if o.startswith('SELECT DISTINCT') and ' GROUP BY ' in o and re.search(r'\b(AVG|STD\w*|VAR\w*)\s*\(', o):
-        return '009'        # an aggregate computed at the end, under SELECT DISTINCT
-    if re.search(r' GROUP BY .*%', o) and DISTINCT_AGGREGATE.search(both):
-        return '013'        # GROUP BY x % n with a DISTINCT aggregate on one side
-    if ' INTERSECT ' in o and (' LEFT JOIN ' in o or 'COALESCE(' in o):
-        return '008'        # MySQL: INTERSECT, and a NULL of an outer join or a COALESCE(x, 0)
-    if ' LEFT JOIN ' in o and 'NOT (EXISTS ' in o and o.count('EXISTS ') >= 2:
-        return '015'        # MySQL: LEFT JOIN with an EXISTS, under a NOT EXISTS
+def server_family(version):
+    """'tidb', 'oceanbase', 'polardbx', 'mariadb' or 'mysql' (MySQL, Percona Server) from the
+    version string of a server."""
+    v = version or ''
+    for mark, family in (('TiDB', 'tidb'), ('OceanBase', 'oceanbase'), ('PXC', 'polardbx'),
+                         ('PolarDB', 'polardbx'), ('MariaDB', 'mariadb')):
+        if mark in v:
+            return family
+    return 'mysql'
+
+
+def _sum_minus_constant(o, m, both, index_only):
     for col in set(re.findall(r'COUNT\s*\(\s*DISTINCT\s+(T\w+\.C\d+)\s*\)', both)):
         c = re.escape(col)
         if re.search(r'\b(SUM|AVG|VAR\w*|STD\w*)\s*\(\s*\(?\s*%s\s*[-+]\s*\(?-?\d' % c, both) \
                 and re.search(r'\b(SUM|AVG|VAR\w*|STD\w*)\s*\(\s*%s\s*\)' % c, both):
-            return '023'    # OceanBase: SUM(x - k) next to SUM(x) and COUNT(DISTINCT x)
+            return True
+    return False
+
+
+def _having_in_subquery(o, m, both, index_only):
+    having = o.rfind(' HAVING ')
+    return having >= 0 and ' IN (SELECT ' in o[having:]
+
+
+# (issue, the servers it was found on, its look); in this order when the server is not known
+HINTS = [
+    ('020', {'polardbx'},       # an INTERSECT / EXCEPT arm, aggregates, no GROUP BY, constant false HAVING
+     lambda o, m, both, ix: ('HAVING 1 = 0' in m or 'HAVING FALSE' in m) and (' INTERSECT ' in m or ' EXCEPT ' in m)
+     and ' GROUP BY ' not in m),
+    ('018', {'tidb'},           # AVG (a DECIMAL) gone from a UNION arm changes how the others are rounded
+     lambda o, m, both, ix: ' UNION ' in o and o.count('AVG(') > m.count('AVG(')),
+    ('016', {'tidb'},           # x NOT IN (q) and NOT (x IN (q)) differ (the translation check)
+     lambda o, m, both, ix: ' NOT IN (SELECT ' in o and ' NOT IN (SELECT ' not in m and 'NOT (' in m),
+    ('010', {'mariadb'},        # a window, a DISTINCT aggregate, a (semi-)join
+     lambda o, m, both, ix: ' OVER ' in both and bool(DISTINCT_AGGREGATE.search(both))
+     and (' JOIN ' in o or ' IN (SELECT ' in o)),
+    ('003', {'mariadb'}, _having_in_subquery),      # HAVING <aggregate> IN (subquery)
+    ('012', {'mariadb'},        # IN (subquery) that needs an index to go wrong
+     lambda o, m, both, ix: ix and ' IN (SELECT ' in o),
+    ('009', {'mariadb'},        # an aggregate computed at the end, under SELECT DISTINCT
+     lambda o, m, both, ix: o.startswith('SELECT DISTINCT') and ' GROUP BY ' in o
+     and bool(re.search(r'\b(AVG|STD\w*|VAR\w*)\s*\(', o))),
+    ('013', {'mariadb'},        # GROUP BY x % n with a DISTINCT aggregate on one side
+     lambda o, m, both, ix: bool(re.search(r' GROUP BY .*%', o)) and bool(DISTINCT_AGGREGATE.search(both))),
+    ('008', {'mysql'},          # INTERSECT, and a NULL of an outer join or a COALESCE(x, 0)
+     lambda o, m, both, ix: ' INTERSECT ' in o and (' LEFT JOIN ' in o or 'COALESCE(' in o)),
+    ('015', {'mysql'},          # LEFT JOIN with an EXISTS, under a NOT EXISTS
+     lambda o, m, both, ix: ' LEFT JOIN ' in o and 'NOT (EXISTS ' in o and o.count('EXISTS ') >= 2),
+    ('023', {'oceanbase'}, _sum_minus_constant),    # SUM(x - k) next to SUM(x) and COUNT(DISTINCT x)
+]
+
+
+def hint(original, mutant, index_only, server=None):
+    """The known issue that a reduced pair looks like, or ''.  `server`: the family of the
+    server (server_family()); only the issues found on it are considered.  Without it, all of
+    them, in the order of HINTS.  A hint, not a verdict: it is checked against the classified
+    pairs of results/mariadb-campaign.jsonl (bridge/test_bridge.py), and a new defect can have
+    the look of a known one."""
+    o, m = original.upper(), mutant.upper()
+    both = o + ' ' + m
+    for issue, servers, looks in HINTS:
+        if (server is None or server in servers) and looks(o, m, both, index_only):
+            return issue
     return ''
 
 
@@ -106,6 +137,11 @@ def main():
     ap.add_argument('--timeout', type=int, default=600, help='seconds for the reduction of one pair')
     a = ap.parse_args()
     os.makedirs(a.out_dir, exist_ok=True)
+    import pymysql
+    with pymysql.connect(host=a.host, port=a.port, user=a.user, password=a.password) as conn, conn.cursor() as cur:
+        cur.execute('SELECT VERSION()')
+        server = server_family(cur.fetchone()[0])
+    print('hints for the issues found on %s' % server)
     recs = unique_pairs(a.file)
     for r, v in zip(recs, recheck(recs, a)):
         r['recheck'] = v
@@ -134,12 +170,13 @@ def main():
         else:
             r['reduced_original'], r['reduced_mutant'] = pair
             r['shape'] = shape(pair[0])
-            r['hint'] = hint(pair[0], pair[1], not violated(r['no_indexes']))
+            r['hint'] = hint(pair[0], pair[1], not violated(r['no_indexes']), server)
             with open(os.path.join(a.out_dir, 'pair-%d.sql' % n), 'w') as f:
                 f.write(p.stdout)
             print('pair %d (seed %d): %s' % (n, r['seed'], pair[0][:150]), flush=True)
         r['pair'] = n
-    os.remove(one)
+    if os.path.exists(one):        # no pair was still violated: nothing was reduced
+        os.remove(one)
     with open(os.path.join(a.out_dir, 'triage.jsonl'), 'w') as f:
         f.write(''.join(json.dumps(r) + '\n' for r in recs))
     groups = collections.defaultdict(list)

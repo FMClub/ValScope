@@ -461,8 +461,9 @@ most one step), and any other difference stays a violation.
   11 by its hint, is a false alarm (only `CEIL(VAR_SAMP)` of another column moved, by one step at
   integer boundaries). The record now says `tool: step function`. A hint is not a verdict; the
   rows of a pair are.
-- Two recorded issue-012 pairs (seed 83, an `EXCEPT` over a `_ci` and a `_bin` column) are hidden
-  by the collation rule, which still applies to the whole pair: which rows an `EXCEPT` keeps
+- Two recorded issue-012 pairs (seed 42, a `UNION ALL` with an `EXCEPT` over a `_ci` and a `_bin`
+  column; first written down here as seed 83, corrected in round 17) are hidden by the collation
+  rule, which still applies to the whole pair: which rows an `EXCEPT` keeps
   depends on the representative, so making columns comparable does not repair it. Recorded
   here as a known cost of that rule.
 

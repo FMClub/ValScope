@@ -123,6 +123,9 @@ jobs:
         run: mariadb -h127.0.0.1 -uroot -p123456 --force --skip-column-names < data/mariadb/subquery-cache-collation.sql || true
       - name: "issue 003, the pair of the campaign on MariaDB 11.8 (expected 2 in every line)"
         run: mariadb -h127.0.0.1 -uroot -p123456 --skip-column-names < data/mariadb/having-in-nested.sql || true
+      - name: The recorded pairs of the MariaDB campaigns judged again (a change of the checker must not hide them)
+        continue-on-error: true      # plan-dependent pairs (issue 003) may differ on another patch release
+        run: python3 scripts/recheck_recorded.py --password 123456
       - name: Reduce the pair of issue 009 (test of bridge/reduce_mysql.py)
         run: |
           python3 bridge/reduce_mysql.py out/violations.jsonl --key 'expr->expr+k|38b7c18e86d54299' --password 123456 --database test > /tmp/reduced-009.sql

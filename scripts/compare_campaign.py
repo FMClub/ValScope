@@ -46,22 +46,28 @@ def main():
         r = json.loads(line)
         if violated(r.get('recheck', 'violated')):
             found[(r['rule'], r['seed'])] += 1
-    differences, covered = 0, set()
+    # groups of one rule and the same seeds are one group here (triage splits them by shape)
+    groups = collections.OrderedDict()
     for g in rec[0]['pairs']:
-        keys = [(g['rule'], s) for s in g['seeds']]
+        k = (g['rule'], tuple(sorted(g['seeds'])))
+        n, issues = groups.get(k, (0, set()))
+        groups[k] = (n + g['pairs'], issues | {g['issue']})
+    differences, covered = 0, set()
+    for (rule, seeds), (pairs, issues) in groups.items():
+        keys = [(rule, s) for s in seeds]
         n = sum(found[k] for k in keys)
         covered.update(keys)
-        if n != g['pairs']:
+        if n != pairs:
             differences += 1
             print('DIFFERENT\t%s\tseeds %s\tissue %s\trecorded %d pairs, found %d'
-                  % (g['rule'], g['seeds'], g['issue'], g['pairs'], n))
+                  % (rule, list(seeds), ', '.join(sorted(issues)), pairs, n))
     for (rule, seed), n in sorted(found.items(), key=lambda kv: (kv[0][1], kv[0][0])):
         if (rule, seed) not in covered:
             differences += 1
             print('NEW\t%s\tseed %d\t%d pairs' % (rule, seed, n))
     total = sum(g['pairs'] for g in rec[0]['pairs'])
     print('%d recorded pairs in %d groups, %d found; %d differences'
-          % (total, len(rec[0]['pairs']), sum(found.values()), differences))
+          % (total, len(groups), sum(found.values()), differences))
     return 1 if differences else 0
 
 

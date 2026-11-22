@@ -1,6 +1,7 @@
 # Candidate TiDB bug: `NOT IN` with a correlated condition on the outer row alone returns every outer row twice
 
-Status: open, candidate (TiDB v7.5.1 and v8.5.3; MariaDB 10.11.14 is correct). Found by the
+Status: open, candidate (TiDB v7.5.1 and v8.5.3; MariaDB 10.11.14 and 11.8.9 and MySQL 9.7.4
+are correct). Found by the
 translation check of `bridge/campaign_mysql.py` on TiDB v8.5.3 (`.github/workflows/campaign.yml`,
 `--tidb`; 13 pairs over seeds 1-40 and 131-170). Not reported upstream.
 
@@ -25,7 +26,7 @@ over a table of 3 rows can never return 6.
 
 `data/tidb/not-in-correlated-empty.sql` (`t` has one row unless the tag says three):
 
-| Query | Expected | TiDB v7.5.1, v8.5.3 | MariaDB 10.11.14 |
+| Query | Expected | TiDB v7.5.1, v8.5.3 | MariaDB 10.11.14, 11.8.9; MySQL 9.7.4 |
 | --- | --- | --- | --- |
 | A1 `t.b NOT IN (SELECT s.c FROM s WHERE t.b <=> NULL AND s.d >= t.a)` | 1 | **2** | 1 |
 | A2 `NOT (t.b IN (...))`, the same subquery | 1 | 1 | 1 |

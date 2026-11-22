@@ -594,7 +594,7 @@ TiDB is in the last column of 016.
 | [013](issues/013-mariadb-decimal-negative-zero-group.md) | the DECIMAL `-0.00` (from `-3.00 % 3`) is grouped with `0.00` or apart depending on an unrelated aggregate | wrong | wrong | correct |
 | [014](issues/014-mariadb-subquery-cache-collation.md) | the subquery cache matches `'A'` and `'a'` of a `_ci` outer column although the subquery compares under `_bin`: the result depends on the order of the rows | wrong | wrong | correct |
 | [015](issues/015-mysql-left-join-semijoin-antijoin.md) | a LEFT JOIN loses its inner side (NULL-extended rows) when an `EXISTS` inside it and a `NOT EXISTS` outside it are both materialized on the constant 1 | correct | correct | wrong (8.0.46, 8.4.13, 9.7.4; 5.7.44 correct) |
-| [016](issues/016-tidb-null-aware-antijoin-left-cond.md) | TiDB: `x NOT IN (correlated subquery)` with a condition on the outer row alone (`t.b <=> NULL`) returns every row twice | correct | not run | not run; **TiDB v7.5.1, v8.5.3: wrong** |
+| [016](issues/016-tidb-null-aware-antijoin-left-cond.md) | TiDB: `x NOT IN (correlated subquery)` with a condition on the outer row alone (`t.b <=> NULL`) returns every row twice | correct | correct (11.8.9) | correct (9.7.4); **TiDB v7.5.1, v8.5.3: wrong** |
 
 MariaDB 13.0.2 (the `latest` image, through `.github/workflows/sql.yml`) was checked for
 003 and 009 to 014, and a campaign on it found 003, 010, 012 and 013 again; 005 and 006 were

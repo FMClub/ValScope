@@ -821,6 +821,9 @@ report(hint('(SELECT t3a.c2 AS k0, ATAN(AVG((t3a.c8 - 1))) AS k1 FROM t3 AS t3a 
 report(hint('SELECT t1a.c4 AS k0 FROM t1 AS t1a WHERE t1a.c4 NOT IN (SELECT t3i11.c1 FROM t3 AS t3i11 WHERE (t1a.c4 <=> NULL AND t3i11.c8 >= t1a.c1))',
             'SELECT t1a.c4 AS k0 FROM t1 AS t1a WHERE NOT (t1a.c4 IN (SELECT t3i11.c1 FROM t3 AS t3i11 WHERE ((t1a.c4 <=> NULL)) AND (t3i11.c8 >= t1a.c1)))',
             False) == '016', 'triage: a translation pair of issue 016 (NOT IN as written, NOT (... IN ...) re-printed)')
+report(hint('(SELECT t3a.c9 AS k0 FROM t3 AS t3a) EXCEPT (SELECT SIGN(COUNT(t3a.c9)) AS k0 FROM t3 AS t3a HAVING (COUNT(DISTINCT t3a.c9 - 1)) <> (-1))',
+            '(SELECT t3a.c9 AS k0 FROM t3 AS t3a) EXCEPT (SELECT SIGN(COUNT(t3a.c9)) AS k0 FROM t3 AS t3a HAVING 1 = 0)',
+            False) == '020', 'triage: the PolarDB-X pair of seed 7 (issue 020)')
 report(hint('SELECT t.a AS k0 FROM t AS t WHERE t.a > 1', 'SELECT t.a AS k0 FROM t AS t', False) == '',
        'triage: no hint for a pair that looks like no known issue')
 report(query_shape("SELECT t3a.c9 AS k0 FROM t3 AS t3a WHERE t3a.c1 > (-3) AND t3a.c2 = 'x'") ==

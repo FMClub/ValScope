@@ -1,4 +1,4 @@
--- PolarDB-X: the three HAVING cond->FALSE pairs of the first campaign (seeds 4, 5, 7 of
+-- PolarDB-X (issues/020): the three HAVING cond->FALSE pairs of the first campaign (seeds 4, 5, 7 of
 -- bridge/gen_mysql_db.py), each with its arms alone.  The original, the mutant, then the arms.
 -- expected: seed 4 and 5 mutants empty (an INTERSECT with an empty arm); seed 7 mutant = the
 -- distinct values of t3.c9 (an EXCEPT of an empty arm); the arms with HAVING 1 = 0 empty.

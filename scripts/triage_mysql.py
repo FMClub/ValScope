@@ -51,10 +51,14 @@ DISTINCT_AGGREGATE = re.compile(r'\b(COUNT|SUM|AVG|MIN|MAX)\s*\(\s*DISTINCT\b')
 
 
 def hint(original, mutant, index_only):
-    """The known issue (MariaDB; 015: MySQL) that a reduced pair looks like, or ''.  A hint, not a
+    """The known issue (MariaDB; 015: MySQL; 016-019: TiDB; 020: PolarDB-X) that a reduced pair looks like, or ''.  A hint, not a
     verdict: it is checked against the classified pairs of results/mariadb-campaign.jsonl
     (bridge/test_bridge.py), and a new defect can have the look of a known one."""
     o, both = original.upper(), (original + ' ' + mutant).upper()
+    m = mutant.upper()
+    if ('HAVING 1 = 0' in m or 'HAVING FALSE' in m) and (' INTERSECT ' in m or ' EXCEPT ' in m) \
+            and ' GROUP BY ' not in m:
+        return '020'        # PolarDB-X: an INTERSECT / EXCEPT arm, aggregates, no GROUP BY, constant false HAVING
     if ' UNION ' in o and o.count('AVG(') > mutant.upper().count('AVG('):
         return '018'        # TiDB: AVG (a DECIMAL) gone from a UNION arm changes how the others are rounded
     if ' NOT IN (SELECT ' in o and ' NOT IN (SELECT ' not in mutant.upper() and 'NOT (' in mutant.upper():

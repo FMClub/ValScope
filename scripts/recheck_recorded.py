@@ -24,7 +24,7 @@ from recheck_mysql import recheck, unique_pairs, violated  # noqa: E402
 RECORDS = os.path.join(HERE, '..', 'results', 'mariadb-campaign.jsonl')
 # (seed, rule): why the present checker does not report it
 KNOWN_HIDDEN = {
-    (42, 'DISTINCT-add'): 'a UNION ALL with an EXCEPT over a _ci and a _bin column: the collation rule applies to the whole pair',
+    (42, 'DISTINCT-add'): 'an EXCEPT over a _ci and a _bin column, and the rows that differ hold strings with letters: which representative a DISTINCT kept can explain them',
 }
 
 

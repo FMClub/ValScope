@@ -850,6 +850,12 @@ report(INTERNAL_ERROR.search("Can't find column vs_rowid.t1._tidb_rowid in schem
        not INTERNAL_ERROR.search("Incorrect DATE value: '7'"),
        'runner: an internal error of the server is told apart from a refused query (issues/017)')
 
+from run_on_db import collation_can_explain  # noqa: E402
+report(not collation_can_explain([('0',), ('0',)], [('0',)]) and not collation_can_explain([(1, '2024-01-01')], [(2, '2024-01-01')]) and
+       collation_can_explain([('a',)], [('A',)]) and collation_can_explain([('x 1',)], []) and
+       collation_can_explain([('1 ',)], [('1',)]) and collation_can_explain([(b'\xc3\xa9',)], []),
+       'runner: only a difference in strings with case, accents or trailing spaces can be a collation effect')
+
 # the rich generator writes the dialect of its database
 import subprocess  # noqa: E402
 gen = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'gen_fragment.py')

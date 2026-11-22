@@ -310,6 +310,26 @@ def sqlite_exact_columns(db, schema):
 FLIP_VALUE = {'Le': 'Ge', 'Ge': 'Le', 'TowardOne': 'AwayOne', 'AwayOne': 'TowardOne'}
 
 
+def collation_can_explain(base, res):
+    """Whether the difference between two results can come from which representative a
+    de-duplication kept: some row that is in one result and not in the other (as a multiset)
+    has a string that another string can be equal to under a case- or accent-insensitive,
+    PAD SPACE collation (a letter, a trailing space, a non-ASCII character).  A difference
+    in rows of numbers or digits alone cannot (round 18: the TiDB pair of seed 6)."""
+    a, b = collections.Counter(base), collections.Counter(res)
+    for row in (a - b) + (b - a):
+        for v in row:
+            if isinstance(v, (bytes, bytearray)):
+                try:
+                    v = bytes(v).decode('utf-8')
+                except UnicodeDecodeError:
+                    return True
+            if isinstance(v, str) and (v != v.rstrip() or not v.isascii()
+                                       or any(c.isalpha() for c in v)):
+                return True
+    return False
+
+
 def arm_mix_verdict(verdict, *mixes):
     """A violation of a compound whose INTERSECT / EXCEPT compares mixed collations is
     'collation' (MySQLTarget._compound_collations); `mixes` are the last_arm_mix of the
@@ -463,7 +483,9 @@ def judge_results(target, base, res, expect, cover=False, single=False, sql=None
             verdicts = [check_inclusion(d, b, r, fold) for d in directions]
             bad = [v for v in verdicts if v not in ('ok', 'collation')]
             return bad[0] if bad else ('collation' if 'collation' in verdicts else 'ok')
-    verdict = arm_mix_verdict(check(base.rows, res.rows), base.mix, res.mix)
+    verdict = check(base.rows, res.rows)
+    if collation_can_explain(base.rows, res.rows):
+        verdict = arm_mix_verdict(verdict, base.mix, res.mix)
     return rejudge(verdict, check, base.rows, res.rows, base.mixed | res.mixed,
                    step_columns(sql) if sql else set(), column)
 

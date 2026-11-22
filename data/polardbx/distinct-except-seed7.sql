@@ -1,0 +1,48 @@
+-- PolarDB-X: the DISTINCT-add pair of seed 7 (data/polardbx/distinct-add-seeds.sql, D7/D8),
+-- variants on the database of seed 7.  The right arm is empty in every query but E5:
+-- expected: each EXCEPT returns its left arm (deduplicated), each INTERSECT none.
+DROP DATABASE IF EXISTS vs_dd7; CREATE DATABASE vs_dd7; USE vs_dd7;
+CREATE TABLE t1 (c1 DECIMAL(10,2), c4 DECIMAL(10,2)) ENGINE=InnoDB;
+INSERT INTO t1 VALUES (2, 2), (3, 7), (NULL, 2), (1, 5), (NULL, 0), (-0.25, 4.25), (7.5, 0), (1, 5), (-1, 3.25), (2.75, 3.75);
+CREATE TABLE t2 (c1 VARCHAR(20) COLLATE utf8mb4_general_ci, c2 DATE, c3 DOUBLE, c14 VARCHAR(20) COLLATE utf8mb4_general_ci, c15 VARCHAR(20) COLLATE utf8mb4_bin) ENGINE=InnoDB;
+INSERT INTO t2 VALUES ('A', '2024-01-01', 7, 'A', '2'), ('1', '2024-12-15', 5.5, 'a', '01'), (NULL, '2024-01-15', 7, 'B', 'A'), (NULL, '2024-01-01', 0, '01', '2'), ('A', '2024-01-15', 10.1, ' 1', '-3'), ('01', '2024-01-15', NULL, 'x', '1'), ('0', '2024-02-28', 1, '0', 'x'), ('0', '2024-02-01', NULL, 'a', '7'), (NULL, NULL, -3, '10', NULL), ('1', '2024-02-15', 2.1, '10', NULL), ('7', '2024-01-01', 3, 'B', 'b'), ('1', '2024-01-28', 1, NULL, 'A'), ('', '2024-01-01', 7, NULL, NULL), (' 1', '2024-01-15', 5, '2', '0'), ('01', NULL, 1.25, '-1', '1'), ('B', NULL, -3, '2', '2'), ('1', NULL, 0, 'B', 'A'), ('a ', '2024-01-01', 0, '-1', NULL), ('01', '2024-01-28', -2.75, ' 1', 'a'), (' 1', '2024-02-01', NULL, '7', 'B'), ('5', '2024-12-15', -1, 'a', NULL);
+CREATE TABLE t3 (c1 DOUBLE, c2 DATE, c3 INT, c6 VARCHAR(20) COLLATE utf8mb4_bin, c7 VARCHAR(20) COLLATE utf8mb4_general_ci, c8 INT, c9 BIGINT) ENGINE=InnoDB;
+INSERT INTO t3 VALUES (NULL, '2024-01-15', 2, '5', NULL, -1, 0), (-1, '2024-01-15', NULL, '01', '01', NULL, 4), (4.5, '2024-01-28', -1, 'x', '7', -3, NULL), (2.5, '2024-01-01', 10, '0', '01', 2, 2), (NULL, '2024-12-01', 7, '-1', 'x', 5, 4), (7, '2024-12-15', -1, 'x', NULL, 10, -3), (2.1, '2024-01-28', 2, 'b', '-3', 10, 10), (NULL, '2024-01-28', 3, '5', '2', 2, NULL), (2, NULL, 5, 'A', 'B', 7, 2), (-0.5, '2024-01-01', -1, ' 1', '1', -1, NULL), (-2.75, '2024-01-01', 2, 'x', NULL, 1, 2), (2, '2024-01-28', 7, 'b', 'a', 5, 4), (2.25, '2024-01-28', 1, '', 'x', 2, 4), (7.25, '2024-01-15', 4, '7', ' 1', NULL, 10), (7, '2024-02-28', 2, '-3', '7', 1, 1), (2, '2024-01-28', 1, '01', '2', 2, 1), (0, '2024-12-01', NULL, 'a', 'B', 5, 0), (7.5, '2024-01-01', 3, 'x', NULL, 1, 1), (NULL, NULL, 2, '01', 'b', 1, 1), (1, '2024-02-15', -1, 'b', '10', 7, NULL), (3, '2024-12-01', 4, NULL, 'B', -1, -1);
+CREATE INDEX i0 ON t3 (c8, c9, c6);
+CREATE INDEX i1 ON t1 (c1, c4);
+CREATE UNIQUE INDEX i2 ON t2 (c1, c3, c15);
+CREATE INDEX i3 ON t3 (c1, c3, c9);
+CREATE INDEX i4 ON t3 (c8);
+CREATE INDEX i5 ON t2 (c15, c1, c2);
+CREATE INDEX i6 ON t3 (c9, c6);
+CREATE INDEX i7 ON t3 (c8, c2, c6);
+ANALYZE TABLE t1;
+ANALYZE TABLE t2;
+ANALYZE TABLE t3;
+SELECT 'E0 t1' AS q;
+SELECT * FROM t1;
+SELECT 'E0 t2' AS q;
+SELECT * FROM t2;
+SELECT 'E1 EXCEPT, t1 (all 20 rows of the left)' AS q;
+(SELECT t2a.c1 AS k0, t2a.c2 AS k1 FROM t2 AS t2a) EXCEPT (SELECT t1a.c1 AS k0, t1b.c1 AS k1 FROM t1 AS t1a LEFT JOIN t1 AS t1b ON (0) WHERE (t1b.c1, t1b.c4) IN (SELECT t2i21.c3, t2i21.c15 FROM t2 AS t2i21));
+SELECT 'E2 EXCEPT, DISTINCT t1 (the same)' AS q;
+(SELECT t2a.c1 AS k0, t2a.c2 AS k1 FROM t2 AS t2a) EXCEPT (SELECT t1a.c1 AS k0, t1b.c1 AS k1 FROM (SELECT DISTINCT * FROM t1 AS t1a) AS t1a LEFT JOIN t1 AS t1b ON (0) WHERE (t1b.c1, t1b.c4) IN (SELECT t2i21.c3, t2i21.c15 FROM t2 AS t2i21));
+SELECT 'E3 the arm in a UNION ALL after an empty arm (none)' AS q;
+(SELECT t2a.c1 AS k0, t2a.c2 AS k1 FROM t2 AS t2a WHERE 1 = 0) UNION ALL (SELECT t1a.c1 AS k0, t1b.c1 AS k1 FROM (SELECT DISTINCT * FROM t1 AS t1a) AS t1a LEFT JOIN t1 AS t1b ON (0) WHERE (t1b.c1, t1b.c4) IN (SELECT t2i21.c3, t2i21.c15 FROM t2 AS t2i21));
+SELECT 'E4 INTERSECT, DISTINCT t1 (none)' AS q;
+(SELECT t2a.c1 AS k0, t2a.c2 AS k1 FROM t2 AS t2a) INTERSECT (SELECT t1a.c1 AS k0, t1b.c1 AS k1 FROM (SELECT DISTINCT * FROM t1 AS t1a) AS t1a LEFT JOIN t1 AS t1b ON (0) WHERE (t1b.c1, t1b.c4) IN (SELECT t2i21.c3, t2i21.c15 FROM t2 AS t2i21));
+SELECT 'E5 EXCEPT, DISTINCT t1, the arm without its WHERE (19: removes the rows (c1 of t1, NULL))' AS q;
+(SELECT t2a.c1 AS k0, t2a.c2 AS k1 FROM t2 AS t2a) EXCEPT (SELECT t1a.c1 AS k0, t1b.c1 AS k1 FROM (SELECT DISTINCT * FROM t1 AS t1a) AS t1a LEFT JOIN t1 AS t1b ON (0));
+SELECT 'E6 EXCEPT, DISTINCT t1, k1 of the left a VARCHAR (all 21 rows of the left)' AS q;
+(SELECT t2a.c1 AS k0, t2a.c14 AS k1 FROM t2 AS t2a) EXCEPT (SELECT t1a.c1 AS k0, t1b.c1 AS k1 FROM (SELECT DISTINCT * FROM t1 AS t1a) AS t1a LEFT JOIN t1 AS t1b ON (0) WHERE (t1b.c1, t1b.c4) IN (SELECT t2i21.c3, t2i21.c15 FROM t2 AS t2i21));
+SELECT 'E7 EXCEPT, DISTINCT t1, k1 of the left CAST AS CHAR (all 20 rows)' AS q;
+(SELECT t2a.c1 AS k0, CAST(t2a.c2 AS CHAR) AS k1 FROM t2 AS t2a) EXCEPT (SELECT t1a.c1 AS k0, t1b.c1 AS k1 FROM (SELECT DISTINCT * FROM t1 AS t1a) AS t1a LEFT JOIN t1 AS t1b ON (0) WHERE (t1b.c1, t1b.c4) IN (SELECT t2i21.c3, t2i21.c15 FROM t2 AS t2i21));
+SELECT 'E8 EXCEPT, DISTINCT t1, one column k0 (all 9 values of t2.c1)' AS q;
+(SELECT t2a.c1 AS k0 FROM t2 AS t2a) EXCEPT (SELECT t1a.c1 AS k0 FROM (SELECT DISTINCT * FROM t1 AS t1a) AS t1a LEFT JOIN t1 AS t1b ON (0) WHERE (t1b.c1, t1b.c4) IN (SELECT t2i21.c3, t2i21.c15 FROM t2 AS t2i21));
+SELECT 'E9 EXCEPT, DISTINCT t1, IN on one column (all 20 rows)' AS q;
+(SELECT t2a.c1 AS k0, t2a.c2 AS k1 FROM t2 AS t2a) EXCEPT (SELECT t1a.c1 AS k0, t1b.c1 AS k1 FROM (SELECT DISTINCT * FROM t1 AS t1a) AS t1a LEFT JOIN t1 AS t1b ON (0) WHERE t1b.c1 IN (SELECT t2i21.c3 FROM t2 AS t2i21));
+SELECT 'E10 EXCEPT, DISTINCT t1, WHERE t1b.c1 = 5 (all 20 rows)' AS q;
+(SELECT t2a.c1 AS k0, t2a.c2 AS k1 FROM t2 AS t2a) EXCEPT (SELECT t1a.c1 AS k0, t1b.c1 AS k1 FROM (SELECT DISTINCT * FROM t1 AS t1a) AS t1a LEFT JOIN t1 AS t1b ON (0) WHERE t1b.c1 = 5);
+SELECT 'E11 EXCEPT, DISTINCT t1, INNER JOIN ON 1 (all 20 rows)' AS q;
+(SELECT t2a.c1 AS k0, t2a.c2 AS k1 FROM t2 AS t2a) EXCEPT (SELECT t1a.c1 AS k0, t1b.c1 AS k1 FROM (SELECT DISTINCT * FROM t1 AS t1a) AS t1a INNER JOIN t1 AS t1b ON (1) WHERE (t1b.c1, t1b.c4) IN (SELECT t2i21.c3, t2i21.c15 FROM t2 AS t2i21));
+USE information_schema; DROP DATABASE vs_dd7;

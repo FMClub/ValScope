@@ -859,6 +859,13 @@ report(not collation_can_explain([('0',), ('0',)], [('0',)]) and not collation_c
        collation_can_explain([('1 ',)], [('1',)]) and collation_can_explain([(b'\xc3\xa9',)], []),
        'runner: only a difference in strings with case, accents or trailing spaces can be a collation effect')
 
+from campaign_mysql import parse_run  # noqa: E402
+_run = parse_run("{'queries': 3, 'checked_ok': 10}\nmost frequent errors:\n      5  1055 Expression #1\n"
+                 "INTERNAL ERROR: 1105 Can't find column x\n  query: SELECT 1\n")
+report(_run['totals']['checked_ok'] == 10 and _run['errors'] == {'1055 Expression #1': 5}
+       and _run['internal'] == [("INTERNAL ERROR: 1105 Can't find column x", 'SELECT 1')],
+       'campaign: an internal error after the error summary is not read as a count (it stopped the PolarDB-X campaign)')
+
 # the rich generator writes the dialect of its database
 import subprocess  # noqa: E402
 gen = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'gen_fragment.py')

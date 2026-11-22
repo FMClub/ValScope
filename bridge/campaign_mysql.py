@@ -20,6 +20,7 @@ import ast
 import collections
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -35,6 +36,32 @@ def parse_range(text):
     for part in text.split(','):
         a, _, b = part.partition('-')
         out += range(int(a), int(b or a) + 1)
+    return out
+
+
+ERROR_LINE = re.compile(r'^\s+(\d+)  (.*)$')       # '  COUNT  MESSAGE' under 'most frequent errors:'
+
+
+def parse_run(stdout):
+    """What a campaign keeps of the output of one run_on_db.py run: the totals (its last
+    dict line), the counts of the server's errors, the internal errors with their first query
+    ('INTERNAL ERROR: ...' and '  query: ...'), and the refused mutants ('MUTANT FAILED')."""
+    out = {'totals': collections.Counter(), 'errors': collections.Counter(), 'internal': [], 'failed': []}
+    lines = stdout.splitlines()
+    in_errors = False
+    for i, line in enumerate(lines):
+        nxt = lines[i + 1].split(': ', 1)[-1] if i + 1 < len(lines) else ''
+        if line.startswith('{'):
+            out['totals'].update(ast.literal_eval(line))
+        elif line.startswith('INTERNAL ERROR:'):
+            out['internal'].append((line, nxt))
+        elif line.startswith('MUTANT FAILED'):
+            mutant = lines[i + 2].split(': ', 1)[-1] if i + 2 < len(lines) else ''
+            out['failed'].append('%s | original: %s | mutant: %s' % (line, nxt, mutant))
+        elif in_errors and ERROR_LINE.match(line):
+            count, message = ERROR_LINE.match(line).groups()
+            out['errors'][message] += int(count)
+        in_errors = (in_errors and bool(ERROR_LINE.match(line))) or line.startswith('most frequent errors:')
     return out
 
 
@@ -81,22 +108,13 @@ def main():
             r = subprocess.run([sys.executable, os.path.join(HERE, 'run_on_db.py'), qfile] + conn +
                                (['--value'] if kind == 'value' else []) + (['--flip'] if a.flip else []) +
                                ['--out', vfile, '--show-failed', '1'], capture_output=True, text=True)
-            in_errors = False
-            lines = r.stdout.splitlines()
-            for i, line in enumerate(lines):
-                if line.startswith('INTERNAL ERROR:'):
-                    internal.setdefault(line, '[seed %d] %s' % (seed, lines[i + 1].split(': ', 1)[-1]))
-                if line.startswith('MUTANT FAILED') and len(failed) < 6:
-                    failed.append('[seed %d] %s | original: %s | mutant: %s'
-                                  % (seed, line, lines[i + 1].split(': ', 1)[-1], lines[i + 2].split(': ', 1)[-1]))
-            for line in lines:
-                if line.startswith('{'):
-                    for k, v in ast.literal_eval(line).items():
-                        total[k] += v
-                elif in_errors and line.startswith('  '):       # '  COUNT  MESSAGE'
-                    count, _, message = line.strip().partition('  ')
-                    errors[message] += int(count)
-                in_errors = in_errors or line.startswith('most frequent errors:')
+            run = parse_run(r.stdout)
+            total.update(run['totals'])
+            errors.update(run['errors'])
+            for message, query in run['internal']:
+                internal.setdefault(message, '[seed %d] %s' % (seed, query))
+            for text in run['failed'][:max(0, 6 - len(failed))]:
+                failed.append('[seed %d] %s' % (seed, text))
             if r.returncode != 0:
                 total['runs_failed'] += 1
                 print('seed %d, %s queries: run_on_db failed: %s' % (seed, kind, r.stderr.strip()[-200:]), file=sys.stderr)

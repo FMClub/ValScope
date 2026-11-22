@@ -174,7 +174,7 @@ def main():
                     # the rows in their order: a table without a primary key is read in the
                     # order of insertion, and a defect can depend on it (issues/014), so a row
                     # that must stay is not deleted and added back at the end
-                    cur.execute('DELETE FROM %s.`%s`' % (SCRATCH, t))
+                    cur.execute('TRUNCATE TABLE %s.`%s`' % (SCRATCH, t))      # PolarDB-X forbids DELETE without WHERE
                     if content:
                         cur.executemany(insert, content)
                 kept, i = list(rows), 0

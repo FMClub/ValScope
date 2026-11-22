@@ -102,17 +102,39 @@ class MariaDBFold:
                 self.pad = cur.fetchone()[0] == 'PAD SPACE'
             except Exception:
                 self.pad = 'nopad' not in collation
+        # PolarDB-X has no WEIGHT_STRING: the key is then computed here, an approximation of
+        # the collation (case and accents for *_ci / *_ai, the text for the others)
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT WEIGHT_STRING('a')")
+                cur.fetchall()
+            self.server_weights = True
+        except Exception:
+            self.server_weights = False
 
     def __call__(self, value):
         if not isinstance(value, str):
             return value
         if value not in self.cache:
             text = value.rstrip(' ') if self.pad else value
+            if not self.server_weights:
+                self.cache[value] = ('p', approximate_key(text, self.name))
+                return self.cache[value]
             with self.conn.cursor() as cur:
                 cur.execute('SELECT WEIGHT_STRING(CONVERT(%%s USING %s) COLLATE %s)' % (self.charset, self.name),
                             (text,))
                 self.cache[value] = ('w', bytes(cur.fetchone()[0]))
         return self.cache[value]
+
+
+def approximate_key(text, collation):
+    """A comparison key for `text` under `collation` when the server cannot give one:
+    case- and accent-insensitive for *_ci / *_ai collations, the text itself otherwise."""
+    if '_ci' not in collation and '_ai' not in collation:
+        return text
+    import unicodedata
+    stripped = ''.join(c for c in unicodedata.normalize('NFD', text) if not unicodedata.combining(c))
+    return stripped.casefold()
 
 
 # MySQL / MariaDB character sets -> Python codecs (MySQL's latin1 is Windows-1252).

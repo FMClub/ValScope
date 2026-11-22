@@ -37,6 +37,8 @@ ERRORS = collections.Counter()
 INTERNAL_ERROR = re.compile(r"can't find column|internal error|assertion|unexpected|index out of range|"
                             r"runtime error|nil pointer|lost connection", re.IGNORECASE)
 INTERNAL = {}
+# PolarDB-X starts every message with '[request id][host:port][database]': not part of the error
+REQUEST_ID = re.compile(r'^(\[[^\]]*\])+\s*')
 
 
 class MySQLTarget:
@@ -119,10 +121,22 @@ class MySQLTarget:
             code = e.args[0] if e.args else None
             if code in self.CONNECTION_LOST or isinstance(e, self.pymysql.err.InterfaceError):
                 sys.exit('connection to the server lost (%s); the run is stopped' % (e,))
-            message = str(e.args[1] if len(e.args) > 1 else e)
+            message = REQUEST_ID.sub('', str(e.args[1] if len(e.args) > 1 else e))
             ERRORS['%s %s' % (code, message[:70])] += 1
             if INTERNAL_ERROR.search(message) and message not in INTERNAL:
                 INTERNAL[message] = sql        # a valid query the server cannot run (issues/017)
+            return None, None
+        except (ValueError, TypeError, UnicodeDecodeError, OverflowError) as e:
+            # the driver could not convert a value the server sent (PolarDB-X): the query is
+            # counted as failed, and the connection, left in the middle of a result, is opened
+            # again with the session setting the column metadata depends on
+            ERRORS['driver: %s %s' % (type(e).__name__, str(e)[:60])] += 1
+            if 'driver: ' + type(e).__name__ not in INTERNAL:
+                INTERNAL['driver: ' + type(e).__name__] = sql
+            self.conn.close()
+            self.conn.connect()
+            with self.conn.cursor() as cur:
+                cur.execute('SET character_set_results = NULL')
             return None, None
 
     def _metadata_reports_collations(self):

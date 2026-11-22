@@ -119,7 +119,7 @@ def main():
                 failed.append('[seed %d] %s' % (seed, text))
             if r.returncode != 0:
                 total['runs_failed'] += 1
-                print('seed %d, %s queries: run_on_db failed: %s' % (seed, kind, r.stderr.strip()[-200:]), file=sys.stderr)
+                print('seed %d, %s queries: run_on_db failed: %s' % (seed, kind, r.stderr.strip()[-1200:]), file=sys.stderr)
             if os.path.exists(vfile):
                 for line in open(vfile):
                     rec = json.loads(line)

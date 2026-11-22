@@ -89,6 +89,16 @@ def main():
         target.run('SELECT t.a FROM t EXCEPT SELECT t.b FROM t')
         report('collations' in target.last_arm_mix, 'untrusted metadata: EXCEPT over text is judged modulo collation')
         target.trusted_collations = True
+        # a value the driver cannot convert: the query fails, the connection is opened again
+        from pymysql.constants import FIELD_TYPE
+        saved = target.conn.decoders[FIELD_TYPE.LONG]
+        target.conn.decoders[FIELD_TYPE.LONG] = lambda v: int('not a number')
+        failed, _ = target.run('SELECT t.n FROM t')
+        target.conn.decoders[FIELD_TYPE.LONG] = saved
+        again, _ = target.run('SELECT t.a, t.n FROM t ORDER BY t.n')
+        report(failed is None and again is not None and len(again) == 2
+               and target.last_collations[0] == 'utf8mb4_general_ci',
+               'a driver error fails one query; the next one runs with the column metadata (PolarDB-X)')
         target.run('SELECT t.a, t.b FROM t')
         report(target.last_collations == ['utf8mb4_general_ci', 'utf8mb4_bin'], 'plain columns %r' % target.last_collations)
         # every text column is decoded with its own character set

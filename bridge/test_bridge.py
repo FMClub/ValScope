@@ -878,5 +878,13 @@ rich_sqlite = subprocess.run([sys.executable, gen, '--rich', '--sqlite-seed', '3
                              capture_output=True, text=True, check=True).stdout
 report(' GLOB ' in rich_sqlite and '<=>' not in rich_sqlite, 'generator: --rich for SQLite keeps its spelling')
 
+# servers without WEIGHT_STRING (PolarDB-X): case and accents removed for _ci/_ai collations
+from checker import approximate_key  # noqa: E402
+report(approximate_key('Ébc', 'utf8mb4_general_ci') == approximate_key('ebC', 'utf8mb4_unicode_ci')
+       and approximate_key('Ébc', 'utf8mb4_bin') == 'Ébc', 'approximate collation keys without WEIGHT_STRING')
+from run_on_db import REQUEST_ID  # noqa: E402
+report(REQUEST_ID.sub('', '[1a2b][10.0.0.1:8527][vs] Unknown column') == 'Unknown column'
+       and REQUEST_ID.sub('', 'Unknown [x] column') == 'Unknown [x] column', 'PolarDB-X request ids removed from errors')
+
 print('%d failures' % failures)
 sys.exit(1 if failures else 0)

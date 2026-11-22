@@ -237,31 +237,67 @@ Proof. intros db p c. apply pcompat_pred. apply (proj1 compat). Qed.
 
 (** ---------------- Part 2: monotonicity ---------------- *)
 
+(** Each monotonicity lemma is proved in one world ([_at]); the statement for every
+    world follows.  The engine uses the first form, so that it is sound in any class
+    of worlds, and the rules proved for every world use the second. *)
+Ltac at_world L :=
+  intros; let db := fresh "db" in intro db;
+  repeat match goal with
+         | H : q_le ?a ?b |- _ => assert (q_le_at db a b) by exact (H db); clear H
+         | H : p_le ?a ?b |- _ => assert (p_le_at db a b) by exact (H db); clear H
+         end;
+  match goal with
+  | |- forall ctx, bag_le _ (eval_q _ ctx ?a) (eval_q _ ctx ?b) => change (q_le_at db a b)
+  | |- forall ctx, tv_le (eval_p _ ctx ?a) (eval_p _ ctx ?b) => change (p_le_at db a b)
+  end;
+  eapply L; eassumption.
+
+Lemma q_le_refl_at : forall db q, q_le_at db q q.
+Proof. intros db q ctx. apply bag_le_refl. Qed.
+
 Lemma q_le_refl : forall q, q_le q q.
-Proof. intros q db ctx. apply bag_le_refl. Qed.
+Proof. at_world q_le_refl_at. Qed.
+
+Lemma q_le_trans_at : forall db a b c, q_le_at db a b -> q_le_at db b c -> q_le_at db a c.
+Proof. intros db a b c H1 H2 ctx. eapply bag_le_trans; [apply H1|apply H2]. Qed.
 
 Lemma q_le_trans : forall a b c, q_le a b -> q_le b c -> q_le a c.
-Proof. intros a b c H1 H2 db ctx. eapply bag_le_trans; [apply H1|apply H2]. Qed.
+Proof. at_world q_le_trans_at. Qed.
+
+Lemma p_le_refl_at : forall db p, p_le_at db p p.
+Proof. intros db p ctx. apply tv_le_refl. Qed.
 
 Lemma p_le_refl : forall p, p_le p p.
-Proof. intros p db ctx. apply tv_le_refl. Qed.
+Proof. at_world p_le_refl_at. Qed.
+
+Lemma p_le_trans_at : forall db a b c, p_le_at db a b -> p_le_at db b c -> p_le_at db a c.
+Proof. intros db a b c H1 H2 ctx. eapply tv_le_trans; [apply H1|apply H2]. Qed.
 
 Lemma p_le_trans : forall a b c, p_le a b -> p_le b c -> p_le a c.
-Proof. intros a b c H1 H2 db ctx. eapply tv_le_trans; [apply H1|apply H2]. Qed.
+Proof. at_world p_le_trans_at. Qed.
+
+Lemma p_le_and_at : forall db a a' b b', p_le_at db a a' -> p_le_at db b b' -> p_le_at db (PAnd a b) (PAnd a' b').
+Proof. intros db a a' b b' H1 H2 ctx. simpl. apply tv_and_mono; auto. Qed.
 
 Lemma p_le_and : forall a a' b b', p_le a a' -> p_le b b' -> p_le (PAnd a b) (PAnd a' b').
-Proof. intros a a' b b' H1 H2 db ctx. simpl. apply tv_and_mono; auto. Qed.
+Proof. at_world p_le_and_at. Qed.
+
+Lemma p_le_or_at : forall db a a' b b', p_le_at db a a' -> p_le_at db b b' -> p_le_at db (POr a b) (POr a' b').
+Proof. intros db a a' b b' H1 H2 ctx. simpl. apply tv_or_mono; auto. Qed.
 
 Lemma p_le_or : forall a a' b b', p_le a a' -> p_le b b' -> p_le (POr a b) (POr a' b').
-Proof. intros a a' b b' H1 H2 db ctx. simpl. apply tv_or_mono; auto. Qed.
+Proof. at_world p_le_or_at. Qed.
 
 (** NOT is antitone: a mutation under NOT has the opposite effect. *)
-Lemma p_le_not : forall a b, p_le a b -> p_le (PNot b) (PNot a).
-Proof. intros a b H db ctx. simpl. apply tv_not_anti; auto. Qed.
+Lemma p_le_not_at : forall db a b, p_le_at db a b -> p_le_at db (PNot b) (PNot a).
+Proof. intros db a b H ctx. simpl. apply tv_not_anti; auto. Qed.
 
-Lemma p_le_exists : forall a b, q_le a b -> p_le (PExists a) (PExists b).
+Lemma p_le_not : forall a b, p_le a b -> p_le (PNot b) (PNot a).
+Proof. at_world p_le_not_at. Qed.
+
+Lemma p_le_exists_at : forall db a b, q_le_at db a b -> p_le_at db (PExists a) (PExists b).
 Proof.
-  intros a b H db ctx. simpl. specialize (H db ctx).
+  intros db a b H ctx. simpl. specialize (H ctx).
   destruct (eval_q db ctx a) eqn:Ea; destruct (eval_q db ctx b) eqn:Eb.
   - apply tv_le_refl.
   - apply tv_le_T.
@@ -269,12 +305,21 @@ Proof.
   - apply tv_le_refl.
 Qed.
 
+Lemma p_le_exists : forall a b, q_le a b -> p_le (PExists a) (PExists b).
+Proof. at_world p_le_exists_at. Qed.
+
 (** IN is monotone in its subquery, so NOT IN is antitone. *)
+Lemma p_le_in_at : forall db e a b, q_le_at db a b -> p_le_at db (PIn e a) (PIn e b).
+Proof. intros db e a b H ctx. simpl. apply in3_mono; [apply veq_refl|apply H]. Qed.
+
 Lemma p_le_in : forall e a b, q_le a b -> p_le (PIn e a) (PIn e b).
-Proof. intros e a b H db ctx. simpl. apply in3_mono; [apply veq_refl|apply H]. Qed.
+Proof. at_world p_le_in_at. Qed.
+
+Lemma p_le_int_at : forall db es a b, q_le_at db a b -> p_le_at db (PInT es a) (PInT es b).
+Proof. intros db es a b H ctx. simpl. apply int3_mono; [apply req_refl|apply H]. Qed.
 
 Lemma p_le_int : forall es a b, q_le a b -> p_le (PInT es a) (PInT es b).
-Proof. intros es a b H db ctx. simpl. apply int3_mono; [apply req_refl|apply H]. Qed.
+Proof. at_world p_le_int_at. Qed.
 
 Lemma p_le_true : forall p, p_le p PTrue.
 Proof. intros p db ctx. simpl. apply tv_le_T. Qed.
@@ -313,61 +358,92 @@ Proof.
   apply tv_le_of_bool. apply rsearch_mono. exact H.
 Qed.
 
-Lemma q_le_project : forall es a b, q_le a b -> q_le (QProject es a) (QProject es b).
+Lemma q_le_project_at : forall db es a b, q_le_at db a b -> q_le_at db (QProject es a) (QProject es b).
 Proof.
-  intros es a b H db ctx. simpl. eapply bag_le_map; laws db; [ |apply H].
+  intros db es a b H ctx. simpl. eapply bag_le_map; laws db; [ |apply H].
   intros r r' E. apply proj_compat. apply req_app; [exact E|apply req_refl].
 Qed.
 
-Lemma q_le_where : forall p p' a a', p_le p p' -> q_le a a' -> q_le (QWhere p a) (QWhere p' a').
+Lemma q_le_project : forall es a b, q_le a b -> q_le (QProject es a) (QProject es b).
+Proof. at_world q_le_project_at. Qed.
+
+Lemma q_le_where_at : forall db p p' a a', p_le_at db p p' -> q_le_at db a a' -> q_le_at db (QWhere p a) (QWhere p' a').
 Proof.
-  intros p p' a a' Hp Ha db ctx. simpl.
+  intros db p p' a a' Hp Ha ctx. simpl.
   eapply bag_le_filter; laws db; [apply pcompat_eval|apply pcompat_eval| |apply Ha].
-  intros r Hr. exact (is_true_mono _ _ (Hp db (r ++ ctx)) Hr).
+  intros r Hr. exact (is_true_mono _ _ (Hp (r ++ ctx)) Hr).
 Qed.
 
+Lemma q_le_where : forall p p' a a', p_le p p' -> q_le a a' -> q_le (QWhere p a) (QWhere p' a').
+Proof. at_world q_le_where_at. Qed.
+
+Lemma q_le_distinct_at : forall db a b, q_le_at db a b -> q_le_at db (QDistinct a) (QDistinct b).
+Proof. intros db a b H ctx. simpl. eapply bag_le_dedup; laws db. apply H. Qed.
+
 Lemma q_le_distinct : forall a b, q_le a b -> q_le (QDistinct a) (QDistinct b).
-Proof. intros a b H db ctx. simpl. eapply bag_le_dedup; laws db. apply H. Qed.
+Proof. at_world q_le_distinct_at. Qed.
+
+Lemma q_le_named_at : forall db n a b, q_le_at db a b -> q_le_at db (QNamed n a) (QNamed n b).
+Proof. intros db n a b H ctx. simpl. apply H. Qed.
 
 Lemma q_le_named : forall n a b, q_le a b -> q_le (QNamed n a) (QNamed n b).
-Proof. intros n a b H db ctx. simpl. apply H. Qed.
+Proof. at_world q_le_named_at. Qed.
+
+Lemma q_le_union_all_at : forall db a a' b b', q_le_at db a a' -> q_le_at db b b' -> q_le_at db (QUnionAll a b) (QUnionAll a' b').
+Proof. intros db a a' b b' H1 H2 ctx. simpl. apply bag_le_app; [apply H1|apply H2]. Qed.
 
 Lemma q_le_union_all : forall a a' b b', q_le a a' -> q_le b b' -> q_le (QUnionAll a b) (QUnionAll a' b').
-Proof. intros a a' b b' H1 H2 db ctx. simpl. apply bag_le_app; [apply H1|apply H2]. Qed.
+Proof. at_world q_le_union_all_at. Qed.
+
+Lemma q_le_union_at : forall db a a' b b', q_le_at db a a' -> q_le_at db b b' -> q_le_at db (QUnion a b) (QUnion a' b').
+Proof. intros db a a' b b' H1 H2 ctx. simpl. eapply bag_le_union; laws db; [apply H1|apply H2]. Qed.
 
 Lemma q_le_union : forall a a' b b', q_le a a' -> q_le b b' -> q_le (QUnion a b) (QUnion a' b').
-Proof. intros a a' b b' H1 H2 db ctx. simpl. eapply bag_le_union; laws db; [apply H1|apply H2]. Qed.
+Proof. at_world q_le_union_at. Qed.
+
+Lemma q_le_intersect_at : forall db a a' b b', q_le_at db a a' -> q_le_at db b b' -> q_le_at db (QIntersect a b) (QIntersect a' b').
+Proof. intros db a a' b b' H1 H2 ctx. simpl. eapply bag_le_inter; laws db; [apply H1|apply H2]. Qed.
 
 Lemma q_le_intersect : forall a a' b b', q_le a a' -> q_le b b' -> q_le (QIntersect a b) (QIntersect a' b').
-Proof. intros a a' b b' H1 H2 db ctx. simpl. eapply bag_le_inter; laws db; [apply H1|apply H2]. Qed.
+Proof. at_world q_le_intersect_at. Qed.
 
 (** EXCEPT: monotone in the left operand, antitone in the right one. *)
-Lemma q_le_except : forall a a' b b', q_le a a' -> q_le b' b -> q_le (QExcept a b) (QExcept a' b').
+Lemma q_le_except_at : forall db a a' b b', q_le_at db a a' -> q_le_at db b' b -> q_le_at db (QExcept a b) (QExcept a' b').
 Proof.
-  intros a a' b b' H1 H2 db ctx. simpl. eapply bag_le_trans.
+  intros db a a' b b' H1 H2 ctx. simpl. eapply bag_le_trans.
   - eapply bag_le_exc_l; laws db; [apply H1].
   - eapply bag_le_exc_r; laws db; [apply H2].
 Qed.
 
-Lemma q_le_inner_join : forall p p' a a' b b', p_le p p' -> q_le a a' -> q_le b b' ->
-  q_le (QInnerJoin p a b) (QInnerJoin p' a' b').
+Lemma q_le_except : forall a a' b b', q_le a a' -> q_le b' b -> q_le (QExcept a b) (QExcept a' b').
+Proof. at_world q_le_except_at. Qed.
+
+Lemma q_le_inner_join_at : forall db p p' a a' b b', p_le_at db p p' -> q_le_at db a a' -> q_le_at db b b' ->
+  q_le_at db (QInnerJoin p a b) (QInnerJoin p' a' b').
 Proof.
-  intros p p' a a' b b' Hp Ha Hb db ctx. simpl. eapply bag_le_trans.
+  intros db p p' a a' b b' Hp Ha Hb ctx. simpl. eapply bag_le_trans.
   - eapply bag_le_flat_map_list; laws db; [ |apply Ha].
     intros r1 r1' E. apply matches_row; [apply pcompat_eval|exact E].
   - apply bag_le_flat_map_fun. intro r1. unfold matches.
     eapply bag_le_filter; laws db; [apply pcompat_eval|apply pcompat_eval| |].
-    + intros r Hr. exact (is_true_mono _ _ (Hp db (r ++ ctx)) Hr).
+    + intros r Hr. exact (is_true_mono _ _ (Hp (r ++ ctx)) Hr).
     + eapply bag_le_map; laws db; [ |apply Hb]. intros x y E. apply req_app; [apply req_refl|exact E].
 Qed.
 
+Lemma q_le_inner_join : forall p p' a a' b b', p_le p p' -> q_le a a' -> q_le b b' ->
+  q_le (QInnerJoin p a b) (QInnerJoin p' a' b').
+Proof. at_world q_le_inner_join_at. Qed.
+
 (** A LEFT JOIN is monotone in its LEFT input only. *)
-Lemma q_le_left_join_left : forall pad p a a' b, q_le a a' -> q_le (QLeftJoin pad p a b) (QLeftJoin pad p a' b).
+Lemma q_le_left_join_left_at : forall db pad p a a' b, q_le_at db a a' -> q_le_at db (QLeftJoin pad p a b) (QLeftJoin pad p a' b).
 Proof.
-  intros pad p a a' b H db ctx. simpl. eapply bag_le_flat_map_list; laws db; [ |apply H].
+  intros db pad p a a' b H ctx. simpl. eapply bag_le_flat_map_list; laws db; [ |apply H].
   intros r1 r1' E. apply left_compat; [|exact E].
   apply matches_row; [apply pcompat_eval|exact E].
 Qed.
+
+Lemma q_le_left_join_left : forall pad p a a' b, q_le a a' -> q_le (QLeftJoin pad p a b) (QLeftJoin pad p a' b).
+Proof. at_world q_le_left_join_left_at. Qed.
 
 (** Rule 17: INNER JOIN -> LEFT JOIN (and, read backwards, LEFT JOIN -> INNER JOIN). *)
 Lemma matches_le_left : forall db P pad r1 rhs, bag_le (req db) (matches P r1 rhs) (left_matches P pad r1 rhs).
@@ -387,17 +463,24 @@ Proof. intros a db ctx. simpl. eapply dedup_le; laws db. Qed.
 Lemma q_le_union_base : forall a b, q_le (QUnion a b) (QUnionAll a b).
 Proof. intros a b db ctx. simpl. eapply union_le_union_all; laws db. Qed.
 
+Lemma q_le_intersect_all_at : forall db a a' b b', q_le_at db a a' -> q_le_at db b b' ->
+  q_le_at db (QIntersectAll a b) (QIntersectAll a' b').
+Proof. intros db a a' b b' H1 H2 ctx. simpl. eapply bag_le_inter_all; laws db; [apply H1|apply H2]. Qed.
+
 Lemma q_le_intersect_all : forall a a' b b', q_le a a' -> q_le b b' ->
   q_le (QIntersectAll a b) (QIntersectAll a' b').
-Proof. intros a a' b b' H1 H2 db ctx. simpl. eapply bag_le_inter_all; laws db; [apply H1|apply H2]. Qed.
+Proof. at_world q_le_intersect_all_at. Qed.
 
 (** EXCEPT ALL is monotone on the left and antitone on the right. *)
-Lemma q_le_except_all : forall a a' b b', q_le a a' -> q_le b' b -> q_le (QExceptAll a b) (QExceptAll a' b').
+Lemma q_le_except_all_at : forall db a a' b b', q_le_at db a a' -> q_le_at db b' b -> q_le_at db (QExceptAll a b) (QExceptAll a' b').
 Proof.
-  intros a a' b b' H1 H2 db ctx. simpl. eapply bag_le_trans.
+  intros db a a' b b' H1 H2 ctx. simpl. eapply bag_le_trans.
   - eapply bag_le_exc_all_l; laws db; [apply H1].
   - eapply bag_le_exc_all_r; laws db; [apply H2].
 Qed.
+
+Lemma q_le_except_all : forall a a' b b', q_le a a' -> q_le b' b -> q_le (QExceptAll a b) (QExceptAll a' b').
+Proof. at_world q_le_except_all_at. Qed.
 
 (** INTERSECT is below INTERSECT ALL, EXCEPT below EXCEPT ALL. *)
 Lemma q_le_intersect_all_base : forall a b, q_le (QIntersect a b) (QIntersectAll a b).

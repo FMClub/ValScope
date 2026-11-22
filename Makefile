@@ -15,7 +15,7 @@ Makefile.coq: _CoqProject
 # Only the rules exported by Registry.v (with their theorems) can be used.
 cli: all
 	cp extracted/valscope_core.ml extracted/valscope_core.mli cli/
-	sed -i -E 's/^type (prule|qrule|vrule) = \{.*\}$$/type \1  (* abstract: only the proved rules of Registry.v *)/' cli/valscope_core.mli
+	sed -i -E 's/^type (prule|qrule|vrule|prule_in|qrule_in) = \{.*\}$$/type \1  (* abstract: only the proved rules of Registry.v *)/' cli/valscope_core.mli
 	@grep -q '^type prule  (\* abstract' cli/valscope_core.mli || (echo "rule types not abstract"; exit 1)
 	cd cli && ocamlfind ocamlopt -w -a valscope_core.mli valscope_core.ml main.ml -o valscope_mutate
 

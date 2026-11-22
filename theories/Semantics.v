@@ -160,3 +160,42 @@ Definition q_le (q1 q2 : query) : Prop :=
 
 Definition p_le (p1 p2 : pred) : Prop :=
   forall db ctx, tv_le (eval_p db ctx p1) (eval_p db ctx p2).
+
+(** The same relations in one world, and in a class of worlds.  A rule proved for
+    every world holds in every class; a rule proved against the semantics of one
+    dialect holds in the class of the worlds of that dialect ([q_le_within]). *)
+Definition q_le_at (db : db_t) (q1 q2 : query) : Prop :=
+  forall ctx, bag_le (req db) (eval_q db ctx q1) (eval_q db ctx q2).
+
+Definition p_le_at (db : db_t) (p1 p2 : pred) : Prop :=
+  forall ctx, tv_le (eval_p db ctx p1) (eval_p db ctx p2).
+
+Definition q_le_within (W : db_t -> Prop) (q1 q2 : query) : Prop :=
+  forall db, W db -> q_le_at db q1 q2.
+
+Definition p_le_within (W : db_t -> Prop) (p1 p2 : pred) : Prop :=
+  forall db, W db -> p_le_at db p1 p2.
+
+(** Every world. *)
+Definition all_worlds : db_t -> Prop := fun _ => True.
+
+Lemma q_le_within_of_le : forall W q1 q2, q_le q1 q2 -> q_le_within W q1 q2.
+Proof. intros W q1 q2 H db _ ctx. apply H. Qed.
+
+Lemma p_le_within_of_le : forall W p1 p2, p_le p1 p2 -> p_le_within W p1 p2.
+Proof. intros W p1 p2 H db _ ctx. apply H. Qed.
+
+Lemma q_le_within_all : forall q1 q2, q_le_within all_worlds q1 q2 -> q_le q1 q2.
+Proof. intros q1 q2 H db ctx. exact (H db I ctx). Qed.
+
+Lemma p_le_within_all : forall p1 p2, p_le_within all_worlds p1 p2 -> p_le p1 p2.
+Proof. intros p1 p2 H db ctx. exact (H db I ctx). Qed.
+
+(** A class of worlds can only be narrowed. *)
+Lemma q_le_within_weaken : forall (W W' : db_t -> Prop) q1 q2,
+  (forall db, W' db -> W db) -> q_le_within W q1 q2 -> q_le_within W' q1 q2.
+Proof. intros W W' q1 q2 HW H db Hdb. apply H. apply HW. exact Hdb. Qed.
+
+Lemma p_le_within_weaken : forall (W W' : db_t -> Prop) p1 p2,
+  (forall db, W' db -> W db) -> p_le_within W p1 p2 -> p_le_within W' p1 p2.
+Proof. intros W W' p1 p2 HW H db Hdb. apply H. apply HW. exact Hdb. Qed.

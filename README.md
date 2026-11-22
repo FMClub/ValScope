@@ -170,6 +170,26 @@ field. The engine decides where the rule may fire (direction flips under `NOT` a
 right operand of `EXCEPT`; the `ON` condition and right input of a `LEFT JOIN` are never
 entered), so a rule author only reasons about the root.
 
+### A rule of one dialect
+
+The rules above hold in every world of the model: every dialect, collation and database.
+A rule which relies on a property of one dialect holds in a class `W` of worlds only. It
+is stated with `q_le_within W` / `p_le_within W` (`Semantics.v`), packaged as a
+`qrule_in W` / `prule_in W` (`Rule.v`), and given to `mutate_within W` (`Registry.v`)
+together with the rules of the registry, which are sound in every class:
+
+```coq
+Definition mutate_add_commutes : dir -> query -> list (string * query) :=
+  mutate_within add_commutes [r_add_swap Up; r_add_swap Down] [].
+```
+
+`mutate_within_sound` is the theorem of that mutator: each mutant is above or below the
+original in every world of `W`. It is an instance of `mut_q_in_sound`, the soundness of
+the engine for any class of worlds; `mutate` is the case of all worlds
+(`mutate_within_all`). `theories/Within.v` has the complete example. A development
+that proves rules against another formal semantics of a dialect defines `W` as the
+worlds of that semantics, and extracts its `mutate_within W ...` in place of `mutate`.
+
 A value rule is added the same way (`theories/VRules.v`): a rewrite of a select item,
 a theorem relating the value of the rewritten item to the original on every group of
 rows, `mk_vrule`, and one line in `value_rules`.
@@ -253,6 +273,7 @@ value cannot be read off the result.
 | `theories/VLineage.v` | A mutated value followed through a derived table (`wmut_sound`) |
 | `theories/Registry.v` | The plugged-in rules and the mutators with their theorems: `mutate`, `vmutate`, `hmutate`, `tmutate`, `thmutate`, `shmutate`, `wmutate` |
 | `theories/Counter.v` | A concrete lawful world; proofs that some positions must not be mutated |
+| `theories/Within.v` | A rule sound in a class of worlds only (`+` commutes), plugged in with `mutate_within` |
 | `theories/Extract.v` | Extraction to OCaml |
 | `cli/main.ml` | Command-line front end of the extracted core (S-expression protocol) |
 | `bridge/sql_bridge.py` | SQL text to algebra term and back (`Translation`), round-trip validation, the entry points `mutate_sql` and `mutate_value` |

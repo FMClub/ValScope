@@ -40,3 +40,48 @@ Record qrule : Type := mk_qrule {
   qr_fun   : query -> list query;
   qr_sound : forall q q', In q' (qr_fun q) -> dle q_le qr_dir q q'
 }.
+
+(** ---------------- rules sound in a class of worlds ----------------
+
+    [prule] and [qrule] above are sound in every world.  A rule proved against the
+    semantics of one dialect is sound in the worlds of that dialect only: it is a
+    [prule_in W] or a [qrule_in W], where [W] is that class of worlds.  The generic
+    engine of Engine.v takes rules of this form, so the two kinds can be mixed. *)
+
+Lemma dle_p_within : forall W d p p', dle p_le d p p' -> dle (p_le_within W) d p p'.
+Proof. intros W [] p p' H; simpl in *; apply p_le_within_of_le; exact H. Qed.
+
+Lemma dle_q_within : forall W d q q', dle q_le d q q' -> dle (q_le_within W) d q q'.
+Proof. intros W [] q q' H; simpl in *; apply q_le_within_of_le; exact H. Qed.
+
+Lemma dle_p_within_all : forall d p p', dle (p_le_within all_worlds) d p p' -> dle p_le d p p'.
+Proof. intros [] p p' H; simpl in *; apply p_le_within_all; exact H. Qed.
+
+Lemma dle_q_within_all : forall d q q', dle (q_le_within all_worlds) d q q' -> dle q_le d q q'.
+Proof. intros [] q q' H; simpl in *; apply q_le_within_all; exact H. Qed.
+
+Record prule_in (W : db_t -> Prop) : Type := mk_prule_in {
+  pri_name  : string;
+  pri_dir   : dir;
+  pri_fun   : pred -> list pred;
+  pri_sound : forall p p', In p' (pri_fun p) -> dle (p_le_within W) pri_dir p p'
+}.
+
+Record qrule_in (W : db_t -> Prop) : Type := mk_qrule_in {
+  qri_name  : string;
+  qri_dir   : dir;
+  qri_fun   : query -> list query;
+  qri_sound : forall q q', In q' (qri_fun q) -> dle (q_le_within W) qri_dir q q'
+}.
+
+Arguments pri_name {W}. Arguments pri_dir {W}. Arguments pri_fun {W}. Arguments pri_sound {W}.
+Arguments qri_name {W}. Arguments qri_dir {W}. Arguments qri_fun {W}. Arguments qri_sound {W}.
+
+(** A rule sound in every world, used in a class of worlds. *)
+Definition prule_at (W : db_t -> Prop) (r : prule) : prule_in W :=
+  mk_prule_in W (pr_name r) (pr_dir r) (pr_fun r)
+    (fun p p' H => dle_p_within W _ _ _ (pr_sound r p p' H)).
+
+Definition qrule_at (W : db_t -> Prop) (r : qrule) : qrule_in W :=
+  mk_qrule_in W (qr_name r) (qr_dir r) (qr_fun r)
+    (fun q q' H => dle_q_within W _ _ _ (qr_sound r q q' H)).

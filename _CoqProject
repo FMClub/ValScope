@@ -20,4 +20,5 @@ theories/VSet.v
 theories/VLineage.v
 theories/Registry.v
 theories/Counter.v
+theories/Within.v
 theories/Extract.v

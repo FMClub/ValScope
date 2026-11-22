@@ -31,6 +31,27 @@ Proof. intros d q name q'. apply mut_q_sound. Qed.
 
 Print Assumptions mutate_sound.
 
+(** The same mutator for a class of worlds [W], with further rules that are sound
+    in that class only: rules proved against the semantics of one dialect.  The rules
+    above are sound in every world, hence in [W].  A development that proves such
+    rules instantiates this definition and extracts it in place of [mutate]. *)
+Definition mutate_within (W : db_t -> Prop) (prs : list (prule_in W)) (qrs : list (qrule_in W))
+  : dir -> query -> list (string * query) :=
+  mut_q_in (map (prule_at W) pred_rules ++ prs) (map (qrule_at W) query_rules ++ qrs).
+
+Theorem mutate_within_sound : forall W prs qrs d q name q',
+  In (name, q') (mutate_within W prs qrs d q) -> dle (q_le_within W) d q q'.
+Proof. intros W prs qrs d q name q'. apply mut_q_in_sound. Qed.
+
+Print Assumptions mutate_within_sound.
+
+(** Without further rules and in the class of all worlds, it is [mutate]. *)
+Lemma mutate_within_all : forall d q, mutate_within all_worlds [] [] d q = mutate d q.
+Proof.
+  intros d q. unfold mutate_within, mutate. rewrite !app_nil_r.
+  symmetry. apply (proj2 (mut_eq pred_rules query_rules)).
+Qed.
+
 (** ---------------- value-semantic rules ---------------- *)
 
 Lemma le_1_2 : (1 <= 2)%Z. Proof. lia. Qed.

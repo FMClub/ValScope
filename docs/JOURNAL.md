@@ -539,9 +539,13 @@ SQLite campaign 5662 checks; 84 recorded MariaDB pairs unchanged.
   its duplicates (or issue 016 would disappear again).
 - My own comparison script double-counted groups that triage had split by shape; fixed.
 
+**Closing checks.** The reruns with the recorded seeds match the record exactly: TiDB v8.5.3
+seeds 1-40, 9 of 9 pairs (with issue 019); MariaDB 13.0.2 seeds 231-280, 17 of 17. The
+translation check of `campaign_sqlite.py` is now modulo the collation too (the CI campaign:
+the same 238 queries and 5662 checks). CI: all eight jobs green, with the recheck of the
+recorded pairs blocking.
+
 **TODO for round 19.**
-1. Read the reruns of TiDB (seeds 1-40) and MariaDB 13 (seeds 231-280): both must match the
-   record exactly.
-2. The SQLite tools still each read their records and build their databases themselves;
-   `campaign_sqlite.py` compares written and re-printed queries with its own `same_rows`.
+1. The SQLite tools still each read their records and build their databases themselves (one
+   loader would do).
 3. OceanBase and PolarDB-X were not tried.

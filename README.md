@@ -278,6 +278,7 @@ value cannot be read off the result.
 | `scripts/check_violations.py` | Compares the violations of a run with a baseline of known ones (keys and signatures) |
 | `scripts/record_sqlite_pairs.py` | Adds the new pairs of an SQLite campaign to `results/`: confirm, bisect, reduce, bisect again, regenerate the reports |
 | `scripts/replay_reduced_sqlite.py` | Replays the reduced SQLite pairs of `results/` on their releases: every known bug must still be detected (CI) |
+| `scripts/probe_collations.py` | Prints the collation the bridge reads for each result column of a few queries on a server; a wrong one would make the checker report false alarms |
 | `scripts/check_reduced_mysql.py` | Checks that a reduced script still shows its violation |
 | `scripts/triage_mysql.py` | Triage of a server campaign: every pair again, without secondary indexes, reduced, grouped by the shape of the reduced query, with a hint of the known issue |
 | `.github/workflows/campaign.yml` | A campaign over random databases on any server image, started by hand; candidates, triage and reduced scripts as an artifact |

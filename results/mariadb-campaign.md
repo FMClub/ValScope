@@ -117,7 +117,7 @@ convert, `DELETE` without `WHERE` forbidden (the reducer truncates); and a serve
 requires DDL. The six false alarms of OceanBase were nested `UNION`s: OceanBase and MySQL 9
 de-duplicate a `UNION` nested in another in the outer column's collation
 (`data/oceanbase/nested-union-collation.sql`), so a set kept `'a'` and `'A'`, which the checker
-then counted twice; under a collation a set's rows that it makes one now count once.
+then counted twice; in such a compound, a set's rows that the collation makes one now count once.
 The reproducers are in `data/oceanbase/` and `data/polardbx/`.
 
 The reproducers of `data/mariadb/` on MariaDB 13.0.2 (`sql.yml` with the directory): issues

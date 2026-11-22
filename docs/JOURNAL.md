@@ -593,8 +593,10 @@ the server, on MySQL 9 and on the local MariaDB, and recorded in `results/server
 the checker, not of the server: OceanBase and MySQL 9 de-duplicate a `UNION` nested in another
 in the outer column's (binary) collation, so the set keeps `'a'` and `'A'`; the checker folds
 with the coarsest collation of the arms and then counted that row twice against a result that
-kept one. Under a collation, a set's rows that it makes one now count once (verdict
-`collation`). The 84 recorded MariaDB pairs, the MariaDB demo (11642 / 4190 / 3492 / 3714 / 2735
+kept one. In such a compound (a column whose arms have more than one collation), a set's rows
+that the collation makes one now count once (verdict `collation`). The first version of the
+rule applied to every fold, and CI caught it: 48 of the 64 reduced SQLite pairs (SQLite 3.26.0
+UNIONs that lose `'A'` and keep `'a'`) were no longer violated. Narrowed, they replay 64 / 64. The 84 recorded MariaDB pairs, the MariaDB demo (11642 / 4190 / 3492 / 3714 / 2735
 checks, 21 violations, negative control 1181 / 1008) are unchanged; the rerun of OceanBase seeds
 1-40 lost exactly those six (`collation` 97 to 103). One real difference remains and is not
 counted: `(empty) UNION (SELECT DISTINCT v FROM s)` keeps both `'a'` and `'A'` on OceanBase, one

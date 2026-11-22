@@ -608,3 +608,48 @@ on MySQL; modulo the collation the two are the same set.
 2. About 45% of the generated queries fail on PolarDB-X (`Do not support RexSubQuery`,
    unsupported functions); a `--polardbx` generator option would test more of it.
 3. The trackers of OceanBase and PolarDB-X were not searched for 020-023.
+
+## Round 20 (2026-11-22)
+
+**Milestone: the TODO of round 19.**
+1. *Triage hints per server.* `scripts/triage_mysql.py` reads `VERSION()`, and `hint()` takes
+   only the issues found on that server family (`server_family()`: TiDB, OceanBase, PolarDB-X,
+   MariaDB, MySQL); without a server every hint is tried in the old order. `HINTS` is a table
+   of (issue, servers, look). The rerun of OceanBase seeds 131-170 hinted 14 of its 15 pairs
+   023 (four had been 013 / 009); with the hint of 023 widened (two aggregates of `x` besides
+   `COUNT(DISTINCT x)`, one of `x - k`), all 27 reduced OceanBase pairs are hinted 023. Hints
+   021, 022 and 024 were added for PolarDB-X. Triage no longer crashes when no pair is still
+   violated.
+2. *A generator for PolarDB-X.* PolarDB-X refuses what TiDB refuses, so `--tidb` serves; the
+   rest of its failures were optimizer exceptions on windows over the groups of a value query,
+   which `--no-group-window` leaves out (a side stream: only a second arm drawn among candidates
+   without a window can change). Refused queries: 45%, then 21% with `--tidb`, then 15%; checks
+   6107, then 14115, then 13522 (570 queries: one run lost its connection).
+3. *Upstream.* A web search with generic descriptions: no PolarDB-X report for 020-022 or 024;
+   OceanBase #1964 ("sum can give wrong results", confirmed) is a lead for 023, its body not read.
+
+**Findings.**
+- `issues/024` (PolarDB-X): the parentheses of a `UNION` on the right of a `UNION ALL` (or of a
+  `UNION ALL` on the right of a `UNION`) are dropped; the chain is read left-deep, so
+  `t UNION ALL (2 UNION 3)` loses the duplicates of `t`. Three pairs of the `--tidb` campaigns
+  (seeds 1, 3, 7).
+- The other new PolarDB-X pairs have the look of 021 (a correlated `IN` over
+  `(SELECT DISTINCT * FROM t)`) and were assigned by their hint, not reproduced one by one.
+
+**What the tool needed.**
+- Error messages were cut at 70 characters, before the cause of PolarDB-X's (behind
+  `ERR-CODE: [PXC-4501][ERR_OPTIMIZER] `): 120 characters, the prefix removed. A Java exception
+  of PolarDB-X is an internal error, printed with its first query.
+- Two seeds stopped on `decimal.InvalidOperation` (PolarDB-X sends text in a column it types
+  DECIMAL): an `ArithmeticError`, now caught like the other driver errors.
+- A false alarm (`AVG->MAX`, seed 3): 11/6 printed with 8 and with 4 decimals, the same values
+  as MariaDB (`data/polardbx/avg-derived-scale.sql`); PolarDB-X reports other scales than it
+  prints. The decimals of a DECIMAL are now taken from its values when both results have some.
+  Unchanged: the 84 recorded MariaDB pairs and the MariaDB demo.
+
+**TODO for round 21.**
+1. The pairs hinted 021 (seeds 1, 5, 8, 9 of the PolarDB-X campaigns with `--tidb`) were not
+   reproduced one by one; seed 1 has a row `IN`, a form the reproducer of 021 does not cover.
+2. PolarDB-X still refuses 15% of the queries (`Do not support RexSubQuery`: a subquery under a
+   `NOT` in a compound arm); and it once lost the connection during seed 10, not again.
+3. The bodies of the upstream reports (OceanBase #1964) were not read.

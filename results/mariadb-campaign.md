@@ -103,6 +103,8 @@ CI runs a small campaign (seeds 1-12, `--focus`) on MySQL 8.4 and 9 and on Maria
 | OceanBase CE 4.4.2.1 | seeds 131-170, `--rich --value-ext --no-set-all` | 73075 | 15 | `issues/023`: 15 (4 of them hinted 013 / 009 by triage, whose older hints come first) |
 | PolarDB-X 5.4.19 snapshot (`polardbx/polardb-x:latest`, port 8527), first run | seeds 1-10, `--focus --value-ext` | 4804 | 3 | `issues/020`: 3; 4 runs failed (no `WEIGHT_STRING`, a driver error: tool fixed) |
 | PolarDB-X 5.4.19 snapshot, after the fixes | seeds 1-10, `--focus --value-ext` | 6107 | 5 | `issues/020`: 3, `issues/021`: 1, `issues/022`: 1; 270 of 600 queries fail on the server |
+| PolarDB-X 5.4.19 snapshot (round 20) | seeds 1-10, `--focus --value-ext --tidb` | 14115 | 11 | `issues/024`: 3 (new), `issues/020`: 3, `issues/021`: 5 (by their hint); 126 of 600 queries fail |
+| PolarDB-X 5.4.19 snapshot (round 20) | seeds 1-10, `--focus --value-ext --tidb --no-group-window` | 13522 | 10 | `issues/021`: 5 (by their hint), `issues/024`: 3, `issues/020`: 2; 87 of 570 queries fail (one run lost its connection); one false alarm of the run before (DECIMAL scales) fixed |
 
 On TiDB the tool itself had to be corrected first (round 14 of `docs/JOURNAL.md`): TiDB reports
 `utf8mb4_bin` for every text column of a result (so text is now compared with the coarsest

@@ -55,4 +55,8 @@ issue.
 ## Limitations
 
 - One PolarDB-X image (`latest`, 5.4.19 snapshot), all-in-one container.
-- The PolarDB-X tracker was not searched.
+- Upstream (round 20, a web search with a generic description, not the tracker itself): no
+  matching report of PolarDB-X (`polardbx-sql`) was found. Similar defects of other engines:
+  MySQL bugs #111485 and #118016 (semi-join / DISTINCT subquery rewrites), #117911 and
+  #117959 (`INTERSECT` over outer joins), SPARK-25708 (`HAVING` without `GROUP BY` treated as
+  a plain filter).

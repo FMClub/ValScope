@@ -208,7 +208,8 @@ fixes of PR #1 are merged; the design problems below are still open.
    (OceanBase refuses `INTERSECT ALL` / `EXCEPT ALL`), no `WEIGHT_STRING` and untrusted result
    collations on PolarDB-X, request ids in its error messages, driver errors, `DELETE` without
    `WHERE` forbidden, and a server wait that requires DDL. Open: the trackers were not
-   searched; one release of each, in its all-in-one container; about 45% of the generated
+   searched directly (round 20: a web search found no PolarDB-X report and one OceanBase lead,
+   #1964); one release of each, in its all-in-one container; about 45% of the generated
    queries fail on PolarDB-X (an `AssertionError: Do not support RexSubQuery`, unsupported
    functions), so its coverage is smaller than elsewhere.
 1c. **MariaDB over random databases (round 8 of `docs/JOURNAL.md`).** `bridge/campaign_mysql.py`

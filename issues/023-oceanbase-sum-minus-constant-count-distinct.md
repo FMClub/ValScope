@@ -51,4 +51,7 @@ The campaign pairs (`data/oceanbase/campaign-pairs.sql`, V queries) show the sam
 - The variance and standard-deviation cases were not reduced as far as `SUM` and `AVG`; they are
   assigned here by their look (an aggregate of `x - k` beside aggregates of `x` and a
   `COUNT(DISTINCT x)`).
-- The OceanBase tracker was not searched.
+- Upstream (round 20, a web search with a generic description): OceanBase issue #1964
+  (`oceanbase/oceanbase`, May 2024, confirmed) says that `sum` can give wrong results; its body
+  was not read, so whether it is this defect is not known. A related rewrite in MySQL: bug
+  #119056 (`SUM(DISTINCT)` rewritten as `AVG(DISTINCT) * COUNT(DISTINCT)`).

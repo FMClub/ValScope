@@ -52,4 +52,8 @@ each arm alone is right, the mutant (the arm with `HAVING 1 = 0` inside the comp
   distributed deployment plans the same way is not known.
 - The campaign pairs could not be reduced automatically at first (`DELETE` without `WHERE` is
   forbidden; the reducer now truncates); the reproducer was written by hand from their arms.
-- The PolarDB-X tracker was not searched.
+- Upstream (round 20, a web search with a generic description, not the tracker itself): no
+  matching report of PolarDB-X (`polardbx-sql`) was found. Similar defects of other engines:
+  MySQL bugs #111485 and #118016 (semi-join / DISTINCT subquery rewrites), #117911 and
+  #117959 (`INTERSECT` over outer joins), SPARK-25708 (`HAVING` without `GROUP BY` treated as
+  a plain filter).

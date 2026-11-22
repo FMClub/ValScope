@@ -21,6 +21,14 @@ on:
         description: "Password of root (123456 is set for MySQL and MariaDB images; TiDB: none, type the word none)"
         required: false
         default: "123456"
+      user:
+        description: "User (root; OceanBase: root@test; PolarDB-X: polardbx_root)"
+        required: false
+        default: "root"
+      wait_minutes:
+        description: "How long the server may take to start"
+        required: false
+        default: "5"
 
 permissions:
   contents: read
@@ -36,6 +44,7 @@ jobs:
         env:
           MARIADB_ROOT_PASSWORD: "123456"
           MYSQL_ROOT_PASSWORD: "123456"
+          MODE: "mini"            # OceanBase CE: the small-memory deployment; ignored by the others
         ports: ["3306:${{ inputs.port }}"]
     steps:
       - uses: actions/checkout@v5
@@ -46,15 +55,18 @@ jobs:
       - name: Wait for the server
         env:
           PASSWORD: ${{ inputs.password != 'none' && inputs.password || '' }}
+          DBUSER: ${{ inputs.user }}
+          WAIT: ${{ inputs.wait_minutes }}
         run: |
-          for i in $(seq 1 60); do
-            if mysql -h127.0.0.1 -uroot --password="$PASSWORD" -N -e "SELECT VERSION()" 2> /dev/null; then exit 0; fi
+          for i in $(seq 1 $((WAIT * 12))); do
+            if mysql -h127.0.0.1 -u"$DBUSER" --password="$PASSWORD" -N -e "SELECT VERSION()" 2> /dev/null; then exit 0; fi
             sleep 5
           done
           echo "the server did not start" >&2; exit 1
       - name: Run the script
         env:
           PASSWORD: ${{ inputs.password != 'none' && inputs.password || '' }}
+          DBUSER: ${{ inputs.user }}
           SCRIPT: ${{ inputs.script }}
         run: |
           case "$SCRIPT" in *..*) echo "no .. in the path" >&2; exit 1 ;; esac
@@ -65,5 +77,5 @@ jobs:
           esac
           for f in $files; do
             echo "=== $f"
-            mysql -h127.0.0.1 -uroot --password="$PASSWORD" --force --skip-column-names --default-character-set=utf8mb4 < "$f" 2>&1 | grep -v "Using a password" || true
+            mysql -h127.0.0.1 -u"$DBUSER" --password="$PASSWORD" --force --skip-column-names --default-character-set=utf8mb4 < "$f" 2>&1 | grep -v "Using a password" || true
           done

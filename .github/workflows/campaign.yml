@@ -28,9 +28,17 @@ on:
         required: false
         default: "3306"
       password:
-        description: "Password of root (123456 is set for MySQL and MariaDB images; TiDB: none, type the word none)"
+        description: "Password (123456 is set for MySQL and MariaDB images; TiDB, OceanBase: none, type the word none; PolarDB-X: 123456)"
         required: false
         default: "123456"
+      user:
+        description: "User (root; OceanBase: root@test; PolarDB-X: polardbx_root)"
+        required: false
+        default: "root"
+      wait_minutes:
+        description: "How long the server may take to start (OceanBase and PolarDB-X take several minutes)"
+        required: false
+        default: "5"
 
 permissions:
   contents: read
@@ -46,6 +54,7 @@ jobs:
         env:
           MARIADB_ROOT_PASSWORD: "123456"
           MYSQL_ROOT_PASSWORD: "123456"
+          MODE: "mini"            # OceanBase CE: the small-memory deployment; ignored by the others
         ports: ["3306:${{ inputs.port }}"]
     steps:
       - uses: actions/checkout@v5
@@ -59,19 +68,23 @@ jobs:
       - name: Wait for the server
         env:
           PASSWORD: ${{ inputs.password != 'none' && inputs.password || '' }}
+          DBUSER: ${{ inputs.user }}
+          WAIT: ${{ inputs.wait_minutes }}
         run: |
-          for i in $(seq 1 60); do
-            if mysql -h127.0.0.1 -uroot --password="$PASSWORD" -N -e "SELECT VERSION()" 2> /dev/null; then exit 0; fi
+          for i in $(seq 1 $((WAIT * 12))); do
+            if mysql -h127.0.0.1 -u"$DBUSER" --password="$PASSWORD" -N -e "SELECT VERSION()" 2> /dev/null; then exit 0; fi
             sleep 5
           done
-          echo "the server did not start" >&2; exit 1
+          echo "the server did not start" >&2; docker ps -a; exit 1
       - name: What the bridge learns about the collations of result columns (a wrong one is a false alarm)
         env:
           PASSWORD: ${{ inputs.password != 'none' && inputs.password || '' }}
-        run: python3 scripts/probe_collations.py --port 3306 --password "$PASSWORD" || true
+          DBUSER: ${{ inputs.user }}
+        run: python3 scripts/probe_collations.py --port 3306 --user "$DBUSER" --password "$PASSWORD" || true
       - name: Campaign
         env:
           PASSWORD: ${{ inputs.password != 'none' && inputs.password || '' }}
+          DBUSER: ${{ inputs.user }}
           SEEDS: ${{ inputs.seeds }}
           QUERIES: ${{ inputs.queries }}
           OPTIONS: ${{ inputs.options }}
@@ -80,17 +93,18 @@ jobs:
           for o in $OPTIONS; do
             case "$o" in --focus|--rich|--value-ext|--no-value-distinct|--tidb) ;; *) echo "unknown option: $o" >&2; exit 1 ;; esac
           done
-          python3 bridge/campaign_mysql.py --seeds "$SEEDS" --queries "$QUERIES" $OPTIONS --password "$PASSWORD" --out campaign.jsonl | cut -c1-3000
+          python3 bridge/campaign_mysql.py --seeds "$SEEDS" --queries "$QUERIES" $OPTIONS --user "$DBUSER" --password "$PASSWORD" --out campaign.jsonl | cut -c1-3000
       - name: Triage
         env:
           PASSWORD: ${{ inputs.password != 'none' && inputs.password || '' }}
+          DBUSER: ${{ inputs.user }}
           IMAGE: ${{ inputs.image }}
           SEEDS: ${{ inputs.seeds }}
           OPTIONS: ${{ inputs.options }}
         run: |
           mkdir -p triage
           if [ -s campaign.jsonl ]; then
-            python3 scripts/triage_mysql.py campaign.jsonl --password "$PASSWORD" --out-dir triage --timeout 300
+            python3 scripts/triage_mysql.py campaign.jsonl --user "$DBUSER" --password "$PASSWORD" --out-dir triage --timeout 300
             for f in triage/pair-*.sql; do echo "=== $f"; cat "$f"; done | head -n 1500
             # the same campaign recorded before (results/server-campaigns.json): the same pairs?
             python3 scripts/compare_campaign.py triage/triage.jsonl --image "$IMAGE" --seeds "$SEEDS" --options "$OPTIONS" || true

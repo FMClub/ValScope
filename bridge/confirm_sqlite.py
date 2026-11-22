@@ -19,7 +19,7 @@ import tempfile
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gen_sqlite_db import build  # noqa: E402
 from sqlite_exec import SQLiteLib  # noqa: E402
-from checker import check_inclusion, check_value, sqlite_fold  # noqa: E402
+from checker import judge, sqlite_fold  # noqa: E402
 
 
 def recheck(rec, db, fallback):
@@ -31,11 +31,7 @@ def recheck(rec, db, fallback):
         return 'error: %s' % e, None, None
     # per result column where the library reports the collation, else the coarsest one
     fold = db.folds(base_collations, db.last_collations, fallback)
-    if rec['kind'] == 'value':
-        relation, _, column = rec['expect'].split()
-        return check_value(relation, int(column), base, res, fold=fold, cover=rec.get('distinct', False),
-                           strict_types=True), base, res
-    return check_inclusion(rec['expect'], base, res, fold), base, res
+    return judge(rec['expect'], base, res, fold=fold, cover=rec.get('distinct', False), strict_types=True), base, res
 
 
 def main():

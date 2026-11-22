@@ -18,7 +18,7 @@ import tempfile
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 sys.path.insert(0, os.path.join(ROOT, 'bridge'))
-from checker import check_inclusion, check_value, sqlite_fold  # noqa: E402
+from checker import judge, sqlite_fold  # noqa: E402
 from sqlite_exec import SQLiteLib  # noqa: E402
 
 
@@ -33,11 +33,7 @@ def verdict(lib, rec, path):
     coll = db.last_collations
     res = db.query(rec['mutant'])
     fold = db.folds(coll, db.last_collations, fallback)
-    if ' col ' in rec['expect']:
-        relation, _, column = rec['expect'].split()
-        return check_value(relation, int(column), base, res, fold=fold, cover=bool(rec.get('distinct')),
-                           strict_types=True)
-    return check_inclusion(rec['expect'], base, res, fold)
+    return judge(rec['expect'], base, res, fold=fold, cover=bool(rec.get('distinct')), strict_types=True)
 
 
 def main():

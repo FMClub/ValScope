@@ -37,7 +37,7 @@ import sqlglot
 from sqlglot import exp
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from checker import check_inclusion, check_value, sqlite_fold  # noqa: E402
+from checker import judge, sqlite_fold  # noqa: E402
 from gen_sqlite_db import build as build_db  # noqa: E402
 from run_on_db import sqlite_exact_columns, sqlite_schema  # noqa: E402
 from sql_bridge import mutate_sql, mutate_value  # noqa: E402
@@ -143,11 +143,8 @@ class Judge:
         except Exception:
             return None, None
         fold = db.folds(coll, db.last_collations, fallback)
-        if self.kind == 'value':
-            relation, column = relation
-            v = check_value(relation, column, base, res, fold=fold, cover=self.cover, strict_types=True)
-        else:
-            v = check_inclusion(self.expect if self.kind == 'set' else self.expect, base, res, fold)
+        label = '%s col %d' % relation if self.kind == 'value' else self.expect
+        v = judge(label, base, res, fold=fold, cover=self.cover, strict_types=True)
         if v == 'incomparable':
             return None, None
         return ('good' if v in ('ok', 'collation') else 'bad'), (base, res)

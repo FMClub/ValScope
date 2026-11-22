@@ -35,7 +35,7 @@ from gen_sqlite_db import build  # noqa: E402
 from sqlite_exec import SQLiteLib  # noqa: E402
 import sql_bridge  # noqa: E402
 from sql_bridge import mutate_sql, mutate_value, Unsupported  # noqa: E402
-from checker import check_inclusion, check_value, sqlite_fold  # noqa: E402
+from checker import check_inclusion, judge, sqlite_fold  # noqa: E402
 from run_on_db import sqlite_exact_columns, sqlite_schema  # noqa: E402
 
 ERRORS = collections.Counter()
@@ -58,13 +58,9 @@ def same_rows(a, b):
 def verdict_for(kind, mutant, base, res, fold=None, cover=False):
     """Check one mutant. kind is 'set', 'value' or 'having'.  cover: the value query is
     under DISTINCT (or a UNION), the check is a cover (VDistinct.v)."""
-    if kind == 'value':
-        relation, rule, column, _ = mutant
-        # (the numeric probe passed: a non-number on one side only is a violation)
-        return (check_value(relation, column, base, res, fold=fold, cover=cover, strict_types=True),
-                '%s col %d' % (relation, column))
-    direction = mutant[0]
-    return check_inclusion(direction, base, res, fold), direction
+    label = '%s col %d' % (mutant[0], mutant[2]) if kind == 'value' else mutant[0]
+    # (the numeric probe passed: a non-number on one side only is a violation)
+    return judge(label, base, res, fold=fold, cover=cover, strict_types=True), label
 
 
 # ---------------------------------------------------------------- coverage guidance

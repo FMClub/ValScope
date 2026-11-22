@@ -418,6 +418,15 @@ def _key(row, column, fold, digits):
     return tuple(_norm(v, f, digits) for i, (v, f) in enumerate(zip(row, folds)) if i != column)
 
 
+def judge(expect, base, res, fold=None, cover=False, strict_types=False):
+    """The verdict for a recorded relation: 'Up' / 'Down' (set inclusion) or 'REL col N' (a
+    value relation on column N), as the runners write it in their records."""
+    if ' col ' in expect:
+        relation, _, column = expect.split()
+        return check_value(relation, int(column), base, res, fold=fold, cover=cover, strict_types=strict_types)
+    return check_inclusion(expect, base, res, fold)
+
+
 def check_value(relation, column, original_rows, mutant_rows, single_precision=False, fold=None, cover=False,
                 strict_types=False, output_decimals=None):
     """'ok', 'incomparable' (the mutated column is not numeric in one of the results)

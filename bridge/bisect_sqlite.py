@@ -38,7 +38,7 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from checker import check_inclusion, check_value, sqlite_fold  # noqa: E402
+from checker import judge as judge_relation, sqlite_fold  # noqa: E402
 from gen_sqlite_db import build as build_db  # noqa: E402
 import sqlite_exec  # noqa: E402
 from sqlite_exec import SQLiteLib  # noqa: E402
@@ -107,11 +107,7 @@ def verdict(builder, sha, rec, tmp):
     except Exception:
         return 'skip'
     fold = db.folds(base_coll, db.last_collations, fallback)
-    if rec['kind'] == 'value':
-        relation, _, column = rec['expect'].split()
-        v = check_value(relation, int(column), base, res, fold=fold, cover=rec.get('distinct', False), strict_types=True)
-    else:
-        v = check_inclusion(rec['expect'], base, res, fold)
+    v = judge_relation(rec['expect'], base, res, fold=fold, cover=rec.get('distinct', False), strict_types=True)
     if v in ('ok', 'collation'):
         return 'good'
     if v == 'incomparable':

@@ -21,12 +21,12 @@ SELECT 'A7 (3 0) (NULL 1) (4 1): EXISTS, on (SELECT DISTINCT * FROM t)' AS q;
 SELECT t.a, EXISTS (SELECT s.b FROM (SELECT DISTINCT * FROM t) AS s WHERE t.b <= 10) FROM t ORDER BY t.rid;
 -- B: an EXCEPT whose right arm is empty
 CREATE TABLE l (k0 INT, k1 INT, rid INT PRIMARY KEY);
-INSERT INTO l VALUES (3, NULL, 0), (NULL, NULL, 1), (9, NULL, 2), (4, 7, 3);
+INSERT INTO l VALUES (3, NULL, 0), (NULL, NULL, 1), (9, NULL, 2), (4, 7, 3), (1, NULL, 4), (2, NULL, 5);
 CREATE TABLE r (x INT, y INT, rid INT PRIMARY KEY);
 INSERT INTO r VALUES (5, 6, 0);
 SELECT 'B1 none: the right arm alone' AS q;
 SELECT a.a AS k0, b.a AS k1 FROM (SELECT DISTINCT * FROM t) AS a LEFT JOIN t AS b ON (0) WHERE (b.a, b.b) IN (SELECT r.x, r.y FROM r);
-SELECT 'B2 (3 NULL) (NULL NULL) (9 NULL) (4 7): EXCEPT, arm on t' AS q;
+SELECT 'B2 (3 NULL) (NULL NULL) (9 NULL) (4 7) (1 NULL) (2 NULL): EXCEPT, arm on t' AS q;
 (SELECT l.k0, l.k1 FROM l) EXCEPT (SELECT a.a AS k0, b.a AS k1 FROM t AS a LEFT JOIN t AS b ON (0) WHERE (b.a, b.b) IN (SELECT r.x, r.y FROM r));
 SELECT 'B3 the same: EXCEPT, arm on (SELECT DISTINCT * FROM t)' AS q;
 (SELECT l.k0, l.k1 FROM l) EXCEPT (SELECT a.a AS k0, b.a AS k1 FROM (SELECT DISTINCT * FROM t) AS a LEFT JOIN t AS b ON (0) WHERE (b.a, b.b) IN (SELECT r.x, r.y FROM r));
@@ -40,4 +40,23 @@ SELECT 'B7 as B2: EXCEPT, arm on (SELECT DISTINCT * FROM t) without the join' AS
 (SELECT l.k0, l.k1 FROM l) EXCEPT (SELECT a.a AS k0, NULL AS k1 FROM (SELECT DISTINCT * FROM t) AS a WHERE (a.a, a.b) IN (SELECT r.x, r.y FROM r));
 SELECT 'B8 as B2: EXCEPT, arm on (SELECT DISTINCT * FROM t), b.a = 5 for the IN' AS q;
 (SELECT l.k0, l.k1 FROM l) EXCEPT (SELECT a.a AS k0, b.a AS k1 FROM (SELECT DISTINCT * FROM t) AS a LEFT JOIN t AS b ON (0) WHERE b.a = 5);
+-- B again with a table without a key and with a duplicate row (as t1 of seed 7): a DISTINCT that is not a no-op
+CREATE TABLE u (a DECIMAL(10,2), b DECIMAL(10,2));
+INSERT INTO u VALUES (1, 5), (1, 5), (2, 2), (NULL, 0);
+SELECT 'B9 none: the right arm alone, on (SELECT DISTINCT * FROM u)' AS q;
+SELECT a.a AS k0, b.a AS k1 FROM (SELECT DISTINCT * FROM u) AS a LEFT JOIN u AS b ON (0) WHERE (b.a, b.b) IN (SELECT r.x, r.y FROM r);
+SELECT 'B10 (3 NULL) (NULL NULL) (9 NULL) (4 7) (1 NULL) (2 NULL): EXCEPT, arm on u' AS q;
+(SELECT l.k0, l.k1 FROM l) EXCEPT (SELECT a.a AS k0, b.a AS k1 FROM u AS a LEFT JOIN u AS b ON (0) WHERE (b.a, b.b) IN (SELECT r.x, r.y FROM r));
+SELECT 'B11 the same: EXCEPT, arm on (SELECT DISTINCT * FROM u)' AS q;
+(SELECT l.k0, l.k1 FROM l) EXCEPT (SELECT a.a AS k0, b.a AS k1 FROM (SELECT DISTINCT * FROM u) AS a LEFT JOIN u AS b ON (0) WHERE (b.a, b.b) IN (SELECT r.x, r.y FROM r));
+SELECT 'B12 none: INTERSECT, arm on (SELECT DISTINCT * FROM u)' AS q;
+(SELECT l.k0, l.k1 FROM l) INTERSECT (SELECT a.a AS k0, b.a AS k1 FROM (SELECT DISTINCT * FROM u) AS a LEFT JOIN u AS b ON (0) WHERE (b.a, b.b) IN (SELECT r.x, r.y FROM r));
+SELECT 'B13 none: INTERSECT, one column IN, arm on (SELECT DISTINCT * FROM u)' AS q;
+(SELECT l.k0, l.k1 FROM l) INTERSECT (SELECT a.a AS k0, b.a AS k1 FROM (SELECT DISTINCT * FROM u) AS a LEFT JOIN u AS b ON (0) WHERE b.a IN (SELECT r.x FROM r));
+SELECT 'B14 none: INTERSECT, arm on (SELECT DISTINCT * FROM u) with an INNER JOIN ON 0' AS q;
+(SELECT l.k0, l.k1 FROM l) INTERSECT (SELECT a.a AS k0, b.a AS k1 FROM (SELECT DISTINCT * FROM u) AS a INNER JOIN u AS b ON (0) WHERE b.a IN (SELECT r.x FROM r));
+SELECT 'B15 (1 NULL): INTERSECT, arm on (SELECT DISTINCT * FROM u) without the join' AS q;
+(SELECT l.k0, l.k1 FROM l) INTERSECT (SELECT a.a AS k0, NULL AS k1 FROM (SELECT DISTINCT * FROM u) AS a WHERE a.b IN (SELECT r.x FROM r));
+SELECT 'B16 none: INTERSECT, arm on (SELECT DISTINCT * FROM u) LEFT JOIN u ON 1 = 1' AS q;
+(SELECT l.k0, l.k1 FROM l) INTERSECT (SELECT a.a AS k0, b.a AS k1 FROM (SELECT DISTINCT * FROM u) AS a LEFT JOIN u AS b ON (1 = 1) WHERE b.a IN (SELECT r.x FROM r));
 USE information_schema; DROP DATABASE vs_dd;

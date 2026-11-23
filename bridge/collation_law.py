@@ -600,3 +600,58 @@ def aggregates_over_integers(tr, sql):
                for n in agg.walk()):
             return False            # an expression under the aggregate: arithmetic can leave the integers
     return True
+
+
+_FRAGMENT = (exp.Select, exp.From, exp.Join, exp.Where, exp.Having, exp.Group, exp.Subquery, exp.Table,
+             exp.TableAlias, exp.Identifier, exp.Column, exp.Star, exp.Alias, exp.Literal, exp.Paren,
+             exp.And, exp.Or, exp.Not, exp.EQ, exp.NEQ, exp.LT, exp.LTE, exp.GT, exp.GTE, exp.Is, exp.Null,
+             exp.Boolean, exp.Add, exp.Sub, exp.Mul, exp.Neg, exp.Union, exp.Intersect, exp.Except,
+             exp.Distinct, exp.Count, exp.Min, exp.Max, exp.Sum, exp.In, exp.Exists, exp.With, exp.CTE)
+
+
+def integer_fragment(tr, sql):
+    """Is `sql` a query of the fragment on which a rule proved for a class of worlds is
+    judged?  True when the database gave no list of its integer tables (a test without a
+    server).
+
+    Such a rule rests on laws of the class that a server does not satisfy for every value:
+    equivalent rows (those DISTINCT and the set operations identify) give a condition one
+    truth value and a select item equivalent values, and MIN, MAX and SUM read exact
+    numbers.  They hold when equivalent rows are the same row and every value is an
+    integer or NULL.  The fragment: every table read is a base table of the database all of
+    whose columns are visible integers (or a derived table or CTE made of such), and the
+    query is built from columns, integer literals, NULL, TRUE and FALSE, comparisons, IS
+    [NOT] NULL, AND, OR, NOT, +, - and *, IN and EXISTS with a sub-query, joins with ON,
+    WHERE, GROUP BY, HAVING, DISTINCT, the set operations, and COUNT, MIN, MAX and SUM.
+    Nothing else: no string, decimal or float literal, no function, cast, division, CASE,
+    LIKE, ORDER BY or LIMIT, no table function, no table of another database."""
+    tables = getattr(getattr(tr, 'exact_columns', None), 'integer_tables', None)
+    if tables is None:
+        return True
+    everything = getattr(tr.exact_columns, 'all_tables', set())
+    try:
+        tree = sqlglot.parse_one(sql, read=tr.dialect)
+    except Exception:
+        return False
+    local = set()
+    for n in tree.find_all(exp.CTE, exp.Subquery):
+        if n.alias:
+            if n.alias.lower() in everything or n.alias.lower() in local and isinstance(n, exp.CTE):
+                return False       # a CTE named as a table, whatever the case: which is read?
+            local.add(n.alias.lower())
+    for n in tree.walk():
+        if type(n) not in _FRAGMENT:
+            return False
+        if isinstance(n, exp.Literal) and not (n.is_int and not n.is_string):
+            return False
+        if isinstance(n, exp.Join) and (n.args.get('using') or n.args.get('method')):
+            return False
+        if isinstance(n, exp.Table):
+            if n.args.get('db') or n.args.get('catalog') or not isinstance(n.this, exp.Identifier):
+                return False
+            if n.name not in tables and not (n.name.lower() in local and n.name.lower() not in everything):
+                return False
+        if isinstance(n, exp.Select) and any(n.args.get(k) for k in ('order', 'limit', 'offset', 'windows',
+                                                                     'qualify', 'locks', 'hint', 'into')):
+            return False
+    return True

@@ -66,7 +66,7 @@ DEFAULT_CLI = os.environ.get('VALSCOPE_MUTATE') or os.path.join(HERE, '..', 'cli
 
 from common import Unsupported, parse_sexp, _strip_parens
 from collation_law import (ExactColumns, _alias_sources, _column_class, _exact_names, compared_selections,
-                           aggregates_over_integers,
+                           aggregates_over_integers, integer_fragment,
                            outside_collation_law)
 from determinism import _check_deterministic, _window_undetermined
 from printer import Printer, join_arms_out
@@ -1286,9 +1286,13 @@ def mutate_sql(sql, cli=DEFAULT_CLI, dialect='mysql', schema=None, exact_columns
     mutants, skipped, seen = [], 0, set()
     class_rules = _class_rules(cli)
     compared = compared_selections(tr, tr.term) if class_rules else None
+    in_fragment = integer_fragment(tr, sql) if class_rules else True
     for direction, rule, term in _run_cli(tr.term, cli):
         if changes_compound_collation(tr, tr.term, term):
             STATS['outside_model'] += 1
+            continue
+        if rule in class_rules and not in_fragment:
+            STATS['outside_fragment'] += 1  # see integer_fragment
             continue
         if rule in class_rules and compared_selections(tr, term) != compared:
             STATS['outside_model'] += 1     # see compared_selections

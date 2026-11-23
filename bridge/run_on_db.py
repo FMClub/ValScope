@@ -111,6 +111,25 @@ class MySQLTarget:
                     for key in [k for k in by_table if k[0] == low]:
                         del by_table[key]
 
+        # base tables all of whose columns are visible integers, with a name no other table
+        # has in another case: on them two equivalent rows are the same row
+        # (collation_law.integer_fragment)
+        with self.conn.cursor() as cur:
+            cur.execute('SELECT c.TABLE_NAME, c.DATA_TYPE, c.EXTRA, t.TABLE_TYPE FROM information_schema.COLUMNS c '
+                        'JOIN information_schema.TABLES t ON t.TABLE_SCHEMA = c.TABLE_SCHEMA '
+                        'AND t.TABLE_NAME = c.TABLE_NAME WHERE c.TABLE_SCHEMA = %s', (args.database,))
+            good, bad, spellings = set(), set(), {}
+            for t, ty, extra, kind in cur.fetchall():
+                t, ty, extra, kind = (x.decode() if isinstance(x, bytes) else x for x in (t, ty, extra, kind))
+                spellings.setdefault(t.lower(), set()).add(t)
+                if kind == 'BASE TABLE' and 'INVISIBLE' not in (extra or '').upper() and \
+                        ty.lower() in ('tinyint', 'smallint', 'mediumint', 'int', 'integer', 'bigint'):
+                    good.add(t)
+                else:
+                    bad.add(t)
+            self.exact.integer_tables = {t for t in good - bad if len(spellings[t.lower()]) == 1}
+            self.exact.all_tables = {low for low in spellings}
+
     def folds(self, collations_a, collations_b):
         return self.columns.folds(collations_a, collations_b)
 
@@ -751,11 +770,11 @@ def main():
                     relation = FLIP_VALUE[relation]
                 cover = bool(trs) and trs[0].cover_for(text)
                 if rule in sql_bridge._class_rules(sql_bridge.DEFAULT_CLI) and \
-                        (cover or not sql_bridge.aggregates_over_integers(trs[0] if trs else None, original)):
+                        (cover or not sql_bridge.integer_fragment(trs[0] if trs else None, sql)):
                     # under DISTINCT or UNION the rows no longer correspond one to one, and
                     # the theorems for that (VDistinct.v, VSet.v) are about the rules of
-                    # the registry; a rule of a class of worlds has none.  And its theorem reads
-                    # MIN, MAX and SUM on exact numbers: integer columns here
+                    # the registry; a rule of a class of worlds has none.  And a rule of a
+                    # class is judged on the integer fragment only (collation_law.integer_fragment)
                     st['class_rule_not_judged'] += 1
                     continue
                 label = '%s col %d' % (relation, column)
@@ -795,6 +814,8 @@ def main():
     # mutants that apply a collation-sensitive operation above a de-duplication
     if sql_bridge.STATS['outside_model']:
         st['mutants_outside_model'] = sql_bridge.STATS['outside_model']
+    if sql_bridge.STATS['outside_fragment']:
+        st['class_mutants_outside_fragment'] = sql_bridge.STATS['outside_fragment']
     print(dict(st))
     print('ok checks per rule:', dict(by_rule))
     if ERRORS:

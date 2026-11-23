@@ -1023,6 +1023,26 @@ report(aggregates_over_integers(tr, "SELECT MIN(a), COUNT(c) FROM t")
        and not aggregates_over_integers(tr, "SELECT MIN(c) FROM t")
        and not aggregates_over_integers(tr, "SELECT SUM(a + 1) FROM t"),
        'MIN, MAX and SUM of a class rule are judged on integer columns only')
+from collation_law import integer_fragment  # noqa: E402
+ec = ExactColumns({'a': 'integer'})
+ec.integer_tables, ec.all_tables = {'p', 'q'}, {'p', 'q', 't', 'm'}
+tr = Translation("SELECT a FROM p", 'mysql', kind='set', schema={'p': ['a', 'b'], 'q': ['a', 'b'], 't': ['a', 'c']},
+                 exact_columns=ec)
+inside = ["SELECT DISTINCT p.a, p.b + 1 FROM p JOIN q ON p.a = q.a OR p.b < 3 WHERE p.a IS NOT NULL",
+          "SELECT a FROM p WHERE a IN (SELECT a FROM q INTERSECT SELECT b FROM p)",
+          "SELECT b, COUNT(a), MIN(a), SUM(a * 2) FROM p GROUP BY b HAVING COUNT(a) > 1",
+          "WITH d AS (SELECT a FROM p UNION ALL SELECT b FROM q) SELECT DISTINCT a FROM d",
+          "SELECT x.a FROM (SELECT DISTINCT * FROM p) AS x WHERE x.a = -1"]
+outside = ["SELECT a FROM t", "SELECT a FROM P", "SELECT a FROM p WHERE a = '1'", "SELECT a + 0.5 FROM p",
+           "SELECT HEX(a) FROM p", "SELECT a / 2 FROM p", "SELECT CAST(a AS CHAR) FROM p",
+           "SELECT a FROM p ORDER BY a LIMIT 1", "SELECT a FROM other.p", "SELECT 'x' FROM p",
+           "SELECT a FROM JSON_TABLE('[1]', '$[*]' COLUMNS (a INT PATH '$')) AS p",
+           "WITH T AS (SELECT a FROM p) SELECT a FROM T", "SELECT CASE WHEN a = 1 THEN 1 ELSE 2 END FROM p",
+           "SELECT a FROM p UNION ALL SELECT c FROM t", "SELECT MIN(c) FROM t"]
+report(all(integer_fragment(tr, q) for q in inside), 'the integer fragment: ' +
+       '; '.join(q for q in inside if not integer_fragment(tr, q)))
+report(not any(integer_fragment(tr, q) for q in outside), 'outside the integer fragment: ' +
+       '; '.join(q for q in outside if integer_fragment(tr, q)))
 # a select list and a WHERE over a UNION ALL of joins are printed inside the arms
 from printer import join_arms_out  # noqa: E402
 tr = Translation("SELECT t.a FROM t JOIN u ON t.a < u.b OR u.a = 1 WHERE t.b > 1", 'mysql', kind='set')

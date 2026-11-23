@@ -523,7 +523,7 @@ class Translation(Printer):
             pat = self._pattern(node.expression)
             if pat is not None and _regex_in_fragment(pat):
                 return '(Regex %s%s)' % (self._expr(node.this), ' ' + pat.encode().hex() if pat else '')
-        if isinstance(node, exp.Exists) and isinstance(node.this, exp.Select):
+        if isinstance(node, exp.Exists) and isinstance(node.this, (exp.Select, exp.Union, exp.Intersect, exp.Except)):
             snap = self._snapshot()
             try:
                 return '(Exists %s)' % self._query(node.this)

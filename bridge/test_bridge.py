@@ -1091,12 +1091,16 @@ refused = ["SELECT a FROM p WHERE a = b < 1", "SELECT a FROM p WHERE a < b = b >
            "SELECT a, b FROM p WHERE a = 2 /*! OR 1 = 1 */", "SELECT a FROM p WHERE a BETWEEN b AND c NOT IN (0, 1)",
            "SELECT a FROM p WHERE a NOT BETWEEN 0 AND b LIKE c", "SELECT ! a COLLATE utf8mb4_bin FROM p",
            "SELECT a FROM p WHERE INTERVAL a DAY + '2020-01-01' > '2020-01-02'",
-           "SELECT REGEXP_LIKE(s, 'a', 'c') FROM t", "WITH T1 AS (SELECT a FROM p) SELECT a FROM t1"]
+           "SELECT REGEXP_LIKE(s, 'a', 'c') FROM t", "WITH T1 AS (SELECT a FROM p) SELECT a FROM t1",
+           "SELECT a FROM t WHERE REGEXP_LIKE(s, 'A', 'c') = 1", "SELECT a FROM p WHERE MOD(a, 3) ^ 2 = 0",
+           "SELECT a FROM p WHERE NOT a BETWEEN 0 AND 1 SOUNDS LIKE b", "SELECT a FROM p WHERE !! a"]
 kept = ["SELECT a FROM p WHERE NOT a = b", "SELECT a FROM p WHERE a = b IS NULL", "SELECT a FROM p WHERE (a = b) < 1",
         "SELECT a FROM p WHERE a = (b < 1)", "SELECT a FROM p WHERE a < b = b", "SELECT a FROM p WHERE NOT a IN (1, 2)",
         "SELECT a FROM p WHERE a NOT IN (1, 2) AND b = 1", "SELECT NOT a = b FROM p",
         "SELECT a FROM p WHERE a = b IN (c, 1)", "SELECT a FROM p WHERE a IN (1, NOT b)",
-        "SELECT a FROM p WHERE a BETWEEN 1 AND 2", "WITH T1 AS (SELECT a FROM p) SELECT a FROM T1"]
+        "SELECT a FROM p WHERE a BETWEEN 1 AND 2", "WITH T1 AS (SELECT a FROM p) SELECT a FROM T1",
+        "SELECT a FROM p WHERE a BETWEEN 1 AND 2 AND b = 1", "SELECT a FROM p WHERE MOD(a, 3) * 2 = 0",
+        "SELECT a FROM p WHERE NOT a BETWEEN 1 AND 2 OR b = 1"]
 
 
 def translates(q):

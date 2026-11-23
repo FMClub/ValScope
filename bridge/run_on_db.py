@@ -237,6 +237,10 @@ class MySQLTarget:
         times, JSON; a bare NULL goes with any): the result is of one of them, usually a
         string, and a condition above compares it as that ('2' > '10'), also when the
         string operand is a select item NULL that went through a DISTINCT or UNION.
+        The same for two types of dates and times (the result of DATE and DATETIME is a
+        DATETIME, and `EXCEPT->left` would compare it with the DATE of the operand), for
+        FLOAT with DOUBLE (an approximate with an exact one, above, covers FLOAT with the
+        integers; FLOAT with DOUBLE widens 1.1 to 1.100000023841858) and for BIT.
         An operand that cannot be probed alone (a correlated one; one that fails for any
         other reason) counts as a mix, so that outside the integer fragment no rule,
         ValScope's own included, reports a violation on such a query; unless
@@ -304,10 +308,16 @@ class MySQLTarget:
                 return True
             for a, b in zip(left, right):
                 exact = self.NUMERIC_CODES - self.APPROXIMATE_CODES - {16}
+                if {a, b} == self.APPROXIMATE_CODES:
+                    return True
                 if (a in exact and b in self.APPROXIMATE_CODES) or (b in exact and a in self.APPROXIMATE_CODES):
                     return True
                 if 6 not in (a, b) and self._family(a) != self._family(b):
                     return True
+                if 6 not in (a, b) and a != b and self._family(a) == 'time':
+                    return True     # a DATE with a DATETIME: the result is a DATETIME, the operand alone a DATE
+                if 16 in (a, b):
+                    return True     # BIT columns of two lengths come back as bytes of two lengths
         return False
 
     def _compound_collations(self, sql, names):

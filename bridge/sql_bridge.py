@@ -134,12 +134,16 @@ def _check_read_as_written(tree, sql, dialect):
       parentheses, which the parser adds itself).
     - The upper bound of BETWEEN is a predicate to MySQL: in `a BETWEEN b AND c NOT IN (0, 1)`
       the IN belongs to `c`.  The parser gives it the whole BETWEEN, so a BETWEEN that is the
-      left operand of IN, LIKE, REGEXP or BETWEEN is refused.
+      left operand of anything but AND, OR and XOR is refused (IN, LIKE, REGEXP, BETWEEN,
+      MEMBER OF, SOUNDS LIKE, a function).
     - `a NOT IN (1, 2) < b` is printed back as `NOT a IN (1, 2) < b`, which MySQL reads as
       `NOT (a IN (1, 2) < b)`: a NOT that is an operand of an operator is refused.
     - `INTERVAL e unit + x ...`: MySQL takes all that follows the `+` as the operand.
     - COLLATE binds tighter than any operator: `! a COLLATE c` is `!(a COLLATE c)`.
-    - REGEXP_LIKE with a match type is printed as REGEXP, without it, in a select item.
+    - REGEXP_LIKE with a match type is printed as REGEXP, without it.
+    - MOD(x, y) is printed as `x % y`, without parentheses under `^` or a unary operator.
+    - `!!x`: MySQL 8.4.13 reads the two as one `!` (a defect of the server, reported once
+      in the README and not with every query that has it).
     - A LIMIT on a parenthesised query, and the joins nested after a derived table
       (`t JOIN (SELECT ...) AS d JOIN u ON ... ON ...`), would be dropped.
     - A versioned comment or a hint is run by the server and is a comment to the parser
@@ -148,6 +152,8 @@ def _check_read_as_written(tree, sql, dialect):
         return
     if '/*!' in sql or '/*+' in sql:
         raise Unsupported('a versioned comment or a hint')
+    if '!!' in sql:
+        raise Unsupported('!! (MySQL 8.4.13 reads it as one !)')
     for n in tree.walk():
         if isinstance(n, _SAME_LEVEL):
             right = n.expression
@@ -160,7 +166,9 @@ def _check_read_as_written(tree, sql, dialect):
             top = n         # the parser wraps a NOT BETWEEN in NOT and parentheses of its own
             while isinstance(top.parent, (exp.Not, exp.Paren)):
                 top = top.parent
-            if top.arg_key == 'this' and isinstance(top.parent, (exp.In, exp.Like, exp.RegexpLike, exp.Between)):
+            if top.arg_key == 'this' and not isinstance(top.parent, exp.Connector) and \
+                    isinstance(top.parent, (exp.Binary, exp.Func, exp.In, exp.Between, exp.Predicate)):
+                # IN, LIKE, REGEXP, BETWEEN, MEMBER OF, SOUNDS LIKE (a SOUNDEX to the parser), ...
                 raise Unsupported('a predicate after the upper bound of BETWEEN')
         if isinstance(n, exp.Not) and not isinstance(n.parent, exp.Connector) and (
                 isinstance(n.parent, exp.Binary) or
@@ -175,11 +183,9 @@ def _check_read_as_written(tree, sql, dialect):
             if isinstance(operand, (exp.Not, exp.Binary, exp.Neg)):
                 raise Unsupported('COLLATE after an operator')
         if isinstance(n, exp.RegexpLike) and n.args.get('flag') is not None:
-            item = n
-            while item.parent is not None and not isinstance(item.parent, exp.Select):
-                item = item.parent
-            if item.parent is not None and item.arg_key == 'expressions':
-                raise Unsupported('REGEXP_LIKE with a match type as a select item')
+            raise Unsupported('REGEXP_LIKE with a match type')
+        if isinstance(n, exp.Mod) and isinstance(n.parent, (exp.BitwiseXor, exp.BitwiseNot, exp.Neg)):
+            raise Unsupported('MOD under an operator that binds tighter than %')
         if isinstance(n, (exp.Subquery, exp.Paren)):
             if n.args.get('limit') or n.args.get('offset') or (n.args.get('order') and n is not tree):
                 raise Unsupported('LIMIT or ORDER BY on a parenthesised query')

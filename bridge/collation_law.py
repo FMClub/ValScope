@@ -688,7 +688,7 @@ def integer_fragment(tr, sql):
             while isinstance(user, exp.Paren):
                 user = user.parent
             if not isinstance(user, (exp.Is, exp.EQ, exp.NEQ, exp.LT, exp.LTE, exp.GT, exp.GTE, exp.In, exp.Not,
-                                     exp.And, exp.Or, exp.Where, exp.Having)):
+                                     exp.And, exp.Or, exp.Where, exp.Having, exp.Join)):
                 # a select item NULL, MAX(NULL), SUM(NULL): a string or DOUBLE column to MySQL (see the docstring)
                 return False
         if isinstance(n, exp.Literal) and not (n.is_int and not n.is_string and len(n.name.lstrip('0')) <= 18):

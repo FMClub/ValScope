@@ -1287,14 +1287,18 @@ def mutate_sql(sql, cli=DEFAULT_CLI, dialect='mysql', schema=None, exact_columns
     class_rules = _class_rules(cli)
     compared = compared_selections(tr, tr.term) if class_rules else None
     in_fragment = integer_fragment(tr, sql) if class_rules else True
+    fragment_known = getattr(exact_columns, 'integer_tables', None) is not None
     for direction, rule, term in _run_cli(tr.term, cli):
-        if changes_compound_collation(tr, tr.term, term):
-            STATS['outside_model'] += 1
-            continue
         if rule in class_rules and not in_fragment:
             STATS['outside_fragment'] += 1  # see integer_fragment
             continue
-        if rule in class_rules and compared_selections(tr, term) != compared:
+        # on the integer fragment every column is an integer and equivalent rows are the same
+        # row: the two checks below, about collations and conditions on strings, have no object
+        on_fragment = fragment_known and rule in class_rules
+        if not on_fragment and changes_compound_collation(tr, tr.term, term):
+            STATS['outside_model'] += 1
+            continue
+        if rule in class_rules and not on_fragment and compared_selections(tr, term) != compared:
             STATS['outside_model'] += 1     # see compared_selections
             continue
         try:

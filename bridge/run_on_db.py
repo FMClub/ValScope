@@ -196,6 +196,7 @@ class MySQLTarget:
         return got == ['utf8mb4_general_ci', 'utf8mb4_bin']
 
     NUMERIC_CODES = {0, 1, 2, 3, 4, 5, 8, 9, 13, 16, 246}     # pymysql FIELD_TYPE: integers, DECIMAL, FLOAT, DOUBLE, YEAR, BIT
+    STRING_CODES = {15, 249, 250, 251, 252, 253, 254}           # VARCHAR, the BLOBs and TEXTs, VAR_STRING, STRING
     APPROXIMATE_CODES = {4, 5}                                  # FLOAT, DOUBLE
 
     def _renamed(self, prefix, arm, tail):
@@ -223,6 +224,9 @@ class MySQLTarget:
         a query is outside every one of them.  The same holds for an operand with an ENUM,
         SET or ZEROFILL column, which the result of a set operation has as a plain string
         or number (an ENUM compares with a number by its index, the string by its digits).
+        And for a column that is a number in one operand and a string in the other: the
+        result is a string, and a condition above compares it as one ('2' > '10'), also when
+        the string operand is a select item NULL that went through a DISTINCT or UNION.
         An operand that cannot be probed alone (a correlated one; one that fails for any
         other reason) counts as a mix, so that outside the integer fragment no rule,
         ValScope's own included, reports a violation on such a query; unless
@@ -291,6 +295,8 @@ class MySQLTarget:
             for a, b in zip(left, right):
                 exact = self.NUMERIC_CODES - self.APPROXIMATE_CODES - {16}
                 if (a in exact and b in self.APPROXIMATE_CODES) or (b in exact and a in self.APPROXIMATE_CODES):
+                    return True
+                if (a in self.NUMERIC_CODES and b in self.STRING_CODES) or (b in self.NUMERIC_CODES and a in self.STRING_CODES):
                     return True
         return False
 

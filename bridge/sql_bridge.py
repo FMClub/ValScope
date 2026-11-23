@@ -1114,11 +1114,19 @@ def _named_columns(tr, t):
                 walk(y)
             return
         if x[0] == 'Named':
-            out.append((x[1], naming(x[2])))
+            out.append(repr((tr.named[int(x[1])].lower(), naming(x[2]))))
         for y in x[1:]:
             walk(y)
     walk(t)
-    return {repr(x) for x in out}
+    return [x for i, x in enumerate(out) if i == 0 or out[i - 1] != x]      # repeats collapsed
+
+
+def _keeps_names(mutant, original):
+    """Are the named sub-queries of the mutant, in order, among those of the original in
+    the same order?  A rule may drop or repeat a derived table; one that moves a name to
+    another place can put it where an outer query uses the same alias."""
+    rest = iter(original)
+    return all(any(x == y for y in rest) for x in mutant)
 
 
 def _arm_sets(tr, t):
@@ -1325,7 +1333,7 @@ def mutate_sql(sql, cli=DEFAULT_CLI, dialect='mysql', schema=None, exact_columns
     fragment_known = getattr(exact_columns, 'integer_tables', None) is not None
     named = _named_columns(tr, parse_sexp(tr.term))
     for direction, rule, term in _run_cli(tr.term, cli):
-        if not _named_columns(tr, parse_sexp(term)) <= named:
+        if not _keeps_names(_named_columns(tr, parse_sexp(term)), named):
             STATS['outside_model'] += 1     # a derived table would get other column names
             continue
         if rule in class_rules and not in_fragment:
@@ -1392,7 +1400,7 @@ def mutate_value(sql, cli=DEFAULT_CLI, dialect='mysql', translation=None, schema
     mutants, having_mutants, skipped = [], [], 0
     named = _named_columns(tr, parse_sexp(tr.term))
     for fields in _run_cli(tr.term, cli):
-        if not _named_columns(tr, parse_sexp(fields[-1])) <= named:
+        if not _keeps_names(_named_columns(tr, parse_sexp(fields[-1])), named):
             STATS['outside_model'] += 1     # a derived table would get other column names
             continue
         try:

@@ -208,6 +208,16 @@ _, mutants, _ = mutate_sql("SELECT a.x FROM a INTERSECT SELECT b.y FROM b")
 report(any(r == 'INTERSECT->operand' and m == 'SELECT b.y FROM b' for _, r, m in mutants),
        'INTERSECT->operand at the top: the right arm is allowed')
 
+# the columns of a derived table are named by the leftmost arm of its set operation, and
+# the outer query refers to them by name: an arm with other names may not replace it
+_, mutants, _ = mutate_sql("SELECT DISTINCT b FROM ((SELECT a, b FROM t) INTERSECT (SELECT b, a FROM u)) AS d")
+report(not any('FROM (SELECT b, a FROM u) AS d' in m for _, _, m in mutants) and
+       any(r == 'INTERSECT->operand' and 'FROM (SELECT a, b FROM t) AS d' in m for _, r, m in mutants),
+       'INTERSECT->operand in a derived table: an arm with other column names does not replace it')
+_, mutants, _ = mutate_sql("SELECT DISTINCT b FROM ((SELECT a, b FROM t) INTERSECT (SELECT a, b FROM u)) AS d")
+report(any(r == 'INTERSECT->operand' and 'FROM (SELECT a, b FROM u) AS d' in m for _, r, m in mutants),
+       'INTERSECT->operand in a derived table: an arm with the same select list replaces it')
+
 # MySQL / MariaDB derive a compound's collation from all its arms: removing an arm inside
 # an enclosing set operation is outside the model (EXCEPT->left below a UNION)
 _, mutants, _ = mutate_sql("(SELECT a.x FROM a EXCEPT SELECT b.y FROM b) UNION SELECT c.z FROM c")

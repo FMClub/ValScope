@@ -622,12 +622,12 @@ def integer_fragment(tr, sql):
     whose columns are visible integers (or a derived table or CTE made of such), and the
     query is built from columns, integer literals within BIGINT, NULL, TRUE and FALSE,
     comparisons, IS [NOT] NULL / TRUE / FALSE, AND, OR, NOT, IN and EXISTS, sub-queries,
-    inner and cross joins, WHERE, GROUP BY, HAVING, DISTINCT, the set operations, and COUNT,
+    inner, cross and left joins, WHERE, GROUP BY, HAVING, DISTINCT, the set operations, and COUNT,
     MIN, MAX and SUM.  Nothing else: no arithmetic (MySQL computes integers beyond BIGINT as
     DECIMAL and saturates them at 65 digits when a row goes through a temporary table, so
     `a + N` has one value under DISTINCT and another without), no unsigned column (it
     becomes a DECIMAL beside a signed one), no string, decimal or float literal, no
-    function, cast, CASE, LIKE, outer join, ORDER BY or LIMIT, no table function, no table
+    function, cast, CASE, LIKE, right or full join, ORDER BY or LIMIT, no table function, no table
     of another database.  And no IN whose sub-query has, at any depth, a set operation other
     than UNION ALL: MySQL 8.4.13 answers `5 IN (SELECT a FROM q INTERSECT SELECT a FROM e)`
     with NULL when `e` is empty and the same sub-query in a derived table with 0, also when
@@ -657,7 +657,8 @@ def integer_fragment(tr, sql):
             return False
         if isinstance(n, exp.Neg) and not isinstance(n.this, exp.Literal):
             return False
-        if isinstance(n, exp.Join) and (n.args.get('using') or n.args.get('method') or n.args.get('side')):
+        if isinstance(n, exp.Join) and (n.args.get('using') or n.args.get('method')
+                                        or str(n.args.get('side') or '').upper() not in ('', 'LEFT')):
             return False
         if isinstance(n, exp.In) and n.args.get('query') is not None:
             for op in n.args['query'].find_all(exp.Union, exp.Intersect, exp.Except):

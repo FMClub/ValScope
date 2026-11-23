@@ -1118,15 +1118,30 @@ def _named_columns(tr, t):
         for y in x[1:]:
             walk(y)
     walk(t)
-    return [x for i, x in enumerate(out) if i == 0 or out[i - 1] != x]      # repeats collapsed
+    return out
 
 
-def _keeps_names(mutant, original):
-    """Are the named sub-queries of the mutant, in order, among those of the original in
-    the same order?  A rule may drop or repeat a derived table; one that moves a name to
-    another place can put it where an outer query uses the same alias."""
-    rest = iter(original)
-    return all(any(x == y for y in rest) for x in mutant)
+def _alias_clash(sql, dialect):
+    """Does the query give one name to two things: two aliases, or an alias and a table
+    read without one?  Only then can a reference qualified by a name bind to something
+    else when a rule moves or drops the derived table of that name."""
+    try:
+        tree = sqlglot.parse_one(sql, read=dialect)
+    except Exception:
+        return True
+    names = [n.alias_or_name.lower() for n in tree.find_all(exp.Table, exp.Subquery, exp.CTE) if n.alias_or_name]
+    return len(names) != len(set(names))
+
+
+def _keeps_names(mutant, original, clash):
+    """May the mutant be printed, as far as the names of its derived tables go?  Each one
+    it has must be one of the original's, with the same naming select list.  When the
+    query uses a name twice the mutant must have exactly the original's, in order: a rule
+    that drops, repeats or moves one could leave a qualified reference to bind to the
+    other thing of that name.  With all names distinct such a reference can only fail."""
+    if clash:
+        return mutant == original
+    return set(mutant) <= set(original)
 
 
 def _arm_sets(tr, t):
@@ -1331,9 +1346,9 @@ def mutate_sql(sql, cli=DEFAULT_CLI, dialect='mysql', schema=None, exact_columns
     # the query as written and as it is run (re-printed, its CTEs inlined) must both be of the fragment
     in_fragment = (integer_fragment(tr, sql) and integer_fragment(tr, original)) if class_rules else True
     fragment_known = getattr(exact_columns, 'integer_tables', None) is not None
-    named = _named_columns(tr, parse_sexp(tr.term))
+    named, clash = _named_columns(tr, parse_sexp(tr.term)), _alias_clash(sql, dialect)
     for direction, rule, term in _run_cli(tr.term, cli):
-        if not _keeps_names(_named_columns(tr, parse_sexp(term)), named):
+        if not _keeps_names(_named_columns(tr, parse_sexp(term)), named, clash):
             STATS['outside_model'] += 1     # a derived table would get other column names
             continue
         if rule in class_rules and not in_fragment:
@@ -1398,9 +1413,9 @@ def mutate_value(sql, cli=DEFAULT_CLI, dialect='mysql', translation=None, schema
     if original is None:
         raise Unsupported('the re-printed query does not parse back to its term')
     mutants, having_mutants, skipped = [], [], 0
-    named = _named_columns(tr, parse_sexp(tr.term))
+    named, clash = _named_columns(tr, parse_sexp(tr.term)), _alias_clash(sql, dialect)
     for fields in _run_cli(tr.term, cli):
-        if not _keeps_names(_named_columns(tr, parse_sexp(fields[-1])), named):
+        if not _keeps_names(_named_columns(tr, parse_sexp(fields[-1])), named, clash):
             STATS['outside_model'] += 1     # a derived table would get other column names
             continue
         try:

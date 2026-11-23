@@ -1016,6 +1016,18 @@ ec = ExactColumns({'a': 'integer'})
 ec.invisible_tables = {'t'}
 tr = Translation("SELECT DISTINCT a FROM t WHERE a = 12", 'mysql', kind='set', exact_columns=ec)
 report(len(compared_selections(tr, parse_sexp(tr.term))) == 1, 'a table with an invisible column: SELECT * is not the row')
+# a select list and a WHERE over a UNION ALL of joins are printed inside the arms
+from printer import join_arms_out  # noqa: E402
+tr = Translation("SELECT t.a FROM t JOIN u ON t.a < u.b OR u.a = 1 WHERE t.b > 1", 'mysql', kind='set')
+(_, items, (_, cond, (_, (_, left, right), ta, tb))) = parse_sexp(tr.term)
+split = ['Proj', items, ['Where', cond, ['UnionAll', ['Inner', left, ta, tb], ['Inner', right, ta, tb]]]]
+text = tr.to_sql(split)
+report(text == '(SELECT t.a FROM t INNER JOIN u ON t.a < u.b WHERE t.b > 1) UNION ALL '
+               '(SELECT t.a FROM t INNER JOIN u ON u.a = 1 WHERE t.b > 1)'
+       and not changes_compound_collation(tr, parse_sexp(tr.term), split),
+       'UNION ALL of two joins of the same tables under a select list: ' + text)
+report(join_arms_out(['Proj', items, ['Union', ['Inner', left, ta, tb], ['Inner', right, ta, tb]]])[0] == 'Proj',
+       'a select list is not moved into the arms of a UNION')
 for hidden in ("t.c = -'12'", "t.c = (-(-'12'))", "t.c + 0 = '12'", "CAST(t.c AS SIGNED) = '12'", "NULLIF(t.c, 12) IS NULL",
                "(CASE WHEN t.c = 12 THEN 'x' ELSE 'y' END) = 'x'", "CONVERT(t.c USING binary) = 'a'",
                "t.c = _binary 'a'"):

@@ -68,7 +68,7 @@ from common import Unsupported, parse_sexp, _strip_parens
 from collation_law import (ExactColumns, _alias_sources, _column_class, _exact_names, compared_selections,
                            outside_collation_law)
 from determinism import _check_deterministic, _window_undetermined
-from printer import Printer
+from printer import Printer, join_arms_out
 
 # the public names of the bridge (some are defined in the modules above)
 __all__ = ['DEFAULT_CLI', 'ExactColumns', 'STATS', 'Translation', 'Unsupported', 'canonical', 'mutate_sql',
@@ -1032,7 +1032,8 @@ def _roundtrip_ok(tr, term, sql, kind):  # noqa: C901
         return False
     if getattr(back, 'value_mask', None) != getattr(tr, 'value_mask', None):
         return False
-    return canonical(tr, tree) == canonical(back, back.lift(parse_sexp(back.term)))
+    # a select list or WHERE over a UNION ALL of joins is printed inside the arms (printer.join_arms_out)
+    return canonical(tr, join_arms_out(tree)) == canonical(back, join_arms_out(back.lift(parse_sexp(back.term))))
 
 
 SET_TAGS = ('Union', 'UnionAll', 'Intersect', 'Except', 'IntersectAll', 'ExceptAll')
@@ -1066,11 +1067,23 @@ def _leftmost_arms(tr, t):
                 walk(y)
             return
         if x[0] in SET_TAGS:
-            out.add(canonical(tr, leftmost(x)))
+            arm = leftmost(x)
+            out.add(_join_source(tr, arm) or canonical(tr, arm))
         for y in x[1:]:
             walk(y)
     walk(t)
     return out
+
+
+def _join_source(tr, x):
+    """An inner join of tables, without its ON conditions: `SELECT *` over it has the
+    columns of the tables whatever the conditions are.  None for anything else."""
+    if isinstance(x, list) and x and x[0] == 'T':
+        return canonical(tr, x)
+    if isinstance(x, list) and x and x[0] == 'Inner':
+        a, b = _join_source(tr, x[2]), _join_source(tr, x[3])
+        return None if a is None or b is None else ('Join', a, b)
+    return None
 
 
 def _arm_sets(tr, t):
@@ -1088,7 +1101,7 @@ def _arm_sets(tr, t):
             elif x[0] == 'Proj':
                 return canonical(tr, ['Items'] + list(x[1]))
             else:
-                return canonical(tr, x)
+                return _join_source(tr, x) or canonical(tr, x)
         return canonical(tr, x)
 
     def leaves(x, acc):
@@ -1117,8 +1130,9 @@ def _arm_sets(tr, t):
 
 
 def _one_table_compounds(tr, t):
-    """The tables (canonical) such that some maximal tree of set operations in t has for
-    arms that table alone, or DISTINCT and WHERE over it."""
+    """The tables (canonical), or inner joins of tables without their conditions, such that
+    some maximal tree of set operations in t has for arms that source alone, or DISTINCT
+    and WHERE over it."""
     out = set()
 
     def leaves(x, acc):
@@ -1130,7 +1144,7 @@ def _one_table_compounds(tr, t):
             x = x[1]
         if isinstance(x, list) and x and x[0] == 'Where':
             x = x[2]
-        acc.append(canonical(tr, x) if isinstance(x, list) and x and x[0] == 'T' else None)
+        acc.append(_join_source(tr, x))
 
     def walk(x, inside):
         if not isinstance(x, list) or not x:

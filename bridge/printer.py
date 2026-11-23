@@ -8,6 +8,41 @@ from common import CMP_SQL, SET_SQL, Unsupported, _quote, parse_sexp
 from collation_law import _cached_parse
 
 
+def _joins_only(t):
+    """A UNION ALL whose arms are inner joins."""
+    if isinstance(t, list) and t and t[0] == 'UnionAll':
+        return _joins_only(t[1]) and _joins_only(t[2])
+    return isinstance(t, list) and bool(t) and t[0] == 'Inner'
+
+
+def join_arms_out(t):
+    """`t` with a select list or a WHERE over a UNION ALL of inner joins moved into the arms.
+
+    The rows of a join have no SQL as a derived table (two columns can have one name, and
+    the select list names them through the tables), so `SELECT items FROM (j1 UNION ALL j2)
+    WHERE c` is printed as `SELECT items FROM j1 WHERE c UNION ALL SELECT items FROM j2
+    WHERE c`: the same bag of rows, a projection and a filter being made row by row."""
+    if not isinstance(t, list) or not t:
+        return t
+    if isinstance(t[0], list):
+        return [join_arms_out(x) for x in t]
+    t = [t[0]] + [join_arms_out(x) for x in t[1:]]
+    if t[0] in ('Proj', 'Where') and len(t) == 3 and isinstance(t[2], list) and t[2] and t[2][0] == 'UnionAll' \
+            and (_joins_only(t[2]) or all(isinstance(a, list) and a and a[0] in ('Proj', 'Where', 'UnionAll')
+                                           for a in t[2][1:])
+                 and _pushed(t[2])):
+        return ['UnionAll'] + [join_arms_out([t[0], t[1], arm]) for arm in t[2][1:]]
+    return t
+
+
+def _pushed(t):
+    """A UNION ALL whose arms are WHEREs (already moved in) over inner joins."""
+    if isinstance(t, list) and t and t[0] == 'UnionAll':
+        return _pushed(t[1]) and _pushed(t[2])
+    return isinstance(t, list) and bool(t) and t[0] == 'Where' and isinstance(t[2], list) and bool(t[2]) \
+        and t[2][0] == 'Inner'
+
+
 class Printer:
     """Mixin of sql_bridge.Translation: it reads the tables of atoms filled by the parser
     (self.exprs, self.preds, self.tables, ...)."""
@@ -99,7 +134,7 @@ class Printer:
 
     def to_sql(self, term):
         tree = parse_sexp(term) if isinstance(term, str) else term
-        tree = self.lift(tree)
+        tree = join_arms_out(self.lift(tree))
         if tree[0] in ('SInter', 'SExcept'):
             self._arm = 0
             return self._st_sql(tree)

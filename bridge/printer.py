@@ -333,7 +333,42 @@ class Printer:
                 if where:
                     sql += ' WHERE ' + where
                 return '(%s) AS %s' % (sql, alias)
+        if tag in SET_SQL and self.dialect != 'sqlite':
+            # a set operation whose arms all read one table (`t WHERE c1 UNION ALL t WHERE
+            # c2`): a derived table that keeps the table's alias, as above
+            alias = self._one_table_alias(f)
+            if alias is not None:
+                return '(%s) AS %s' % (self._one_table_arms(f), alias)
         raise Unsupported('%s in FROM position' % tag)
+
+    def _one_table_alias(self, f):
+        """The alias of the table T i when every arm of the set operations of f is T i
+        itself, or DISTINCT and WHERE over it; None otherwise."""
+        tables = set()
+
+        def arm(x):
+            if x[0] in SET_SQL:
+                return arm(x[1]) and arm(x[2])
+            if x[0] == 'Distinct':
+                x = x[1]
+            if x[0] == 'Where':
+                x = x[2]
+            if x[0] != 'T':
+                return False
+            tables.add(int(x[1]))
+            return True
+        return self.aliases[next(iter(tables))] if arm(f) and len(tables) == 1 else None
+
+    def _one_table_arms(self, f):
+        if f[0] in SET_SQL:
+            return '(%s) %s (%s)' % (self._one_table_arms(f[1]), SET_SQL[f[0]], self._one_table_arms(f[2]))
+        distinct, where = False, None
+        if f[0] == 'Distinct':
+            distinct, f = True, f[1]
+        if f[0] == 'Where':
+            where, f = self._p_sql(f[1]), f[2]
+        sql = 'SELECT %s* FROM %s' % ('DISTINCT ' if distinct else '', self._from_sql(f))
+        return sql + (' WHERE ' + where if where else '')
 
     def _q_sql(self, q):
         tag = q[0]

@@ -388,6 +388,37 @@ class Translation(Printer):
             term = '(Where %s %s)' % (self._pred(node.args['where'].this), term)
         return term
 
+    def _parse_one_table_arms(self, node, alias):
+        """(term, width) of a set operation whose arms are all `SELECT [DISTINCT] * FROM X AS
+        alias [WHERE p]` over one source X; None if it is anything else."""
+        node = self._unwrap(node)
+        if isinstance(node, (exp.Union, exp.Intersect, exp.Except)):
+            if any(node.args.get(key) for key in ('limit', 'offset', 'with_', 'with', 'order')):
+                return None
+            distinct = node.args.get('distinct')
+            if isinstance(node, exp.Union):
+                tag = 'Union' if distinct else 'UnionAll'
+            else:
+                tag = ('Intersect' if isinstance(node, exp.Intersect) else 'Except') + ('' if distinct else 'All')
+            left, right = self._parse_one_table_arms(node.this, alias), self._parse_one_table_arms(node.expression, alias)
+            if left is None or right is None or left[1] != right[1] or left[2] != right[2]:
+                return None
+            return '(%s %s %s)' % (tag, left[0], right[0]), left[1], left[2]
+        if not isinstance(node, exp.Select):
+            return None
+        src = node.args.get('from_') or node.args.get('from')
+        if src is None or not self._star_only(node) or not self._bare(node, allowed=('where',)) \
+                or src.this.alias_or_name != alias or isinstance(src.this, exp.Subquery) \
+                or (isinstance(node.args.get('distinct'), exp.Distinct) and node.args['distinct'].args.get('on')):
+            return None
+        source = self._text(src.this)
+        term, width = self._table(src.this)
+        if node.args.get('where') is not None:
+            term = '(Where %s %s)' % (self._pred(node.args['where'].this), term)
+        if node.args.get('distinct'):
+            term = '(Distinct %s)' % term
+        return term, width, source
+
     def _table(self, node):
         """A FROM item: (term, number of columns in the encoding)."""
         body, alias = None, None
@@ -410,6 +441,18 @@ class Translation(Printer):
                 if body.args.get('distinct'):
                     term = '(Distinct %s)' % term
                 return term, width
+            if isinstance(self._unwrap(body), (exp.Union, exp.Intersect, exp.Except)):
+                # ((SELECT * FROM X AS a WHERE p) UNION ALL (SELECT * FROM X AS a WHERE q)) AS a:
+                # a set operation whose arms all read the one table X, under its name (the
+                # printer writes a set operation in a FROM position this way)
+                snap = self._snapshot()
+                try:
+                    arms = self._parse_one_table_arms(body, alias)
+                except Unsupported:
+                    arms = None
+                if arms is not None:
+                    return arms[0], arms[1]
+                self._restore(snap)
             width = self._column_count(body)
             if width is not None:
                 snap = self._snapshot()
@@ -1057,16 +1100,23 @@ def _arm_sets(tr, t):
 
 def changes_compound_collation(tr, original, mutant):
     """Does the mutant give a set operation a leftmost arm that no set operation of the
-    original has?  Then the collation that set operation compares with can change (the
+    original has (MySQL / MariaDB: arms of several select lists that no set operation of
+    the original has)?  Then the collation that set operation compares with can change (the
     left arm's column may be NOCASE where the old one was BINARY), which the model, with
     one collation equivalence for the whole database, does not describe."""
     o_t = parse_sexp(original) if isinstance(original, str) else original
     m_t = parse_sexp(mutant) if isinstance(mutant, str) else mutant
-    if _leftmost_arms(tr, m_t) - _leftmost_arms(tr, o_t):
-        return True                     # SQLite: the leftmost arm decides
-    if tr.dialect != 'sqlite' and _arm_sets(tr, m_t) - _arm_sets(tr, o_t):
-        return True                     # MySQL / MariaDB: all arms decide
-    return False
+    new_leftmost = _leftmost_arms(tr, m_t) - _leftmost_arms(tr, o_t)
+    if tr.dialect == 'sqlite':
+        return bool(new_leftmost)       # SQLite: the leftmost arm decides
+    # MySQL / MariaDB: all arms decide.  A set operation all of whose arms have one select
+    # list (`t WHERE c1 UNION ALL t WHERE c2`) derives for each column the collation that
+    # the select list alone has, so it changes nothing, new as it may be.
+    arm_sets = _arm_sets(tr, m_t)
+    if any(len(arms) > 1 for arms in arm_sets - _arm_sets(tr, o_t)):
+        return True
+    uniform = {next(iter(arms)) for arms in arm_sets if len(arms) == 1}
+    return bool(new_leftmost - uniform)
 
 
 def sqlite_collation_sources(sql):

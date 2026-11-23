@@ -956,5 +956,28 @@ report(REQUEST_ID.sub('', '[1a2b][10.0.0.1:8527][vs] Unknown column') == 'Unknow
        and ERR_CODE.sub('', 'ERR-CODE: [PXC-4500][ERR_PARSER] EXCEPT ALL') == '[PXC-4500][ERR_PARSER] EXCEPT ALL',
        'PolarDB-X request ids and ERR-CODE prefixes removed from errors')
 
+# a set operation in a FROM position whose arms all read one table: printed as a derived
+# table under the table's name, parsed back to the same term, and no change of collation
+from sql_bridge import changes_compound_collation, parse_sexp  # noqa: E402
+tr = Translation("SELECT t.a FROM t WHERE t.a < 1 OR t.b = 2", 'mysql', kind='set')
+tree = parse_sexp(tr.term)
+report(tree[0] == 'Proj' and tree[2][0] == 'Where' and tree[2][1][0] == 'Or', 'a WHERE with OR under a projection')
+items, (_, (_, left, right), table) = tree[1], tree[2]
+split = ['Proj', items, ['UnionAll', ['Where', left, table], ['Where', right, table]]]
+text = tr.to_sql(split)
+report(text == 'SELECT t.a FROM ((SELECT * FROM t WHERE t.a < 1) UNION ALL (SELECT * FROM t WHERE t.b = 2)) AS t',
+       'UNION ALL of two WHEREs over one table in FROM: a derived table with its name: %s' % text)
+back = Translation(text, 'mysql', kind='set')
+report('(UnionAll (Where' in back.term and 'Named' not in back.term, 'and parsed back as the set operation: %s' % back.term)
+report(sql_bridge._roundtrip_ok(tr, split, text, 'set'), 'the printed mutant parses back to its term')
+report(not changes_compound_collation(tr, tree, split), 'arms with one select list: the collations are those of the list')
+report(changes_compound_collation(tr, tree, ['Proj', items, ['UnionAll', ['Where', left, table], ['Proj', items, table]]]),
+       'arms with two select lists: outside the model')
+try:
+    Translation("SELECT t.a FROM t", 'sqlite', kind='set').to_sql(['Proj', [['EAtom', '0']], ['UnionAll', ['T', '0', '1'], ['T', '0', '1']]])
+    report(False, 'SQLite: a set operation in FROM is not printed')
+except Unsupported:
+    report(True, 'SQLite: a set operation in FROM is not printed')
+
 print('%d failures' % failures)
 sys.exit(1 if failures else 0)

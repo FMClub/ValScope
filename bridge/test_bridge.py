@@ -1069,7 +1069,7 @@ swapped = ('(UnionAll (Proj ((EAtom 7)) (Where (Cmp eq (EAtom 5) (EAtom 6)) (Nam
 report(swapped != tr.term and _keeps_names(_named_columns(tr, parse_sexp(swapped)), named0)
        and not _same_names(tr, swapped, named0, free0),
        'a mutant whose condition names a derived table it is not over is not printed')
-report(_same_names(tr, tr.term, named0, free0) and all(d == 0 for _, _, s in free0 for _, d, _, _ in s),
+report(_same_names(tr, tr.term, named0, free0) and all(len(c) == 1 for _, _, c in free0),
        'the names of the original bind in its own FROM clauses (%r)' % sorted(free0, key=repr))
 tr = Translation("SELECT 1 FROM (SELECT a FROM q) AS d WHERE EXISTS (SELECT 1 FROM n WHERE d.a = 7) UNION ALL "
                  "SELECT 1 FROM (SELECT a FROM w) AS e WHERE a = 77", 'mysql', kind='set')
@@ -1089,6 +1089,13 @@ swapped = unparse(['UnionAll', over(arms[2], 0), over(arms[1], 1)])
 report(not _same_names(tr, swapped, _named_columns(tr, arms), _free_names(tr, arms))
        and _same_names(tr, tr.term, _named_columns(tr, arms), _free_names(tr, arms)),
        'nor one whose sub-query names a derived table that is now further out')
+tr = Translation("SELECT d.a FROM (SELECT a, b FROM q) AS d WHERE d.a = 2 EXCEPT ALL "
+                 "SELECT d.a FROM (SELECT b, a FROM w2) AS d WHERE d.b = 100", 'mysql', kind='set')
+arms = parse_sexp(tr.term)
+moved = unparse(['UnionAll', arms[1], arms[1][:2] + [arms[1][2][:2] + [arms[2][2][2]]]])
+report(_keeps_names(_named_columns(tr, parse_sexp(moved)), _named_columns(tr, arms))
+       and not _same_names(tr, moved, _named_columns(tr, arms), _free_names(tr, arms)),
+       'nor one whose condition is over a derived table of the same name and other columns')
 tr = Translation("SELECT t.a FROM t JOIN u ON t.a < u.b OR u.a = 1 WHERE t.b > 1", 'mysql', kind='set')
 split = '(UnionAll %s %s)' % (tr.term, tr.term)
 report(_free_names(tr, parse_sexp('(Proj ((EAtom 6)) (Where (Cmp gt (EAtom 4) (EAtom 5)) (UnionAll '

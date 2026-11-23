@@ -1087,6 +1087,20 @@ def _join_source(tr, x):
     return None
 
 
+def _naming(tr, x):
+    """The select list that names the columns of the query x: the one of its leftmost arm."""
+    while isinstance(x, list) and x:
+        if x[0] in SET_TAGS or x[0] == 'Distinct':
+            x = x[1]
+        elif x[0] in ('Where', 'Named'):
+            x = x[2]
+        elif x[0] == 'Proj':
+            return canonical(tr, ['Items'] + [e for e in x[1]])
+        else:
+            return _join_source(tr, x) or canonical(tr, x)
+    return canonical(tr, x)
+
+
 def _named_columns(tr, t):
     """The named sub-queries of t (derived tables and CTE bodies) in the order of the term,
     each as the text of (its name as written, the select list that names its columns: the
@@ -1094,18 +1108,6 @@ def _named_columns(tr, t):
     in their texts, so a mutant that gives a derived table other column names is not the
     SQL of its term (an unqualified name could then even bind to an outer table)."""
     out = []
-
-    def naming(x):
-        while isinstance(x, list) and x:
-            if x[0] in SET_TAGS or x[0] == 'Distinct':
-                x = x[1]
-            elif x[0] in ('Where', 'Named'):
-                x = x[2]
-            elif x[0] == 'Proj':
-                return canonical(tr, ['Items'] + [e for e in x[1]])
-            else:
-                return _join_source(tr, x) or canonical(tr, x)
-        return canonical(tr, x)
 
     def walk(x):
         if not isinstance(x, list) or not x:
@@ -1115,7 +1117,7 @@ def _named_columns(tr, t):
                 walk(y)
             return
         if x[0] == 'Named':
-            out.append(repr((tr.named[int(x[1])], naming(x[2]))))
+            out.append(repr((tr.named[int(x[1])], _naming(tr, x[2]))))
         for y in x[1:]:
             walk(y)
     walk(t)
@@ -1131,7 +1133,7 @@ def _keeps_names(mutant, original):
     another place of the sequence, can leave a name to bind to something else: an outer
     table of that name, or a column of an outer table.  Names are compared as written:
     MySQL can keep `X` and `x` apart.  The sequence does not say which conditions sit over
-    which name: that is _free_names."""
+    which derived table: see _free_names."""
     if not original:
         return not mutant
     n = len(original)
@@ -1143,20 +1145,21 @@ _QUERY_TAGS = SET_TAGS + ('Proj', 'Where', 'Inner', 'Left', 'Distinct', 'T', 'Na
 
 
 def _free_names(tr, t):
-    """For every condition and expression atom of t: what each table name that qualifies
-    a column in its text is bound by.  A set of (kind of atom, its number, the set of
-    (name, how many queries out it is bound: 0 for the FROM clause of the atom's own
-    query, None if by no query of t; a base table or a derived table; which base table)).
+    """For every condition and expression atom of t: the FROM clauses that bind the names
+    in its text, innermost first (that of the atom's own query, then those of the queries
+    around it).  A set of (kind of atom, its number, those FROM clauses), a FROM clause
+    being the set of (name; a base table or a derived table; which base table, or the
+    select list that names the columns of the derived table).
 
     In the model an atom is a function of the row of the query it sits in.  Its text says
-    the same only while the names in it are bound where they were in the original query:
-    a rule that puts the condition `e.a = 9` over a derived table of another name leaves
-    `e` to an outer table, and one that puts `EXISTS (SELECT 1 FROM n WHERE d.a = 7)`
-    there leaves `d` to a table two queries out instead of one.  So a mutant is printed
-    only if _free_names of it is included in that of the original.  This compares a
-    mutant with its original; it is not a proof that the text of a mutant means its term
-    (it does not look at unqualified columns: for those see _keeps_names, nor into opaque
-    queries and items)."""
+    the same only while the names in it mean what they meant in the original query.  A
+    rule that puts the condition `e.a = 9` over a derived table of another name leaves
+    `e` to an outer table; one that puts `EXISTS (SELECT 1 FROM n WHERE d.a = 7)` there
+    leaves `d` to a table two queries out instead of one; one that puts `a = 2` over a
+    derived table of the same name whose select list is `b, a` and not `a, b` reads
+    another position of the row.  So a mutant is printed only if _free_names of it is
+    included in that of the original.  This compares a mutant with its original: it is
+    a necessary condition, not a proof that the text of a mutant means its term."""
     out = set()
 
     def is_query(x):
@@ -1167,7 +1170,7 @@ def _free_names(tr, t):
         if x[0] == 'T':
             return {tr.aliases[int(x[1])]: ('T', repr(canonical(tr, x)))}
         if x[0] == 'Named':
-            return {tr.named[int(x[1])]: ('Named', '')}
+            return {tr.named[int(x[1])]: ('Named', repr(_naming(tr, x[2])))}
         if x[0] in ('Inner', 'Left', 'Where', 'Distinct'):
             names = {}
             for y in x[1:]:
@@ -1179,12 +1182,6 @@ def _free_names(tr, t):
             return {n: v for n, v in a.items() if b.get(n) == v}
         return {}
 
-    def binder(name, chain):
-        for depth, scope in enumerate(chain):
-            if name in scope:
-                return (name, depth) + scope[name]
-        return (name, None, '', '')
-
     def walk(x, chain):
         """chain: the FROM clauses that bind the names at x, innermost first."""
         if not isinstance(x, list) or not x:
@@ -1194,9 +1191,7 @@ def _free_names(tr, t):
                 walk(y, chain)
             return
         if x[0] in ('Atom', 'EAtom'):
-            tree = _cached_parse(None, (tr.preds if x[0] == 'Atom' else tr.exprs)[int(x[1])], tr.dialect)
-            names = {'?'} if tree is None else {c.table for c in tree.find_all(exp.Column) if c.table}
-            out.add((x[0], int(x[1]), frozenset(binder(n, chain) for n in names)))
+            out.add((x[0], int(x[1]), chain))
             return
         inner = chain
         if is_query(x):
@@ -1204,11 +1199,11 @@ def _free_names(tr, t):
             for y in x[1:]:
                 if is_query(y):
                     own.update(bound(y))
-            inner = [own] + chain
+            inner = (frozenset(own.items()),) + chain
         for y in x[1:]:
             # a query in a FROM position is bound as x is; one in a condition also by x
             walk(y, chain if is_query(x) and is_query(y) else inner)
-    walk(t, [])
+    walk(t, ())
     return out
 
 

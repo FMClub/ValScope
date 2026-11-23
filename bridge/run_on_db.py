@@ -732,6 +732,12 @@ def main():
                         continue
                     relation = FLIP_VALUE[relation]
                 cover = bool(trs) and trs[0].cover_for(text)
+                if cover and rule in sql_bridge._class_rules(sql_bridge.DEFAULT_CLI):
+                    # under DISTINCT or UNION the rows no longer correspond one to one, and
+                    # the theorems for that (VDistinct.v, VSet.v) are about the rules of
+                    # the registry; a rule of a class of worlds has none
+                    st['class_rule_not_judged'] += 1
+                    continue
                 label = '%s col %d' % (relation, column)
             else:
                 # set-semantic mutant, or a mutant of the HAVING predicate

@@ -260,11 +260,15 @@ def compared_selections(tr, term):
     the mutant has a row and the original none.  So a mutant of such a rule is outside
     the model when it does not have exactly these sub-queries of the original.
 
-    A condition may tell equivalent rows apart when it has an operation of the collation
-    law above, a sub-query, or a comparison that the server may make after a conversion:
-    of two operands neither of which is a string literal, unless both read only integer
-    columns or number literals ('12' and a string with the same collation key need not be
-    the same number)."""
+    Only two forms of condition are taken not to tell equivalent rows apart: a comparison
+    all of whose operands read only integer columns or are number literals, and a
+    comparison of a bare column with a string literal (made in the collation of the
+    column, which is the one a de-duplication of that column uses); and IS NULL of a bare
+    column or of such an integer operand.  Anything else may: a function or an arithmetic
+    operation on a string column converts it ('12' and a string with the same collation
+    key need not be the same number; a cast to binary tells 'a' from 'A'), as does a
+    comparison of a string column with a number or with another column, a CASE, a
+    sub-query."""
     cache = tr._law_cache
     exact = getattr(tr, '_exact_names', set())
     by_table = getattr(tr.exact_columns, 'by_table', None) or {}
@@ -287,11 +291,13 @@ def compared_selections(tr, term):
         inner = t
         while isinstance(inner, (exp.Paren, exp.Neg)):
             inner = inner.this
-        if isinstance(inner, exp.Literal):
+        if isinstance(inner, exp.Literal) and t.find(exp.Introducer, exp.Cast, exp.Collate) is None:
             return 'number' if inner.is_number else 'string'
         if _sensitive_tree(t, tr.dialect):
             return 'other'
-        return 'exact' if exact_only(t) else 'other'
+        if exact_only(t):
+            return 'exact'
+        return 'column' if isinstance(inner, exp.Column) and inner is _strip(t) else 'other'
 
     def telling(p):
         if not isinstance(p, list) or not p:
@@ -302,10 +308,10 @@ def compared_selections(tr, term):
         if tag in ('Not', 'And', 'Or'):
             return any(telling(y) for y in p[1:])
         if tag == 'IsNull':
-            return operand(p[1]) == 'other' and _atom_sensitive(p[1])
+            return operand(p[1]) not in ('column', 'exact')
         if tag == 'Cmp':
-            kinds = [operand(p[2]), operand(p[3])]
-            if 'string' in kinds and not any(_atom_sensitive(y) for y in p[2:4]):
+            kinds = sorted([operand(p[2]), operand(p[3])])
+            if kinds == ['column', 'string']:
                 return False
             return not all(k in ('number', 'exact') for k in kinds)
         if tag == 'Atom':
@@ -313,11 +319,10 @@ def compared_selections(tr, term):
             return t is None or not exact_only(t) or _sensitive_tree(t, tr.dialect)
         return True                     # LIKE, REGEXP, IN, EXISTS, anything else
 
-    def _atom_sensitive(x):
-        if not (isinstance(x, list) and x and x[0] == 'EAtom'):
-            return True
-        t = _cached_parse(cache, tr.exprs[int(x[1])], tr.dialect)
-        return t is None or _sensitive_tree(t, tr.dialect)
+    def _strip(t):
+        while isinstance(t, exp.Paren):
+            t = t.this
+        return t
 
     def selects_apart(q):
         if not isinstance(q, list) or not q:

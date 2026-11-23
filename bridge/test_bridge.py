@@ -1000,6 +1000,19 @@ report(len(compared_selections(tr, ['Proj', items, ['Distinct', ['Where', left, 
        and len(compared_selections(tr, ['Proj', items, ['Distinct', ['Where', right, table]]])) == 1
        and compared_selections(tr, ['Proj', items, ['UnionAll', ['Where', left, table], ['Where', right, table]]]) == frozenset(),
        'a column compared with a number or a column may be converted; UNION ALL compares no rows')
+for hidden in ("t.c + 0 = '12'", "CAST(t.c AS SIGNED) = '12'", "NULLIF(t.c, 12) IS NULL",
+               "(CASE WHEN t.c = 12 THEN 'x' ELSE 'y' END) = 'x'", "CONVERT(t.c USING binary) = 'a'",
+               "t.c = _binary 'a'"):
+    tr = Translation("SELECT t.c FROM t WHERE %s AND t.a = 2" % hidden, 'mysql', kind='set')
+    tree = parse_sexp(tr.term)
+    items, (_, (_, left, right), table) = tree[1], tree[2]
+    report(len(compared_selections(tr, ['Proj', items, ['Distinct', ['Where', left, table]]])) == 1,
+           'a conversion hidden in an operand may tell equivalent rows apart: %s' % hidden)
+tr = Translation("SELECT t.c FROM t WHERE t.c IS NULL AND t.a = 2", 'mysql', kind='set')
+tree = parse_sexp(tr.term)
+items, (_, (_, left, right), table) = tree[1], tree[2]
+report(compared_selections(tr, ['Proj', items, ['Distinct', ['Where', left, table]]]) == frozenset(),
+       'IS NULL of a bare column respects the collation')
 report(sql_bridge._class_rules(sql_bridge.DEFAULT_CLI) == set(), "ValScope's own mutator has no rule of a class of worlds")
 
 print('%d failures' % failures)

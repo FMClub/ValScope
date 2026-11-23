@@ -172,9 +172,12 @@ Print Assumptions thmutate_distinct_sound.
     the registered rules; the rule types are made abstract in the interface it is
     compiled against (see the Makefile), so OCaml code cannot build a rule. *)
 
-(** The names of the rules of this mutator that are sound in a class of worlds only.
-    The registry has none; a development that adds such rules lists them here, so that
-    the checker can keep to the queries of that class. *)
+(** The names of the rules on queries and on select items of this mutator that are
+    sound in a class of worlds only.  The registry has none; a development that adds
+    such rules lists them here.  The checker then keeps their mutants to the queries of
+    that class (bridge/collation_law.py: compared_selections) and does not judge a rule
+    on select items under DISTINCT or UNION, where the theorems are about the rules of
+    the registry (VDistinct.v, VSet.v). *)
 Definition class_rule_names : list string := [].
 
 Definition pred_rule_names : list (string * dir) := map (fun r => (pr_name r, pr_dir r)) pred_rules.

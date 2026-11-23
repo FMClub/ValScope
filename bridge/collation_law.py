@@ -273,9 +273,20 @@ def compared_selections(tr, term):
     exact = getattr(tr, '_exact_names', set())
     by_table = getattr(tr.exact_columns, 'by_table', None) or {}
 
+    def foreign_tables():
+        """Does the query read a table of another database?  The integer columns are known
+        by name for the tables of the database under test only."""
+        for text in tr.tables:
+            t = _cached_parse(cache, text, tr.dialect, 'table')
+            if t is None or any(n.args.get('db') or n.args.get('catalog') for n in t.find_all(exp.Table)):
+                return True
+        return False
+    foreign = foreign_tables()
+
     def exact_only(t):
         cols = [n for n in t.walk() if isinstance(n, (exp.Column, exp.Star))]
-        if not cols:
+        if not cols or foreign or any(c.args.get('db') or c.args.get('catalog') for c in cols
+                                      if isinstance(c, exp.Column)):
             return False
         return (bool(exact) or bool(by_table)) and all(
             isinstance(c, exp.Column) and not isinstance(c.this, exp.Star)
@@ -288,11 +299,14 @@ def compared_selections(tr, term):
         t = _cached_parse(cache, tr.exprs[int(x[1])], tr.dialect)
         if t is None:
             return 'other'
-        inner = t
+        inner, negated = t, False
         while isinstance(inner, (exp.Paren, exp.Neg)):
+            negated = negated or isinstance(inner, exp.Neg)
             inner = inner.this
         if isinstance(inner, exp.Literal) and t.find(exp.Introducer, exp.Cast, exp.Collate) is None:
-            return 'number' if inner.is_number else 'string'
+            if inner.is_number:
+                return 'number'
+            return 'other' if negated else 'string'      # -'12' is a number made from a string
         if _sensitive_tree(t, tr.dialect):
             return 'other'
         if exact_only(t):

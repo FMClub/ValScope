@@ -1359,6 +1359,9 @@ def mutate_value(sql, cli=DEFAULT_CLI, dialect='mysql', translation=None, schema
             mutants.append((relation, rule, int(column), text))
         else:
             direction, rule, _ = fields
+            if rule in _class_rules(cli) and not integer_fragment(tr, sql):
+                STATS['outside_fragment'] += 1       # a rule of a class of worlds on the HAVING condition
+                continue
             if getattr(tr, 'has_window', False):
                 STATS['having_with_window'] += 1     # the window would range over other groups
                 continue

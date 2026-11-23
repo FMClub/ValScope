@@ -111,11 +111,11 @@ class MySQLTarget:
                     for key in [k for k in by_table if k[0] == low]:
                         del by_table[key]
 
-        # base tables all of whose columns are visible integers, with a name no other table
+        # base tables all of whose columns are visible signed integers, with a name no other table
         # has in another case: on them two equivalent rows are the same row
         # (collation_law.integer_fragment)
         with self.conn.cursor() as cur:
-            cur.execute('SELECT c.TABLE_NAME, c.DATA_TYPE, c.EXTRA, t.TABLE_TYPE FROM information_schema.COLUMNS c '
+            cur.execute('SELECT c.TABLE_NAME, c.COLUMN_TYPE, c.EXTRA, t.TABLE_TYPE FROM information_schema.COLUMNS c '
                         'JOIN information_schema.TABLES t ON t.TABLE_SCHEMA = c.TABLE_SCHEMA '
                         'AND t.TABLE_NAME = c.TABLE_NAME WHERE c.TABLE_SCHEMA = %s', (args.database,))
             good, bad, spellings = set(), set(), {}
@@ -123,8 +123,8 @@ class MySQLTarget:
                 t, ty, extra, kind = (x.decode() if isinstance(x, bytes) else x for x in (t, ty, extra, kind))
                 spellings.setdefault(t.lower(), set()).add(t)
                 if kind == 'BASE TABLE' and 'INVISIBLE' not in (extra or '').upper() and \
-                        ty.lower() in ('tinyint', 'smallint', 'mediumint', 'int', 'integer', 'bigint'):
-                    good.add(t)
+                        re.fullmatch(r'(tinyint|smallint|mediumint|int|integer|bigint)(\(\d+\))?', ty.lower()):
+                    good.add(t)       # signed, without ZEROFILL
                 else:
                     bad.add(t)
             self.exact.integer_tables = {t for t in good - bad if len(spellings[t.lower()]) == 1}

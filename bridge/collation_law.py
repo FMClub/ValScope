@@ -605,7 +605,7 @@ def aggregates_over_integers(tr, sql):
 _FRAGMENT = (exp.Select, exp.From, exp.Join, exp.Where, exp.Having, exp.Group, exp.Subquery, exp.Table,
              exp.TableAlias, exp.Identifier, exp.Column, exp.Star, exp.Alias, exp.Literal, exp.Paren,
              exp.And, exp.Or, exp.Not, exp.EQ, exp.NEQ, exp.LT, exp.LTE, exp.GT, exp.GTE, exp.Is, exp.Null,
-             exp.Boolean, exp.Add, exp.Sub, exp.Mul, exp.Neg, exp.Union, exp.Intersect, exp.Except,
+             exp.Boolean, exp.Neg, exp.Union, exp.Intersect, exp.Except,
              exp.Distinct, exp.Count, exp.Min, exp.Max, exp.Sum, exp.In, exp.Exists, exp.With, exp.CTE)
 
 
@@ -620,11 +620,15 @@ def integer_fragment(tr, sql):
     numbers.  They hold when equivalent rows are the same row and every value is an
     integer or NULL.  The fragment: every table read is a base table of the database all of
     whose columns are visible integers (or a derived table or CTE made of such), and the
-    query is built from columns, integer literals, NULL, TRUE and FALSE, comparisons, IS
-    [NOT] NULL, AND, OR, NOT, +, - and *, IN and EXISTS with a sub-query, joins with ON,
-    WHERE, GROUP BY, HAVING, DISTINCT, the set operations, and COUNT, MIN, MAX and SUM.
-    Nothing else: no string, decimal or float literal, no function, cast, division, CASE,
-    LIKE, ORDER BY or LIMIT, no table function, no table of another database."""
+    query is built from columns, integer literals within BIGINT, NULL, TRUE and FALSE,
+    comparisons, IS [NOT] NULL / TRUE / FALSE, AND, OR, NOT, IN and EXISTS, sub-queries,
+    inner and cross joins, WHERE, GROUP BY, HAVING, DISTINCT, the set operations, and COUNT,
+    MIN, MAX and SUM.  Nothing else: no arithmetic (MySQL computes integers beyond BIGINT as
+    DECIMAL and saturates them at 65 digits when a row goes through a temporary table, so
+    `a + N` has one value under DISTINCT and another without), no unsigned column (it
+    becomes a DECIMAL beside a signed one), no string, decimal or float literal, no
+    function, cast, CASE, LIKE, outer join, ORDER BY or LIMIT, no table function, no table
+    of another database."""
     tables = getattr(getattr(tr, 'exact_columns', None), 'integer_tables', None)
     if tables is None:
         return True
@@ -642,9 +646,11 @@ def integer_fragment(tr, sql):
     for n in tree.walk():
         if type(n) not in _FRAGMENT:
             return False
-        if isinstance(n, exp.Literal) and not (n.is_int and not n.is_string):
+        if isinstance(n, exp.Literal) and not (n.is_int and not n.is_string and len(n.name.lstrip('0')) <= 18):
             return False
-        if isinstance(n, exp.Join) and (n.args.get('using') or n.args.get('method')):
+        if isinstance(n, exp.Neg) and not isinstance(n.this, exp.Literal):
+            return False
+        if isinstance(n, exp.Join) and (n.args.get('using') or n.args.get('method') or n.args.get('side')):
             return False
         if isinstance(n, exp.Table):
             if n.args.get('db') or n.args.get('catalog') or not isinstance(n.this, exp.Identifier):

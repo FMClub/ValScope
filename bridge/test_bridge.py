@@ -1028,12 +1028,14 @@ ec = ExactColumns({'a': 'integer'})
 ec.integer_tables, ec.all_tables = {'p', 'q'}, {'p', 'q', 't', 'm'}
 tr = Translation("SELECT a FROM p", 'mysql', kind='set', schema={'p': ['a', 'b'], 'q': ['a', 'b'], 't': ['a', 'c']},
                  exact_columns=ec)
-inside = ["SELECT DISTINCT p.a, p.b + 1 FROM p JOIN q ON p.a = q.a OR p.b < 3 WHERE p.a IS NOT NULL",
+inside = ["SELECT DISTINCT p.a, p.b FROM p JOIN q ON p.a = q.a OR p.b < 3 WHERE p.a IS NOT NULL",
           "SELECT a FROM p WHERE a IN (SELECT a FROM q INTERSECT SELECT b FROM p)",
-          "SELECT b, COUNT(a), MIN(a), SUM(a * 2) FROM p GROUP BY b HAVING COUNT(a) > 1",
+          "SELECT b, COUNT(a), MIN(a), SUM(a) FROM p GROUP BY b HAVING COUNT(a) > 1",
           "WITH d AS (SELECT a FROM p UNION ALL SELECT b FROM q) SELECT DISTINCT a FROM d",
           "SELECT x.a FROM (SELECT DISTINCT * FROM p) AS x WHERE x.a = -1"]
-outside = ["SELECT a FROM t", "SELECT a FROM P", "SELECT a FROM p WHERE a = '1'", "SELECT a + 0.5 FROM p",
+outside = ["SELECT a + 1 FROM p", "SELECT a FROM p WHERE a * 2 = 4", "SELECT -a FROM p",
+           "SELECT a FROM p WHERE a = 99999999999999999999", "SELECT p.a FROM p LEFT JOIN q ON p.a = q.a",
+           "SELECT a FROM t", "SELECT a FROM P", "SELECT a FROM p WHERE a = '1'", "SELECT a + 0.5 FROM p",
            "SELECT HEX(a) FROM p", "SELECT a / 2 FROM p", "SELECT CAST(a AS CHAR) FROM p",
            "SELECT a FROM p ORDER BY a LIMIT 1", "SELECT a FROM other.p", "SELECT 'x' FROM p",
            "SELECT a FROM JSON_TABLE('[1]', '$[*]' COLUMNS (a INT PATH '$')) AS p",

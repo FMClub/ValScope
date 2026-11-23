@@ -1088,14 +1088,17 @@ def _join_source(tr, x):
 
 
 def _naming(tr, x):
-    """The select list that names the columns of the query x: the one of its leftmost arm."""
+    """What names the columns of the query x: the select list of its leftmost arm, as the
+    texts of its items (MySQL names a column without alias by the text of its expression:
+    `a = b` and `(a) = b` are two names); for an arm that is no projection, its tables."""
     while isinstance(x, list) and x:
         if x[0] in SET_TAGS or x[0] == 'Distinct':
             x = x[1]
         elif x[0] in ('Where', 'Named'):
             x = x[2]
         elif x[0] == 'Proj':
-            return canonical(tr, ['Items'] + [e for e in x[1]])
+            return ('Items',) + tuple(tr.exprs[int(e[1])] if e[0] == 'EAtom' else repr(canonical(tr, e))
+                                      for e in x[1])
         else:
             return _join_source(tr, x) or canonical(tr, x)
     return canonical(tr, x)
@@ -1145,21 +1148,24 @@ _QUERY_TAGS = SET_TAGS + ('Proj', 'Where', 'Inner', 'Left', 'Distinct', 'T', 'Na
 
 
 def _free_names(tr, t):
-    """For every condition and expression atom of t: the FROM clauses that bind the names
-    in its text, innermost first (that of the atom's own query, then those of the queries
-    around it).  A set of (kind of atom, its number, those FROM clauses), a FROM clause
-    being the set of (name; a base table or a derived table; which base table, or the
-    select list that names the columns of the derived table).
+    """For every atom of t (a condition, an expression, an opaque query or select item):
+    the FROM clauses that bind the names in its text, innermost first (that of the atom's
+    own query, then those of the queries around it).  A set of (kind of atom, its number,
+    those FROM clauses).  A FROM clause is the sequence, in the order of the join, of
+    (name; a base table or a derived table; which base table, or what names the columns
+    of the derived table: _naming); a set operation there stands for the FROM clause of
+    its arms when they have the same one, and for the pair of them otherwise.
 
     In the model an atom is a function of the row of the query it sits in.  Its text says
     the same only while the names in it mean what they meant in the original query.  A
     rule that puts the condition `e.a = 9` over a derived table of another name leaves
     `e` to an outer table; one that puts `EXISTS (SELECT 1 FROM n WHERE d.a = 7)` there
     leaves `d` to a table two queries out instead of one; one that puts `a = 2` over a
-    derived table of the same name whose select list is `b, a` and not `a, b` reads
-    another position of the row.  So a mutant is printed only if _free_names of it is
-    included in that of the original.  This compares a mutant with its original: it is
-    a necessary condition, not a proof that the text of a mutant means its term."""
+    derived table of the same name whose select list is `b, a` and not `a, b`, or over
+    `u JOIN t` instead of `t JOIN u`, reads another position of the row.  So a mutant is
+    printed only if _free_names of it is included in that of the original.  This compares
+    a mutant with its original: it is a necessary condition, not a proof that the text of
+    a mutant means its term."""
     out = set()
 
     def is_query(x):
@@ -1168,19 +1174,15 @@ def _free_names(tr, t):
     def bound(x):
         """The names x gives its rows when it is a FROM clause, with what each stands for."""
         if x[0] == 'T':
-            return {tr.aliases[int(x[1])]: ('T', repr(canonical(tr, x)))}
+            return ((tr.aliases[int(x[1])], 'T', repr(canonical(tr, x))),)
         if x[0] == 'Named':
-            return {tr.named[int(x[1])]: ('Named', repr(_naming(tr, x[2])))}
+            return ((tr.named[int(x[1])], 'Named', repr(_naming(tr, x[2]))),)
         if x[0] in ('Inner', 'Left', 'Where', 'Distinct'):
-            names = {}
-            for y in x[1:]:
-                if is_query(y):
-                    names.update(bound(y))
-            return names
-        if x[0] in SET_TAGS:    # printed inside the arms (printer.join_arms_out): bound in each of them
+            return sum((bound(y) for y in x[1:] if is_query(y)), ())
+        if x[0] in SET_TAGS:    # printed inside the arms (printer.join_arms_out)
             a, b = bound(x[1]), bound(x[2])
-            return {n: v for n, v in a.items() if b.get(n) == v}
-        return {}
+            return a if a == b else (('', x[0], repr((a, b))),)
+        return ()
 
     def walk(x, chain):
         """chain: the FROM clauses that bind the names at x, innermost first."""
@@ -1190,16 +1192,12 @@ def _free_names(tr, t):
             for y in x:
                 walk(y, chain)
             return
-        if x[0] in ('Atom', 'EAtom'):
+        if x[0] in ('Atom', 'EAtom', 'QAtom', 'AOpaque'):
             out.add((x[0], int(x[1]), chain))
             return
         inner = chain
         if is_query(x):
-            own = {}
-            for y in x[1:]:
-                if is_query(y):
-                    own.update(bound(y))
-            inner = (frozenset(own.items()),) + chain
+            inner = (sum((bound(y) for y in x[1:] if is_query(y)), ()),) + chain
         for y in x[1:]:
             # a query in a FROM position is bound as x is; one in a condition also by x
             walk(y, chain if is_query(x) and is_query(y) else inner)

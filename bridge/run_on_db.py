@@ -210,7 +210,10 @@ class MySQLTarget:
         a query is outside every one of them.  The same holds for an operand with an ENUM,
         SET or ZEROFILL column, which the result of a set operation has as a plain string
         or number (an ENUM compares with a number by its index, the string by its digits).
-        An operand that cannot be probed alone (a correlated one) counts as a mix."""
+        An operand that cannot be probed alone (a correlated one) counts as a mix, unless
+        the query is of the integer fragment (collation_law.integer_fragment), where no
+        column is approximate, an ENUM, a SET or ZEROFILL: otherwise no violation of a rule
+        could be reported on a set operation inside a correlated sub-query."""
         try:
             import sqlglot
             from sqlglot import exp
@@ -252,10 +255,14 @@ class MySQLTarget:
                     cache[probe] = True
             return cache[probe]
 
+        integers = getattr(self.exact, 'integer_tables', None) is not None and sql_bridge.integer_fragment(
+            types_ns(exact_columns=self.exact, dialect='mysql'), sql)
         for node in tree.walk():
             if not isinstance(node, (exp.Union, exp.Intersect, exp.Except)):
                 continue
             left, right = codes(node.left), codes(node.right)
+            if (left is None or right is None) and integers:
+                continue
             if left is None or right is None or len(left) != len(right):
                 return True
             if retyped(node.left) or retyped(node.right):

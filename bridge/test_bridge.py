@@ -1096,6 +1096,23 @@ moved = unparse(['UnionAll', arms[1], arms[1][:2] + [arms[1][2][:2] + [arms[2][2
 report(_keeps_names(_named_columns(tr, parse_sexp(moved)), _named_columns(tr, arms))
        and not _same_names(tr, moved, _named_columns(tr, arms), _free_names(tr, arms)),
        'nor one whose condition is over a derived table of the same name and other columns')
+tr = Translation("SELECT x.a FROM p AS x JOIN q AS y ON x.a = y.a WHERE x.b = 2 UNION ALL "
+                 "SELECT x.a FROM q AS y JOIN p AS x ON x.a = y.a WHERE y.b = 2", 'mysql', kind='set')
+arms = parse_sexp(tr.term)
+moved = unparse(['UnionAll', arms[1], arms[1][:2] + [arms[1][2][:2] + [arms[2][2][2]]]])
+report(not _free_names(tr, parse_sexp(moved)) <= _free_names(tr, arms),
+       'nor one whose condition is over the same tables joined in another order')
+tr = Translation("SELECT 1 FROM (SELECT a = b FROM q) AS d UNION ALL SELECT 1 FROM (SELECT (a) = b FROM w2) AS d",
+                 'mysql', kind='set')
+names = _named_columns(tr, parse_sexp(tr.term))
+report(len(names) == 2 and names[0] != names[1], 'the columns `a = b` and `(a) = b` are two names (%r)' % names)
+tr = Translation("SELECT a FROM p WHERE EXISTS (SELECT MAX(n.a) FROM n WHERE n.a = p.a GROUP BY n.b UNION ALL "
+                 "SELECT MIN(n.a) FROM n WHERE n.a = p.a GROUP BY n.b) UNION ALL "
+                 "SELECT a FROM q WHERE a < 4", 'mysql', kind='set')
+arms = parse_sexp(tr.term)
+report('QAtom' in tr.term and any(k == 'QAtom' for k, _, _ in _free_names(tr, arms))
+       and not _free_names(tr, ['UnionAll', arms[1], arms[2][:2] + [['Where', arms[1][2][1], arms[2][2][2]]]])
+       <= _free_names(tr, arms), 'nor one that puts an opaque query over other tables')
 tr = Translation("SELECT t.a FROM t JOIN u ON t.a < u.b OR u.a = 1 WHERE t.b > 1", 'mysql', kind='set')
 split = '(UnionAll %s %s)' % (tr.term, tr.term)
 report(_free_names(tr, parse_sexp('(Proj ((EAtom 6)) (Where (Cmp gt (EAtom 4) (EAtom 5)) (UnionAll '

@@ -574,3 +574,29 @@ def _proper_defs(name, defs):
     (`d.x` as an item, `x.c3 AS c3`): they say nothing about its values."""
     return [d for d in defs.get(name, [])
             if not (d is not None and isinstance(_strip_parens(d), exp.Column) and _strip_parens(d).name.lower() == name)]
+
+
+def aggregates_over_integers(tr, sql):
+    """Do MIN, MAX and SUM in `sql` read integer columns of the database only?  The theorem
+    of a value rule of a class of worlds is about exact numbers; a DOUBLE, a DECIMAL with a
+    scale, a string or a date under these aggregates is outside it."""
+    if tr is None:
+        return False
+    try:
+        tree = sqlglot.parse_one(sql, read=tr.dialect)
+    except Exception:
+        return False
+    exact = getattr(tr, '_exact_names', set())
+    by_table = getattr(tr.exact_columns, 'by_table', None) or {}
+    hidden = getattr(tr.exact_columns, 'invisible_tables', None) or set()
+    if any(t.name.lower() in hidden or t.args.get('db') for t in tree.find_all(exp.Table)):
+        return False
+    for agg in tree.find_all(exp.Min, exp.Max, exp.Sum):
+        cols = list(agg.find_all(exp.Column))
+        if not cols or any(c.name.lower() not in exact
+                           and _column_class(c, tr._sources, by_table, tr.schema) is None for c in cols):
+            return False
+        if any(not isinstance(n, (exp.Column, exp.Identifier, exp.Paren, exp.Min, exp.Max, exp.Sum))
+               for n in agg.walk()):
+            return False            # an expression under the aggregate: arithmetic can leave the integers
+    return True

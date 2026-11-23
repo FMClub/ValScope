@@ -92,14 +92,24 @@ class MySQLTarget:
             from sql_bridge import ExactColumns
             self.exact = ExactColumns({c: 'integer' for c in exact - other})
             self.exact.by_table = by_table
-            # tables with an invisible column: SELECT * leaves it out (collation_law.compared_selections)
-            cur.execute('SELECT TABLE_NAME, EXTRA FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = %s',
-                        (args.database,))
+            # tables that a rule of a class of worlds is not judged on (collation_law.compared_selections):
+            # an invisible column (SELECT * leaves it out), a string column in another
+            # collation than the session's default (the class is about that one), and names
+            # that differ in case only (the columns are looked up without case)
+            cur.execute('SELECT TABLE_NAME, EXTRA, COLLATION_NAME FROM information_schema.COLUMNS '
+                        'WHERE TABLE_SCHEMA = %s', (args.database,))
             self.exact.invisible_tables = set()
-            for t, extra in cur.fetchall():
-                t, extra = (x.decode() if isinstance(x, bytes) else x for x in (t, extra))
-                if 'INVISIBLE' in (extra or '').upper():
+            names = {}
+            for t, extra, coll in cur.fetchall():
+                t, extra, coll = (x.decode() if isinstance(x, bytes) else x for x in (t, extra, coll))
+                names.setdefault(t.lower(), set()).add(t)
+                if 'INVISIBLE' in (extra or '').upper() or (coll and coll.lower() != 'utf8mb4_0900_ai_ci'):
                     self.exact.invisible_tables.add(t.lower())
+            for low, spelled in names.items():
+                if len(spelled) > 1:
+                    self.exact.invisible_tables.add(low)
+                    for key in [k for k in by_table if k[0] == low]:
+                        del by_table[key]
 
     def folds(self, collations_a, collations_b):
         return self.columns.folds(collations_a, collations_b)
@@ -740,10 +750,12 @@ def main():
                         continue
                     relation = FLIP_VALUE[relation]
                 cover = bool(trs) and trs[0].cover_for(text)
-                if cover and rule in sql_bridge._class_rules(sql_bridge.DEFAULT_CLI):
+                if rule in sql_bridge._class_rules(sql_bridge.DEFAULT_CLI) and \
+                        (cover or not sql_bridge.aggregates_over_integers(trs[0] if trs else None, original)):
                     # under DISTINCT or UNION the rows no longer correspond one to one, and
                     # the theorems for that (VDistinct.v, VSet.v) are about the rules of
-                    # the registry; a rule of a class of worlds has none
+                    # the registry; a rule of a class of worlds has none.  And its theorem reads
+                    # MIN, MAX and SUM on exact numbers: integer columns here
                     st['class_rule_not_judged'] += 1
                     continue
                 label = '%s col %d' % (relation, column)

@@ -66,6 +66,7 @@ DEFAULT_CLI = os.environ.get('VALSCOPE_MUTATE') or os.path.join(HERE, '..', 'cli
 
 from common import Unsupported, parse_sexp, _strip_parens
 from collation_law import (ExactColumns, _alias_sources, _column_class, _exact_names, compared_selections,
+                           aggregates_over_integers,
                            outside_collation_law)
 from determinism import _check_deterministic, _window_undetermined
 from printer import Printer, join_arms_out

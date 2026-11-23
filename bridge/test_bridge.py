@@ -1016,6 +1016,13 @@ ec = ExactColumns({'a': 'integer'})
 ec.invisible_tables = {'t'}
 tr = Translation("SELECT DISTINCT a FROM t WHERE a = 12", 'mysql', kind='set', exact_columns=ec)
 report(len(compared_selections(tr, parse_sexp(tr.term))) == 1, 'a table with an invisible column: SELECT * is not the row')
+from collation_law import aggregates_over_integers  # noqa: E402
+ec = ExactColumns({'a': 'integer'})
+tr = Translation("SELECT MIN(a) FROM t", 'mysql', kind='value', schema={'t': ['a', 'c']}, exact_columns=ec)
+report(aggregates_over_integers(tr, "SELECT MIN(a), COUNT(c) FROM t")
+       and not aggregates_over_integers(tr, "SELECT MIN(c) FROM t")
+       and not aggregates_over_integers(tr, "SELECT SUM(a + 1) FROM t"),
+       'MIN, MAX and SUM of a class rule are judged on integer columns only')
 # a select list and a WHERE over a UNION ALL of joins are printed inside the arms
 from printer import join_arms_out  # noqa: E402
 tr = Translation("SELECT t.a FROM t JOIN u ON t.a < u.b OR u.a = 1 WHERE t.b > 1", 'mysql', kind='set')

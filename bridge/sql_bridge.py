@@ -65,7 +65,8 @@ DEFAULT_CLI = os.environ.get('VALSCOPE_MUTATE') or os.path.join(HERE, '..', 'cli
 
 
 from common import Unsupported, parse_sexp, _strip_parens
-from collation_law import ExactColumns, _alias_sources, _column_class, _exact_names, outside_collation_law
+from collation_law import (ExactColumns, _alias_sources, _column_class, _exact_names, compared_selections,
+                           outside_collation_law)
 from determinism import _check_deterministic, _window_undetermined
 from printer import Printer
 
@@ -858,6 +859,23 @@ def _cli_process(cli):
     return p
 
 
+_CLASS_RULES = {}
+
+
+def _class_rules(cli):
+    """The names of the rules of `cli` that are sound in a class of worlds only (rules
+    proved against the semantics of one dialect); none for a mutator without such rules
+    or without the option."""
+    if cli not in _CLASS_RULES:
+        try:
+            listed = subprocess.run([cli, '--class-rules'], capture_output=True, text=True, timeout=30)
+            names = set(listed.stdout.split('\n')) - {''} if listed.returncode == 0 else set()
+        except (OSError, subprocess.SubprocessError):
+            names = set()
+        _CLASS_RULES[cli] = names
+    return _CLASS_RULES[cli]
+
+
 def _run_cli(term, cli):
     """The mutants the verified engine prints for one term.  The command-line mutator
     reads one term per line and answers with lines ended by END, so one process serves
@@ -1098,6 +1116,41 @@ def _arm_sets(tr, t):
     return out
 
 
+def _one_table_compounds(tr, t):
+    """The tables (canonical) such that some maximal tree of set operations in t has for
+    arms that table alone, or DISTINCT and WHERE over it."""
+    out = set()
+
+    def leaves(x, acc):
+        if isinstance(x, list) and x and x[0] in SET_TAGS:
+            leaves(x[1], acc)
+            leaves(x[2], acc)
+            return
+        if isinstance(x, list) and x and x[0] == 'Distinct':
+            x = x[1]
+        if isinstance(x, list) and x and x[0] == 'Where':
+            x = x[2]
+        acc.append(canonical(tr, x) if isinstance(x, list) and x and x[0] == 'T' else None)
+
+    def walk(x, inside):
+        if not isinstance(x, list) or not x:
+            return
+        if isinstance(x[0], list):
+            for y in x:
+                walk(y, False)
+            return
+        is_set = x[0] in SET_TAGS
+        if is_set and not inside:
+            acc = []
+            leaves(x, acc)
+            if None not in acc and len(set(acc)) == 1:
+                out.add(acc[0])
+        for y in x[1:]:
+            walk(y, is_set)
+    walk(t, False)
+    return out
+
+
 def changes_compound_collation(tr, original, mutant):
     """Does the mutant give a set operation a leftmost arm that no set operation of the
     original has (MySQL / MariaDB: arms of several select lists that no set operation of
@@ -1115,7 +1168,9 @@ def changes_compound_collation(tr, original, mutant):
     arm_sets = _arm_sets(tr, m_t)
     if any(len(arms) > 1 for arms in arm_sets - _arm_sets(tr, o_t)):
         return True
-    uniform = {next(iter(arms)) for arms in arm_sets if len(arms) == 1}
+    uniform = {next(iter(arms)) for arms in arm_sets if len(arms) == 1} & _one_table_compounds(tr, m_t)
+    if any(len(arms) == 1 and not arms <= uniform for arms in arm_sets - _arm_sets(tr, o_t)):
+        return True                     # one select list over several tables
     return bool(new_leftmost - uniform)
 
 
@@ -1214,9 +1269,14 @@ def mutate_sql(sql, cli=DEFAULT_CLI, dialect='mysql', schema=None, exact_columns
     if original is None:
         raise Unsupported('the re-printed query does not parse back to its term')
     mutants, skipped, seen = [], 0, set()
+    class_rules = _class_rules(cli)
+    compared = compared_selections(tr, tr.term) if class_rules else None
     for direction, rule, term in _run_cli(tr.term, cli):
         if changes_compound_collation(tr, tr.term, term):
             STATS['outside_model'] += 1
+            continue
+        if rule in class_rules and compared_selections(tr, term) != compared:
+            STATS['outside_model'] += 1     # see compared_selections
             continue
         try:
             text = _validated(tr, term, 'set')

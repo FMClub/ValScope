@@ -979,5 +979,28 @@ try:
 except Unsupported:
     report(True, 'SQLite: a set operation in FROM is not printed')
 
+# a rule of a class of worlds: its mutants keep the row comparisons over conditions that
+# may tell equivalent rows apart
+from collation_law import compared_selections  # noqa: E402
+tr = Translation("SELECT t.c FROM t WHERE HEX(t.c) = '61' AND t.a = 2", 'mysql', kind='set')
+tree = parse_sexp(tr.term)
+items, (_, (_, left, right), table) = tree[1], tree[2]
+split = ['Proj', items, ['Intersect', ['Where', left, table], ['Where', right, table]]]
+report(compared_selections(tr, tree) == frozenset() and len(compared_selections(tr, split)) == 1,
+       'INTERSECT over a WHERE with HEX: a comparison of rows that the condition tells apart')
+tr = Translation("SELECT t.c FROM t WHERE t.c = 'x' AND t.c <> 'y'", 'mysql', kind='set')
+tree = parse_sexp(tr.term)
+items, (_, (_, left, right), table) = tree[1], tree[2]
+report(compared_selections(tr, ['Proj', items, ['Intersect', ['Where', left, table], ['Where', right, table]]]) == frozenset(),
+       'comparisons with string literals respect the collation')
+tr = Translation("SELECT t.c FROM t WHERE t.c = 12 AND t.c < t.a", 'mysql', kind='set')
+tree = parse_sexp(tr.term)
+items, (_, (_, left, right), table) = tree[1], tree[2]
+report(len(compared_selections(tr, ['Proj', items, ['Distinct', ['Where', left, table]]])) == 1
+       and len(compared_selections(tr, ['Proj', items, ['Distinct', ['Where', right, table]]])) == 1
+       and compared_selections(tr, ['Proj', items, ['UnionAll', ['Where', left, table], ['Where', right, table]]]) == frozenset(),
+       'a column compared with a number or a column may be converted; UNION ALL compares no rows')
+report(sql_bridge._class_rules(sql_bridge.DEFAULT_CLI) == set(), "ValScope's own mutator has no rule of a class of worlds")
+
 print('%d failures' % failures)
 sys.exit(1 if failures else 0)

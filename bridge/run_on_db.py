@@ -170,8 +170,10 @@ class MySQLTarget:
         operand, even an empty one, does not, and a BIGINT above 2^53 equals a DOUBLE it
         is not equal to as an integer.  No model of the mutation rules has this
         conversion (theirs keeps one equivalence of values throughout a query), so such
-        a query is outside every one of them.  An operand that cannot be probed alone
-        (a correlated one) counts as a mix."""
+        a query is outside every one of them.  The same holds for an operand with an ENUM,
+        SET or ZEROFILL column, which the result of a set operation has as a plain string
+        or number (an ENUM compares with a number by its index, the string by its digits).
+        An operand that cannot be probed alone (a correlated one) counts as a mix."""
         try:
             import sqlglot
             from sqlglot import exp
@@ -196,11 +198,30 @@ class MySQLTarget:
                     cache[probe] = None
             return None if cache[probe] is None else [code for _, code in cache[probe]]
 
+        def retyped(arm):
+            """An ENUM, SET or ZEROFILL column: the result of a set operation has it as a
+            plain string or number, which compares and prints differently (an ENUM with
+            a number by its index, the string by its digits)."""
+            while isinstance(arm, (exp.Paren, exp.Subquery)) and arm.args.get('alias') is None:
+                arm = arm.this
+            probe = '%sSELECT * FROM (%s) AS vs_arm LIMIT 0 -- flags' % (prefix, arm.sql(dialect='mysql'))
+            if probe not in cache:
+                try:
+                    with self.conn.cursor() as cur:
+                        cur.execute(probe)
+                        cur.fetchall()
+                        cache[probe] = any(f.flags & (256 | 2048 | 64) for f in cur._result.fields)
+                except self.pymysql.err.MySQLError:
+                    cache[probe] = True
+            return cache[probe]
+
         for node in tree.walk():
             if not isinstance(node, (exp.Union, exp.Intersect, exp.Except)):
                 continue
             left, right = codes(node.left), codes(node.right)
             if left is None or right is None or len(left) != len(right):
+                return True
+            if retyped(node.left) or retyped(node.right):
                 return True
             for a, b in zip(left, right):
                 exact = self.NUMERIC_CODES - self.APPROXIMATE_CODES - {16}

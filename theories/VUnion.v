@@ -194,6 +194,78 @@ Qed.
 
 End TEngine.
 
+(** ---------------- the same, for rules of a class of worlds ---------------- *)
+
+Section TEngineIn.
+Variable W : db_t -> Prop.
+Variable rs : list (vrule_in W).
+
+Lemma vmut_in_shape : forall v name r j v',
+  In (name, (r, (j, v'))) (vmut_in W rs v) ->
+  j < List.length (vitems v) /\ List.length (vitems v') = List.length (vitems v).
+Proof.
+  intros v name r j v' H. unfold vmut_in in H.
+  apply in_flat_map in H as [[[pre a] post] [Hs Hm]]. simpl in Hm.
+  apply in_map_iff in Hm as [[n [r0 a']] [E _]]. simpl in E. inversion E; subst. clear E.
+  apply splits_spec in Hs. rewrite vitems_with_items, Hs, !app_length. simpl. lia.
+Qed.
+
+Fixpoint tmut_in (t : vtop) : list tmutant :=
+  match t with
+  | VOne v => map (fun m => (fst m, (fst (snd m), (fst (snd (snd m)), VOne (snd (snd (snd m)))))))
+                  (vmut_in W rs v)
+  | VUnionAll a b =>
+      match tarity t with
+      | Some _ => tmap (fun a' => VUnionAll a' b) (tmut_in a) ++ tmap (fun b' => VUnionAll a b') (tmut_in b)
+      | None => []
+      end
+  end.
+
+Lemma tmut_in_shape : forall t name r j t',
+  In (name, (r, (j, t'))) (tmut_in t) ->
+  exists n, tarity t = Some n /\ tarity t' = Some n /\ j < n.
+Proof.
+  induction t as [v|a IHa b IHb]; intros name r j t' H; simpl in H.
+  - apply in_map_iff in H as [[n0 [r0 [j0 v']]] [E Hin]]. simpl in E. inversion E; subst.
+    destruct (vmut_in_shape _ _ _ _ _ Hin) as [Hj Hl].
+    exists (List.length (vitems v)). simpl. rewrite Hl. auto.
+  - destruct (tarity a) as [na|] eqn:Ea; destruct (tarity b) as [nb|] eqn:Eb; simpl in H;
+      rewrite ?Ea, ?Eb in H; try contradiction.
+    destruct (Nat.eqb na nb) eqn:E; [|contradiction]. apply Nat.eqb_eq in E. subst nb.
+    apply in_app_or in H as [H|H]; unfold tmap in H; apply in_map_iff in H as [[n0 [r0 [j0 x]]] [Em Hin]];
+      simpl in Em; inversion Em; subst.
+    + destruct (IHa _ _ _ _ Hin) as [n [Ha [Ha' Hj]]].
+      assert (n = na) by congruence. subst n.
+      exists na. simpl. rewrite Ea, Eb, Ha', Nat.eqb_refl. auto.
+    + destruct (IHb _ _ _ _ Hin) as [n [Hb [Hb' Hj]]].
+      assert (n = na) by congruence. subst n.
+      exists na. simpl. rewrite Ea, Eb, Hb', Nat.eqb_refl. auto.
+Qed.
+
+Theorem tmut_in_sound : forall t name r j t',
+  In (name, (r, (j, t'))) (tmut_in t) ->
+  forall env db, W db -> Forall2 (row_rel r j) (teval env db t) (teval env db t').
+Proof.
+  induction t as [v|a IHa b IHb]; intros name r j t' H env db Hdb; simpl in H.
+  - apply in_map_iff in H as [[n0 [r0 [j0 v']]] [E Hin]]. simpl in E. inversion E; subst.
+    simpl. exact (vmut_in_sound W rs _ _ _ _ _ Hin env db Hdb).
+  - destruct (tarity a) as [na|] eqn:Ea; destruct (tarity b) as [nb|] eqn:Eb; simpl in H;
+      rewrite ?Ea, ?Eb in H; try contradiction.
+    destruct (Nat.eqb na nb) eqn:E; [|contradiction]. apply Nat.eqb_eq in E. subst nb.
+    apply in_app_or in H as [H|H]; unfold tmap in H; apply in_map_iff in H as [[n0 [r0 [j0 x]]] [Em Hin]];
+      simpl in Em; inversion Em; subst; simpl.
+    + apply Forall2_app; [exact (IHa _ _ _ _ Hin env db Hdb)|].
+      destruct (tmut_in_shape a _ _ _ _ Hin) as [n [Ha [_ Hj]]].
+      assert (n = na) by congruence. subst n.
+      apply forall2_refl_rows. intros row Hr. rewrite (teval_length env db b na row Eb Hr). exact Hj.
+    + apply Forall2_app; [|exact (IHb _ _ _ _ Hin env db Hdb)].
+      destruct (tmut_in_shape b _ _ _ _ Hin) as [n [Hb [_ Hj]]].
+      assert (n = na) by congruence. subst n.
+      apply forall2_refl_rows. intros row Hr. rewrite (teval_length env db a na row Ea Hr). exact Hj.
+Qed.
+
+End TEngineIn.
+
 (** ---------------- HAVING mutation of an arm ---------------- *)
 
 Definition t_sub (t t' : vtop) : Prop := forall env db, Sub (teval env db t) (teval env db t').

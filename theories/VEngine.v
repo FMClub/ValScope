@@ -145,3 +145,121 @@ Proof.
 Qed.
 
 End VEngine.
+
+(** ---------------- rules sound in a class of worlds ----------------
+
+    [vrule] above is sound in every world.  A value rule proved against the semantics
+    of one dialect is sound in the worlds of that dialect only: it is a [vrule_in W].
+    The engine below is the one above, for such rules; [vmut_in_sound] is its theorem
+    in the worlds of [W]. *)
+
+Record vrule_in (W : db_t -> Prop) : Type := mk_vrule_in {
+  vri_name  : string;
+  vri_rel   : vrel;
+  vri_fun   : aexpr -> list aexpr;
+  vri_sound : forall a a', In a' (vri_fun a) ->
+              forall env db, W db -> forall g, rel_holds vri_rel (aeval env db g a) (aeval env db g a')
+}.
+
+Arguments vri_name {W}. Arguments vri_rel {W}. Arguments vri_fun {W}. Arguments vri_sound {W}.
+
+(** A rule sound in every world, used in a class of worlds. *)
+Definition vrule_at (W : db_t -> Prop) (r : vrule) : vrule_in W :=
+  mk_vrule_in W (vr_name r) (vr_rel r) (vr_fun r)
+    (fun a a' H env db _ g => vr_sound r a a' H env db g).
+
+Section VEngineIn.
+Variable W : db_t -> Prop.
+Variable rs : list (vrule_in W).
+
+Definition vfire_in (l : list (vrule_in W)) (a : aexpr) : list vmutant :=
+  flat_map (fun r => map (fun a' => (vri_name r, (vri_rel r, a'))) (vri_fun r a)) l.
+
+Fixpoint mut_a_in (a : aexpr) : list vmutant :=
+  vfire_in rs a ++
+  match a with
+  | AAdd x y => vctx (fun x' => AAdd x' y) (mut_a_in x) ++ vctx (fun y' => AAdd x y') (mut_a_in y)
+  | AMul x y =>
+      match y with
+      | AConst k => if (0 <=? k)%Z then vctx (fun x' => AMul x' (AConst k)) (mut_a_in x) else []
+      | _ => []
+      end
+  | AMono f x => vctx (AMono f) (mut_a_in x)
+  | _ => []
+  end.
+
+Definition vok_in (a : aexpr) (z : vmutant) : Prop :=
+  forall env db, W db -> forall g,
+    rel_holds (fst (snd z)) (aeval env db g a) (aeval env db g (snd (snd z))).
+
+Lemma vfire_in_sound : forall l a, Forall (vok_in a) (vfire_in l a).
+Proof.
+  induction l as [|r l IH]; intros a; simpl.
+  - apply Forall_nil.
+  - rewrite Forall_app; split; [|apply IH].
+    apply Forall_forall. intros z Hz. apply in_map_iff in Hz as [a' [<- Hin]].
+    unfold vok_in. simpl. intros env db Hdb g. apply (vri_sound r); assumption.
+Qed.
+
+Lemma vctx_in_sound : forall (C : aexpr -> aexpr) x l,
+  (forall r x' env db g, is_mono r = true ->
+     rel_holds r (aeval env db g x) (aeval env db g x') ->
+     rel_holds r (aeval env db g (C x)) (aeval env db g (C x'))) ->
+  Forall (vok_in x) l -> Forall (vok_in (C x)) (vctx C l).
+Proof.
+  intros C x l HC H. unfold vctx. apply Forall_forall. intros z Hz.
+  apply in_map_iff in Hz as [w [<- Hw]]. apply filter_In in Hw as [Hin Hm].
+  unfold vok_in. simpl. intros env db Hdb g. apply HC; [exact Hm|].
+  exact (proj1 (Forall_forall _ _) H w Hin env db Hdb g).
+Qed.
+
+Theorem mut_a_in_sound : forall a, Forall (vok_in a) (mut_a_in a).
+Proof.
+  induction a; simpl mut_a_in; rewrite Forall_app; split; try apply vfire_in_sound;
+    try apply Forall_nil.
+  - (* AAdd *)
+    rewrite Forall_app; split.
+    + apply (vctx_in_sound (fun x' => AAdd x' a2)); [|exact IHa1].
+      intros r x' env db g Hm H. simpl. apply ctx_add_l; [exact Hm|exact H].
+    + apply (vctx_in_sound (fun y' => AAdd a1 y')); [|exact IHa2].
+      intros r y' env db g Hm H. simpl. apply ctx_add_r; [exact Hm|exact H].
+  - (* AMul by a non-negative constant *)
+    destruct a2; try apply Forall_nil.
+    destruct (0 <=? z)%Z eqn:E; [|apply Forall_nil]. apply Z.leb_le in E.
+    apply (vctx_in_sound (fun x' => AMul x' (AConst z))); [|exact IHa1].
+    intros r x' env db g Hm H. simpl. apply ctx_mul_const; [exact Hm|exact E|exact H].
+  - (* AMono *)
+    apply (vctx_in_sound (AMono n)); [|exact IHa].
+    intros r x' env db g Hm H. simpl.
+    destruct r; try discriminate;
+      destruct (aeval env db g a), (aeval env db g x'); simpl in *; try tauto;
+      apply mfn_mono; exact H.
+Qed.
+
+Definition vmut_in (v : vquery) : list qmutant :=
+  flat_map (fun s =>
+      let pre := fst (fst s) in let a := snd (fst s) in let post := snd s in
+      map (fun m => (fst m, (fst (snd m), (List.length pre, with_items v (pre ++ snd (snd m) :: post)%list))))
+          (mut_a_in a))
+    (splits (vitems v)).
+
+Theorem vmut_in_sound : forall v name r j v',
+  In (name, (r, (j, v'))) (vmut_in v) ->
+  forall env db, W db -> Forall2 (row_rel r j) (veval env db v) (veval env db v').
+Proof.
+  intros v name r j v' H env db Hdb. unfold vmut_in in H.
+  apply in_flat_map in H as [[[pre a] post] [Hs Hm]]. simpl in Hm.
+  apply in_map_iff in Hm as [[n [r0 a']] [E Hin]]. simpl in E. inversion E; subst. clear E.
+  apply splits_spec in Hs.
+  pose proof (proj1 (Forall_forall _ _) (mut_a_in_sound a) _ Hin) as Hok.
+  unfold vok_in in Hok. simpl in Hok.
+  unfold veval. rewrite vgroups_with_items, vitems_with_items, Hs.
+  induction (vgroups env db v) as [|g gs IH]; simpl; constructor; [|exact IH].
+  exists (map (aeval env db g) pre), (aeval env db g a), (aeval env db g a'), (map (aeval env db g) post).
+  rewrite !map_app. simpl. repeat split; try reflexivity.
+  - apply map_length.
+  - apply Hok. exact Hdb.
+Qed.
+
+End VEngineIn.
+

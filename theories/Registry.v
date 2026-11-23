@@ -81,6 +81,20 @@ Proof. intros v name r j v'. apply vmut_sound. Qed.
 
 Print Assumptions vmutate_sound.
 
+(** The value mutator for a class of worlds [W], with further value rules that are
+    sound in that class only: rules proved against the semantics of one dialect.  The
+    rules above are sound in every world, hence in [W]. *)
+Definition vmutate_within (W : db_t -> Prop) (vrs : list (vrule_in W)) : vquery -> list qmutant :=
+  vmut_in W (map (vrule_at W) value_rules ++ vrs).
+
+Theorem vmutate_within_sound : forall W vrs v name r j v',
+  In (name, (r, (j, v'))) (vmutate_within W vrs v) ->
+  forall env db, W db -> Forall2 (row_rel r j) (veval env db v) (veval env db v').
+Proof. intros W vrs v name r j v'. apply vmut_in_sound. Qed.
+
+Print Assumptions vmutate_within_sound.
+
+
 (** ---------------- HAVING ---------------- *)
 
 (** Mutation of the HAVING predicate, with the predicate and query rules above. *)
@@ -112,6 +126,18 @@ Theorem tmutate_frame : forall t name r j t', In (name, (r, (j, t'))) (tmutate t
 Proof. intros t name r j t'. apply tmut_frame. Qed.
 
 Print Assumptions tmutate_frame.
+
+(** The same for value queries with UNION ALL, which is what the command-line front
+    end mutates. *)
+Definition tmutate_within (W : db_t -> Prop) (vrs : list (vrule_in W)) : vtop -> list tmutant :=
+  tmut_in W (map (vrule_at W) value_rules ++ vrs).
+
+Theorem tmutate_within_sound : forall W vrs t name r j t',
+  In (name, (r, (j, t'))) (tmutate_within W vrs t) ->
+  forall env db, W db -> Forall2 (row_rel r j) (teval env db t) (teval env db t').
+Proof. intros W vrs t name r j t'. apply tmut_in_sound. Qed.
+
+Print Assumptions tmutate_within_sound.
 
 (** HAVING mutation of one arm. *)
 Definition thmutate : dir -> vtop -> list (string * vtop) := thmut pred_rules query_rules.
@@ -145,6 +171,11 @@ Print Assumptions thmutate_distinct_sound.
     The extracted rule records carry no proof.  The front end only needs the names of
     the registered rules; the rule types are made abstract in the interface it is
     compiled against (see the Makefile), so OCaml code cannot build a rule. *)
+
+(** The names of the rules of this mutator that are sound in a class of worlds only.
+    The registry has none; a development that adds such rules lists them here, so that
+    the checker can keep to the queries of that class. *)
+Definition class_rule_names : list string := [].
 
 Definition pred_rule_names : list (string * dir) := map (fun r => (pr_name r, pr_dir r)) pred_rules.
 Definition query_rule_names : list (string * dir) := map (fun r => (qr_name r, qr_dir r)) query_rules.

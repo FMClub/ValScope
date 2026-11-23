@@ -246,6 +246,109 @@ def outside_collation_law(tr, term):
     return check(tree)
 
 
+COMPARING = ('Distinct', 'Union', 'Intersect', 'Except', 'IntersectAll', 'ExceptAll')
+
+
+def compared_selections(tr, term):
+    """The sub-queries of `term` that compare rows (DISTINCT and the set operations but
+    UNION ALL) over a WHERE or ON condition which may tell equivalent rows apart.
+
+    A rule proved for a class of worlds can turn `q WHERE c1 AND c2` into `(q WHERE c1)
+    INTERSECT (q WHERE c2)`.  Its proof uses the law that a condition has one truth value
+    on equivalent rows.  With 'a' and 'A' in a case-insensitive column, `HEX(s) = '61'`
+    and `HEX(s) = '41'` each keep one of the two rows, and the INTERSECT finds them equal:
+    the mutant has a row and the original none.  So a mutant of such a rule is outside
+    the model when it does not have exactly these sub-queries of the original.
+
+    A condition may tell equivalent rows apart when it has an operation of the collation
+    law above, a sub-query, or a comparison that the server may make after a conversion:
+    of two operands neither of which is a string literal, unless both read only integer
+    columns or number literals ('12' and a string with the same collation key need not be
+    the same number)."""
+    cache = tr._law_cache
+    exact = getattr(tr, '_exact_names', set())
+    by_table = getattr(tr.exact_columns, 'by_table', None) or {}
+
+    def exact_only(t):
+        cols = [n for n in t.walk() if isinstance(n, (exp.Column, exp.Star))]
+        if not cols:
+            return False
+        return (bool(exact) or bool(by_table)) and all(
+            isinstance(c, exp.Column) and not isinstance(c.this, exp.Star)
+            and (c.name.lower() in exact or _column_class(c, tr._sources, by_table, tr.schema) is not None)
+            for c in cols)
+
+    def operand(x):
+        if not (isinstance(x, list) and x and x[0] == 'EAtom'):
+            return 'other'
+        t = _cached_parse(cache, tr.exprs[int(x[1])], tr.dialect)
+        if t is None:
+            return 'other'
+        inner = t
+        while isinstance(inner, (exp.Paren, exp.Neg)):
+            inner = inner.this
+        if isinstance(inner, exp.Literal):
+            return 'number' if inner.is_number else 'string'
+        if _sensitive_tree(t, tr.dialect):
+            return 'other'
+        return 'exact' if exact_only(t) else 'other'
+
+    def telling(p):
+        if not isinstance(p, list) or not p:
+            return False
+        tag = p[0]
+        if tag in ('True', 'False'):
+            return False
+        if tag in ('Not', 'And', 'Or'):
+            return any(telling(y) for y in p[1:])
+        if tag == 'IsNull':
+            return operand(p[1]) == 'other' and _atom_sensitive(p[1])
+        if tag == 'Cmp':
+            kinds = [operand(p[2]), operand(p[3])]
+            if 'string' in kinds and not any(_atom_sensitive(y) for y in p[2:4]):
+                return False
+            return not all(k in ('number', 'exact') for k in kinds)
+        if tag == 'Atom':
+            t = _cached_parse(cache, tr.preds[int(p[1])], tr.dialect)
+            return t is None or not exact_only(t) or _sensitive_tree(t, tr.dialect)
+        return True                     # LIKE, REGEXP, IN, EXISTS, anything else
+
+    def _atom_sensitive(x):
+        if not (isinstance(x, list) and x and x[0] == 'EAtom'):
+            return True
+        t = _cached_parse(cache, tr.exprs[int(x[1])], tr.dialect)
+        return t is None or _sensitive_tree(t, tr.dialect)
+
+    def selects_apart(q):
+        if not isinstance(q, list) or not q:
+            return False
+        if isinstance(q[0], list):
+            return any(selects_apart(y) for y in q)
+        if q[0] == 'Where' and telling(q[1]):
+            return True
+        if q[0] == 'Inner' and telling(q[1]):
+            return True
+        if q[0] == 'Left' and telling(q[2]):
+            return True
+        return any(selects_apart(y) for y in q[1:])
+
+    out = set()
+
+    def walk(q):
+        if not isinstance(q, list) or not q:
+            return
+        if isinstance(q[0], list):
+            for y in q:
+                walk(y)
+            return
+        if q[0] in COMPARING and selects_apart(q):
+            out.add(repr(q))
+        for y in q[1:]:
+            walk(y)
+    walk(parse_sexp(term) if isinstance(term, str) else term)
+    return frozenset(out)
+
+
 def _exact_names(tree, exact_columns, schema):
     """The column names of the query whose values have one representation each on this
     database, so that two equivalent values are identical: `exact_columns` maps a base

@@ -17,7 +17,8 @@
      op    ::= eq | ne | lt | le | gt | ge
    For every input line the program prints one line per mutant,
      <Up|Down> TAB <rule name> TAB <query>
-   followed by a line "END".  `--rules` lists the registered plug-ins.
+   followed by a line "END".  `--rules` lists the registered plug-ins, `--class-rules`
+   the names of those that are sound in a class of worlds only.
 
    Value queries (one select item is mutated, the rows stay the same):
      vquery ::= (VProj (item ...) q) | (VGroup (e ...) (item ...) having q)
@@ -352,7 +353,9 @@ let is_value_query = function
   | _ -> false
 
 let () =
-  if Array.length Sys.argv > 1 && Sys.argv.(1) = "--rules" then begin
+  if Array.length Sys.argv > 1 && Sys.argv.(1) = "--class-rules" then
+    List.iter print_endline class_rule_names
+  else if Array.length Sys.argv > 1 && Sys.argv.(1) = "--rules" then begin
     List.iter (fun (n, d) -> Printf.printf "pred\t%s\t%s\n" (dir_name d) n) pred_rule_names;
     List.iter (fun (n, d) -> Printf.printf "query\t%s\t%s\n" (dir_name d) n) query_rule_names;
     List.iter (fun (n, r) -> Printf.printf "value\t%s\t%s\n" (rel_name r) n) value_rule_names

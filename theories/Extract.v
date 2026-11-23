@@ -19,5 +19,5 @@ From ValScope Require Import Logic3 Syntax Rule Engine Value VEngine VHaving VUn
 Extraction Language OCaml.
 Extraction "extracted/valscope_core.ml" mutate mut_q mut_p pred_rules query_rules flip
   vmutate vmut value_rules hmutate hmut tmutate thmutate shmutate wmutate
-  pred_rule_names query_rule_names value_rule_names
+  pred_rule_names query_rule_names value_rule_names class_rule_names
   mutate_add_commutes.

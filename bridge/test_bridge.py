@@ -1057,6 +1057,27 @@ report(_keeps_names(['d'], ['d']) and _keeps_names(['d', 'e', 'd', 'e'], ['d', '
        and not _keeps_names(['y'], ['d', 'y']) and not _keeps_names(['e', 'd'], ['d', 'e'])
        and not _keeps_names(['x'], ['X']) and not _keeps_names(['d'], []) and not _keeps_names([], ['d']),
        'the derived tables of a mutant are those of the original, once or several times over')
+# a condition keeps the names it reads: no mutant puts `e.a = 9` over a derived table of another name
+from sql_bridge import _free_names, _same_names, _named_columns  # noqa: E402
+tr = Translation("SELECT 1 FROM (SELECT a FROM q) AS d WHERE a = 77 UNION ALL "
+                 "SELECT 1 FROM (SELECT a FROM w) AS e WHERE e.a = 9", 'mysql', kind='set')
+t0 = parse_sexp(tr.term)
+named0, free0 = _named_columns(tr, t0), _free_names(tr, t0)
+# the two arms commuted, the two names left in place: each WHERE is over the other name
+swapped = ('(UnionAll (Proj ((EAtom 7)) (Where (Cmp eq (EAtom 5) (EAtom 6)) (Named 0 (Proj ((EAtom 4)) (T 1 1))))) '
+           '(Proj ((EAtom 3)) (Where (Cmp eq (EAtom 1) (EAtom 2)) (Named 1 (Proj ((EAtom 0)) (T 0 1))))))')
+report(swapped != tr.term and _keeps_names(_named_columns(tr, parse_sexp(swapped)), named0)
+       and not _same_names(tr, swapped, named0, free0),
+       'a mutant whose condition names a derived table it is not over is not printed')
+report(_same_names(tr, tr.term, named0, free0) and all(not s for _, _, s in free0),
+       'the names of the original bind in its own FROM clauses (%r)' % sorted(free0, key=repr))
+tr = Translation("SELECT t.a FROM t JOIN u ON t.a < u.b OR u.a = 1 WHERE t.b > 1", 'mysql', kind='set')
+split = '(UnionAll %s %s)' % (tr.term, tr.term)
+report(_free_names(tr, parse_sexp('(Proj ((EAtom 6)) (Where (Cmp gt (EAtom 4) (EAtom 5)) (UnionAll '
+                                  '(Inner (Cmp lt (EAtom 0) (EAtom 1)) (T 0 1) (T 1 1)) '
+                                  '(Inner (Cmp eq (EAtom 2) (EAtom 3)) (T 0 1) (T 1 1)))))'))
+       <= _free_names(tr, parse_sexp(tr.term)) and _free_names(tr, parse_sexp(split)) == _free_names(tr, parse_sexp(tr.term)),
+       'names bound in every arm of a set operation are bound above it')
 # a select list and a WHERE over a UNION ALL of joins are printed inside the arms
 from printer import join_arms_out  # noqa: E402
 tr = Translation("SELECT t.a FROM t JOIN u ON t.a < u.b OR u.a = 1 WHERE t.b > 1", 'mysql', kind='set')

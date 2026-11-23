@@ -65,8 +65,8 @@ DEFAULT_CLI = os.environ.get('VALSCOPE_MUTATE') or os.path.join(HERE, '..', 'cli
 
 
 from common import Unsupported, parse_sexp, _strip_parens
-from collation_law import (ExactColumns, _alias_sources, _column_class, _exact_names, compared_selections,
-                           aggregates_over_integers, integer_fragment,
+from collation_law import (ExactColumns, _alias_sources, _cached_parse, _column_class, _exact_names,
+                           compared_selections, aggregates_over_integers, integer_fragment,
                            outside_collation_law)
 from determinism import _check_deterministic, _window_undetermined
 from printer import Printer, join_arms_out
@@ -1088,10 +1088,11 @@ def _join_source(tr, x):
 
 
 def _named_columns(tr, t):
-    """For every named sub-query of t (a derived table or CTE body), the select list that
-    names its columns: the one of its leftmost arm.  The queries around it name these
-    columns in their texts, so a mutant that gives a derived table other column names is
-    not the SQL of its term (an unqualified name could then even bind to an outer table)."""
+    """The named sub-queries of t (derived tables and CTE bodies) in the order of the term,
+    each as the text of (its name as written, the select list that names its columns: the
+    one of its leftmost arm).  The queries around a derived table name it and its columns
+    in their texts, so a mutant that gives a derived table other column names is not the
+    SQL of its term (an unqualified name could then even bind to an outer table)."""
     out = []
 
     def naming(x):
@@ -1122,17 +1123,76 @@ def _named_columns(tr, t):
 
 
 def _keeps_names(mutant, original):
-    """May the mutant be printed, as far as its derived tables go?  Their names and naming
-    select lists, in order, must be those of the original, once or several times over (a
-    rule may repeat the whole query, as when it splits a condition into a UNION ALL).
-    The texts of the queries around a derived table name it and its columns, so a mutant
-    that drops, renames or moves one can leave a name to bind to something else: an outer
+    """A necessary condition for printing a mutant, as far as its derived tables go: their
+    names and naming select lists (_named_columns), in order, must be those of the
+    original, once or several times over (a rule may repeat the whole query, as when it
+    splits a condition into a UNION ALL).  The texts of the queries around a derived table
+    name it and its columns, so a mutant that drops or renames one, or puts one in
+    another place of the sequence, can leave a name to bind to something else: an outer
     table of that name, or a column of an outer table.  Names are compared as written:
-    MySQL can keep `X` and `x` apart."""
+    MySQL can keep `X` and `x` apart.  The sequence does not say which conditions sit over
+    which name: that is _free_names."""
     if not original:
         return not mutant
     n = len(original)
     return len(mutant) % n == 0 and len(mutant) >= n and all(mutant[i] == original[i % n] for i in range(len(mutant)))
+
+
+_QUERY_TAGS = SET_TAGS + ('Proj', 'Where', 'Inner', 'Left', 'Distinct', 'T', 'Named', 'QAtom',
+                          'VProj', 'VGroup', 'VGlobal')
+
+
+def _free_names(tr, t):
+    """For every condition and expression atom of t: the table names that qualify its
+    columns and that the FROM clause of its own query does not bind (they are read from
+    an enclosing query, if at all).  A set of (kind of atom, its number, those names).
+
+    In the model an atom is a function of the row of the query it sits in.  Its text says
+    the same only while the names in it are bound where they were in the original query:
+    a rule that puts the condition `e.a = 9` over a derived table of another name leaves
+    `e` to an outer table.  So a mutant is printed only if _free_names of it is included
+    in that of the original."""
+    out = set()
+
+    def is_query(x):
+        return isinstance(x, list) and bool(x) and isinstance(x[0], str) and x[0] in _QUERY_TAGS
+
+    def bound(x):
+        """The names x gives its rows when it is a FROM clause."""
+        if x[0] == 'T':
+            return {tr.aliases[int(x[1])]}
+        if x[0] == 'Named':
+            return {tr.named[int(x[1])]}
+        if x[0] in ('Inner', 'Left', 'Where', 'Distinct'):
+            return set().union(*[bound(y) for y in x[1:] if is_query(y)])
+        if x[0] in SET_TAGS:    # printed inside the arms (printer.join_arms_out): bound in each of them
+            return bound(x[1]) & bound(x[2])
+        return set()
+
+    def walk(x, scope):
+        if not isinstance(x, list) or not x:
+            return
+        if isinstance(x[0], list):
+            for y in x:
+                walk(y, scope)
+            return
+        if x[0] in ('Atom', 'EAtom'):
+            tree = _cached_parse(None, (tr.preds if x[0] == 'Atom' else tr.exprs)[int(x[1])], tr.dialect)
+            names = {'?'} if tree is None else {c.table for c in tree.find_all(exp.Column) if c.table}
+            out.add((x[0], int(x[1]), frozenset(names - scope)))
+            return
+        if is_query(x):
+            scope = set().union(*[bound(y) for y in x[1:] if is_query(y)])
+        for y in x[1:]:
+            walk(y, set() if is_query(y) else scope)
+    walk(t, set())
+    return out
+
+
+def _same_names(tr, term, named, free):
+    """May the mutant `term` be printed, as far as names go?  (_keeps_names, _free_names.)"""
+    t = parse_sexp(term)
+    return _keeps_names(_named_columns(tr, t), named) and _free_names(tr, t) <= free
 
 
 def _arm_sets(tr, t):
@@ -1337,10 +1397,10 @@ def mutate_sql(sql, cli=DEFAULT_CLI, dialect='mysql', schema=None, exact_columns
     # the query as written and as it is run (re-printed, its CTEs inlined) must both be of the fragment
     in_fragment = (integer_fragment(tr, sql) and integer_fragment(tr, original)) if class_rules else True
     fragment_known = getattr(exact_columns, 'integer_tables', None) is not None
-    named = _named_columns(tr, parse_sexp(tr.term))
+    named, free = _named_columns(tr, parse_sexp(tr.term)), _free_names(tr, parse_sexp(tr.term))
     for direction, rule, term in _run_cli(tr.term, cli):
-        if not _keeps_names(_named_columns(tr, parse_sexp(term)), named):
-            STATS['outside_model'] += 1     # the derived tables are not those of the original
+        if not _same_names(tr, term, named, free):
+            STATS['outside_model'] += 1     # the names do not bind as in the original
             continue
         if rule in class_rules and not in_fragment:
             STATS['outside_fragment'] += 1  # see integer_fragment
@@ -1404,10 +1464,10 @@ def mutate_value(sql, cli=DEFAULT_CLI, dialect='mysql', translation=None, schema
     if original is None:
         raise Unsupported('the re-printed query does not parse back to its term')
     mutants, having_mutants, skipped = [], [], 0
-    named = _named_columns(tr, parse_sexp(tr.term))
+    named, free = _named_columns(tr, parse_sexp(tr.term)), _free_names(tr, parse_sexp(tr.term))
     for fields in _run_cli(tr.term, cli):
-        if not _keeps_names(_named_columns(tr, parse_sexp(fields[-1])), named):
-            STATS['outside_model'] += 1     # the derived tables are not those of the original
+        if not _same_names(tr, fields[-1], named, free):
+            STATS['outside_model'] += 1     # the names do not bind as in the original
             continue
         try:
             text = _validated(tr, fields[-1], 'value')

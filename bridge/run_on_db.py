@@ -112,6 +112,8 @@ class MySQLTarget:
             if compound:
                 # also when the collations are not trusted: the arms' types are (last_arm_mix)
                 self.last_collations = self._compound_collations(sql, self.last_collations)
+                if self._mixes_precision(sql):
+                    self.last_arm_mix.add('precision')
             if not self.trusted_collations:
                 text = [n != 'binary' for n in self.last_collations]
                 self.last_collations = [MariaDBColumns.COARSEST if t else 'binary' for t in text]
@@ -157,6 +159,54 @@ class MySQLTarget:
         return got == ['utf8mb4_general_ci', 'utf8mb4_bin']
 
     NUMERIC_CODES = {0, 1, 2, 3, 4, 5, 8, 9, 13, 16, 246}     # pymysql FIELD_TYPE: integers, DECIMAL, FLOAT, DOUBLE, YEAR, BIT
+    APPROXIMATE_CODES = {4, 5}                                  # FLOAT, DOUBLE
+
+    def _mixes_precision(self, sql):
+        """Whether some set operation of the query, at any depth, has a column that is an
+        exact number (an integer, a DECIMAL) in one operand and a FLOAT or DOUBLE in the
+        other.  The server then converts the exact operand to DOUBLE, where two exact
+        values can become one: `SELECT DISTINCT c FROM t` keeps 0.1 and
+        0.10000000000000000001 of a DECIMAL(30,20) column apart, a UNION with a DOUBLE
+        operand, even an empty one, does not, and a BIGINT above 2^53 equals a DOUBLE it
+        is not equal to as an integer.  No model of the mutation rules has this
+        conversion (theirs keeps one equivalence of values throughout a query), so such
+        a query is outside every one of them.  An operand that cannot be probed alone
+        (a correlated one) counts as a mix."""
+        try:
+            import sqlglot
+            from sqlglot import exp
+            tree = sqlglot.parse_one(sql, read='mysql')
+        except Exception:
+            return True
+        with_ = tree.args.get('with')
+        prefix = with_.sql(dialect='mysql') + ' ' if with_ is not None else ''
+        cache = self.__dict__.setdefault('_arm_cache', {})
+
+        def codes(arm):
+            while isinstance(arm, (exp.Paren, exp.Subquery)) and arm.args.get('alias') is None:
+                arm = arm.this
+            probe = '%sSELECT * FROM (%s) AS vs_arm LIMIT 0' % (prefix, arm.sql(dialect='mysql'))
+            if probe not in cache:
+                try:
+                    with self.conn.cursor() as cur:
+                        cur.execute(probe)
+                        cur.fetchall()
+                        cache[probe] = [(self.columns.name(f.charsetnr), f.type_code) for f in cur._result.fields]
+                except self.pymysql.err.MySQLError:
+                    cache[probe] = None
+            return None if cache[probe] is None else [code for _, code in cache[probe]]
+
+        for node in tree.walk():
+            if not isinstance(node, (exp.Union, exp.Intersect, exp.Except)):
+                continue
+            left, right = codes(node.left), codes(node.right)
+            if left is None or right is None or len(left) != len(right):
+                return True
+            for a, b in zip(left, right):
+                exact = self.NUMERIC_CODES - self.APPROXIMATE_CODES - {16}
+                if (a in exact and b in self.APPROXIMATE_CODES) or (b in exact and a in self.APPROXIMATE_CODES):
+                    return True
+        return False
 
     def _compound_collations(self, sql, names):
         """The server reports for a compound column the collation it derives from all
@@ -541,6 +591,9 @@ def judge_results(target, base, res, expect, cover=False, single=False, sql=None
             bad = [v for v in verdicts if v not in ('ok', 'collation')]
             return bad[0] if bad else ('collation' if 'collation' in verdicts else 'ok')
     verdict = check(base.rows, res.rows)
+    if verdict not in ('ok', 'incomparable', 'collation') and 'precision' in (base.mix | res.mix):
+        # a set operation converted exact numbers to DOUBLE (MySQLTarget._mixes_precision)
+        return 'incomparable'
     if collation_can_explain(base.rows, res.rows):
         verdict = arm_mix_verdict(verdict, base.mix, res.mix)
     return rejudge(verdict, check, base.rows, res.rows, base.mixed | res.mixed,

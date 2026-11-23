@@ -71,6 +71,12 @@ def main():
         report('types' in target.last_arm_mix, 'a number arm and a text arm: mixed types')
         target.run('SELECT t.n FROM t UNION SELECT t.n + 0.5 FROM t')
         report(not target.last_arm_mix, 'two numeric types and no text: no mix')
+        target.run('SELECT t.n FROM t UNION SELECT t.n + 0.5e0 FROM t')
+        report('precision' in target.last_arm_mix, 'an exact arm and a DOUBLE arm: the exact values are converted')
+        target.run('SELECT t.n FROM t WHERE t.n IN (SELECT t.n FROM t EXCEPT SELECT t.n + 0.5e0 FROM t)')
+        report('precision' in target.last_arm_mix, 'the same in a compound nested in a condition')
+        target.run('SELECT t.n + 1e0 FROM t UNION ALL SELECT t.n + 0.5e0 FROM t')
+        report('precision' not in target.last_arm_mix, 'two DOUBLE arms: nothing is converted')
         report(arm_mix_verdict('Up violated', set(), {'types'}) == 'Up violated' and
                arm_mix_verdict('Up violated', {'collations', 'types'}, set()) == 'collation' and
                arm_mix_verdict('Up violated', set(), set()) == 'Up violated' and

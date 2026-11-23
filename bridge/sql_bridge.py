@@ -1118,7 +1118,7 @@ def _named_columns(tr, t):
         for y in x[1:]:
             walk(y)
     walk(t)
-    return sorted(out, key=repr)
+    return {repr(x) for x in out}
 
 
 def _arm_sets(tr, t):
@@ -1320,11 +1320,12 @@ def mutate_sql(sql, cli=DEFAULT_CLI, dialect='mysql', schema=None, exact_columns
     mutants, skipped, seen = [], 0, set()
     class_rules = _class_rules(cli)
     compared = compared_selections(tr, tr.term) if class_rules else None
-    in_fragment = integer_fragment(tr, sql) if class_rules else True
+    # the query as written and as it is run (re-printed, its CTEs inlined) must both be of the fragment
+    in_fragment = (integer_fragment(tr, sql) and integer_fragment(tr, original)) if class_rules else True
     fragment_known = getattr(exact_columns, 'integer_tables', None) is not None
     named = _named_columns(tr, parse_sexp(tr.term))
     for direction, rule, term in _run_cli(tr.term, cli):
-        if _named_columns(tr, parse_sexp(term)) != named:
+        if not _named_columns(tr, parse_sexp(term)) <= named:
             STATS['outside_model'] += 1     # a derived table would get other column names
             continue
         if rule in class_rules and not in_fragment:
@@ -1389,7 +1390,11 @@ def mutate_value(sql, cli=DEFAULT_CLI, dialect='mysql', translation=None, schema
     if original is None:
         raise Unsupported('the re-printed query does not parse back to its term')
     mutants, having_mutants, skipped = [], [], 0
+    named = _named_columns(tr, parse_sexp(tr.term))
     for fields in _run_cli(tr.term, cli):
+        if not _named_columns(tr, parse_sexp(fields[-1])) <= named:
+            STATS['outside_model'] += 1     # a derived table would get other column names
+            continue
         try:
             text = _validated(tr, fields[-1], 'value')
         except Unsupported:
@@ -1405,7 +1410,8 @@ def mutate_value(sql, cli=DEFAULT_CLI, dialect='mysql', translation=None, schema
             mutants.append((relation, rule, int(column), text))
         else:
             direction, rule, _ = fields
-            if rule in _class_rules(cli) and not integer_fragment(tr, sql):
+            if rule in _class_rules(cli) and not (integer_fragment(tr, sql) and integer_fragment(tr, original)
+                                                  and integer_fragment(tr, text)):
                 STATS['outside_fragment'] += 1       # a rule of a class of worlds on the HAVING condition
                 continue
             if getattr(tr, 'has_window', False):

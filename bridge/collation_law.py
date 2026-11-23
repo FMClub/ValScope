@@ -645,9 +645,9 @@ def integer_fragment(tr, sql):
     except Exception:
         return False
     local = set()
-    for n in tree.find_all(exp.CTE, exp.Subquery):
+    for n in tree.find_all(exp.CTE):
         if n.alias:
-            if n.alias.lower() in everything or n.alias.lower() in local and isinstance(n, exp.CTE):
+            if n.alias.lower() in everything or n.alias.lower() in local:
                 return False       # a CTE named as a table, whatever the case: which is read?
             local.add(n.alias.lower())
     for n in tree.walk():

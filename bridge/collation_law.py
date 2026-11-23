@@ -653,7 +653,9 @@ def integer_fragment(tr, sql):
     matches a value of a NOT NULL item of the other); `SELECT EXISTS ((SELECT * FROM p
     WHERE a = 3) INTERSECT (SELECT * FROM p WHERE a = 5))` with 1 (a `*` operand under
     EXISTS is compared as one constant); and a correlated EXCEPT ALL or INTERSECT ALL
-    under EXISTS with rows of an earlier outer row.  No NULL as a select item: its
+    under EXISTS with rows of an earlier outer row.  NULL only as an operand of a
+    comparison, IS, IN, AND, OR or NOT, or as a whole condition: as a select item, or in
+    MAX(NULL), MIN(NULL) (a string) or SUM(NULL) (a DOUBLE), its
     column is a binary string once it goes through a UNION or DISTINCT in a derived table,
     a set operation of it with an integer column is a VARCHAR, and two such columns
     compare as strings ('2' > '10'), so the columns of the fragment would not all be
@@ -682,11 +684,13 @@ def integer_fragment(tr, sql):
         if type(n) not in _FRAGMENT:
             return False
         if isinstance(n, exp.Null):
-            item = n.parent
-            while isinstance(item, (exp.Alias, exp.Paren)):
-                item = item.parent
-            if isinstance(item, exp.Select):
-                return False    # a select item NULL is a string to MySQL once it goes through a UNION (see the docstring)
+            user = n.parent
+            while isinstance(user, exp.Paren):
+                user = user.parent
+            if not isinstance(user, (exp.Is, exp.EQ, exp.NEQ, exp.LT, exp.LTE, exp.GT, exp.GTE, exp.In, exp.Not,
+                                     exp.And, exp.Or, exp.Where, exp.Having)):
+                # a select item NULL, MAX(NULL), SUM(NULL): a string or DOUBLE column to MySQL (see the docstring)
+                return False
         if isinstance(n, exp.Literal) and not (n.is_int and not n.is_string and len(n.name.lstrip('0')) <= 18):
             return False
         if isinstance(n, exp.Neg) and not isinstance(n.this, exp.Literal):

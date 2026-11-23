@@ -1052,6 +1052,7 @@ outside = ["SELECT a + 1 FROM p", "SELECT p.a FROM p LEFT JOIN q ON p.a = q.a IN
            "SELECT a FROM p WHERE EXISTS (SELECT a FROM q WHERE q.a = p.a EXCEPT ALL SELECT a FROM q)",
            "SELECT a FROM (SELECT a FROM p EXCEPT SELECT a FROM q) AS d",
            "SELECT a FROM (SELECT NULL AS a FROM p) AS d", "SELECT NULL, a FROM p",
+           "SELECT MAX(NULL) FROM p", "SELECT a FROM p WHERE a = (SELECT SUM(NULL) FROM q)",
            "WITH d AS (SELECT a FROM p INTERSECT SELECT a FROM q) SELECT a FROM d",
            "SELECT a FROM p WHERE EXISTS (SELECT a FROM p INTERSECT SELECT a FROM q)"]
 report(all(integer_fragment(tr, q) for q in inside), 'the integer fragment: ' +
@@ -1087,10 +1088,15 @@ refused = ["SELECT a FROM p WHERE a = b < 1", "SELECT a FROM p WHERE a < b = b >
            "((SELECT a FROM p) LIMIT 0) UNION ALL (SELECT a FROM q)", "SELECT 1 FROM ((SELECT a FROM p) LIMIT 0) AS d",
            "SELECT d.a FROM k AS d LEFT JOIN (SELECT k.b AS c0 FROM k) AS t JOIN w AS h ON h.a = t.c0 ON d.a = t.c0",
            "WITH c1 AS (SELECT a FROM n) SELECT d.a FROM k AS d JOIN c1 AS t JOIN w AS h ON h.a = t.a ON d.a = t.a",
-           "SELECT a, b FROM p WHERE a = 2 /*! OR 1 = 1 */"]
+           "SELECT a, b FROM p WHERE a = 2 /*! OR 1 = 1 */", "SELECT a FROM p WHERE a BETWEEN b AND c NOT IN (0, 1)",
+           "SELECT a FROM p WHERE a NOT BETWEEN 0 AND b LIKE c", "SELECT ! a COLLATE utf8mb4_bin FROM p",
+           "SELECT a FROM p WHERE INTERVAL a DAY + '2020-01-01' > '2020-01-02'",
+           "SELECT REGEXP_LIKE(s, 'a', 'c') FROM t", "WITH T1 AS (SELECT a FROM p) SELECT a FROM t1"]
 kept = ["SELECT a FROM p WHERE NOT a = b", "SELECT a FROM p WHERE a = b IS NULL", "SELECT a FROM p WHERE (a = b) < 1",
         "SELECT a FROM p WHERE a = (b < 1)", "SELECT a FROM p WHERE a < b = b", "SELECT a FROM p WHERE NOT a IN (1, 2)",
-        "SELECT a FROM p WHERE a NOT IN (1, 2) AND b = 1", "SELECT NOT a = b FROM p"]
+        "SELECT a FROM p WHERE a NOT IN (1, 2) AND b = 1", "SELECT NOT a = b FROM p",
+        "SELECT a FROM p WHERE a = b IN (c, 1)", "SELECT a FROM p WHERE a IN (1, NOT b)",
+        "SELECT a FROM p WHERE a BETWEEN 1 AND 2", "WITH T1 AS (SELECT a FROM p) SELECT a FROM T1"]
 
 
 def translates(q):

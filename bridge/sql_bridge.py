@@ -121,23 +121,29 @@ def _mask_any(mask):
 
 
 _SAME_LEVEL = (exp.EQ, exp.NEQ, exp.LT, exp.GT, exp.LTE, exp.GTE, exp.NullSafeEQ, exp.NullSafeNEQ)
-_PREDICATES = _SAME_LEVEL + (exp.In, exp.Like, exp.Between, exp.Is, exp.RegexpLike, exp.Not)
 
 
 def _check_read_as_written(tree, sql, dialect):
     """Refuse (Unsupported) the texts that the parser reads, or the printer writes back,
     otherwise than MySQL reads them; each was found as a re-printed query with other rows
-    than the query as written (the twentieth and twenty-first audits).
+    than the query as written (the twentieth to twenty-second audits).
 
-    - MySQL has the comparison operators, IS, IN, LIKE and BETWEEN on one level, from left
-      to right: `a = b < 1` is `(a = b) < 1`.  The parser binds `<` tighter, so a
-      comparison whose right operand is a predicate without parentheses of its own is
-      refused (with `<=>` also one in parentheses, which the parser adds itself).
+    - MySQL has the comparison operators on one level, from left to right: `a = b < 1` is
+      `(a = b) < 1`.  The parser binds `<` tighter, so a comparison whose right operand is
+      a comparison without parentheses of its own is refused (with `<=>` also one in
+      parentheses, which the parser adds itself).
+    - The upper bound of BETWEEN is a predicate to MySQL: in `a BETWEEN b AND c NOT IN (0, 1)`
+      the IN belongs to `c`.  The parser gives it the whole BETWEEN, so a BETWEEN that is the
+      left operand of IN, LIKE, REGEXP or BETWEEN is refused.
     - `a NOT IN (1, 2) < b` is printed back as `NOT a IN (1, 2) < b`, which MySQL reads as
       `NOT (a IN (1, 2) < b)`: a NOT that is an operand of an operator is refused.
+    - `INTERVAL e unit + x ...`: MySQL takes all that follows the `+` as the operand.
+    - COLLATE binds tighter than any operator: `! a COLLATE c` is `!(a COLLATE c)`.
+    - REGEXP_LIKE with a match type is printed as REGEXP, without it, in a select item.
     - A LIMIT on a parenthesised query, and the joins nested after a derived table
       (`t JOIN (SELECT ...) AS d JOIN u ON ... ON ...`), would be dropped.
-    - A versioned comment or a hint is run by the server and is a comment to the parser."""
+    - A versioned comment or a hint is run by the server and is a comment to the parser
+      (the text is searched, so a string literal with `/*!` is refused too)."""
     if dialect != 'mysql':
         return
     if '/*!' in sql or '/*+' in sql:
@@ -148,11 +154,32 @@ def _check_read_as_written(tree, sql, dialect):
             if isinstance(n, (exp.NullSafeEQ, exp.NullSafeNEQ)):
                 while isinstance(right, exp.Paren):
                     right = right.this
-            if isinstance(right, _PREDICATES):
-                raise Unsupported('a comparison of a predicate without parentheses')
-        if isinstance(n, exp.Not) and isinstance(n.parent, (exp.Binary, exp.In, exp.Between)) and \
-                not isinstance(n.parent, exp.Connector):
+            if isinstance(right, _SAME_LEVEL):
+                raise Unsupported('a comparison of a comparison without parentheses')
+        if isinstance(n, exp.Between):
+            top = n         # the parser wraps a NOT BETWEEN in NOT and parentheses of its own
+            while isinstance(top.parent, (exp.Not, exp.Paren)):
+                top = top.parent
+            if top.arg_key == 'this' and isinstance(top.parent, (exp.In, exp.Like, exp.RegexpLike, exp.Between)):
+                raise Unsupported('a predicate after the upper bound of BETWEEN')
+        if isinstance(n, exp.Not) and not isinstance(n.parent, exp.Connector) and (
+                isinstance(n.parent, exp.Binary) or
+                (isinstance(n.parent, (exp.In, exp.Between)) and n.arg_key == 'this')):
             raise Unsupported('NOT as an operand')
+        if isinstance(n, (exp.Add, exp.Sub)) and isinstance(n.this, exp.Interval):
+            raise Unsupported('INTERVAL as a left operand')
+        if isinstance(n, exp.Collate):
+            operand = n.this
+            while isinstance(operand, exp.Paren):
+                operand = operand.this
+            if isinstance(operand, (exp.Not, exp.Binary, exp.Neg)):
+                raise Unsupported('COLLATE after an operator')
+        if isinstance(n, exp.RegexpLike) and n.args.get('flag') is not None:
+            item = n
+            while item.parent is not None and not isinstance(item.parent, exp.Select):
+                item = item.parent
+            if item.parent is not None and item.arg_key == 'expressions':
+                raise Unsupported('REGEXP_LIKE with a match type as a select item')
         if isinstance(n, (exp.Subquery, exp.Paren)):
             if n.args.get('limit') or n.args.get('offset') or (n.args.get('order') and n is not tree):
                 raise Unsupported('LIMIT or ORDER BY on a parenthesised query')
@@ -229,10 +256,15 @@ class Translation(Printer):
             if sub.args.get('with_') or sub.args.get('with'):
                 raise Unsupported('nested WITH')
 
+        self.cte_names = set()
+
         def inline(node):
             # every reference to a CTE, also inside atoms that are kept as text,
             # becomes a derived table with the CTE's body
             if isinstance(node, exp.Table) and not node.args.get('db') and node.name.lower() in self.ctes:
+                if node.name not in self.cte_names:
+                    # MySQL keeps `T1` and `t1` apart: the reference is to a base table, if to anything
+                    raise Unsupported('a table named as a CTE in another case')
                 if node.args.get('joins'):
                     raise Unsupported('nested join')      # the joins of the reference would be lost
                 alias = node.alias_or_name
@@ -244,6 +276,7 @@ class Translation(Printer):
                 raise Unsupported('CTE with a column list')
             # a CTE may refer to the CTEs before it
             self.ctes[cte.alias_or_name.lower()] = cte.this.copy().transform(inline)
+            self.cte_names.add(cte.alias_or_name)
         return tree.transform(inline)
 
     def _snapshot(self):

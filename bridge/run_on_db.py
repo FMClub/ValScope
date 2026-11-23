@@ -197,6 +197,15 @@ class MySQLTarget:
 
     NUMERIC_CODES = {0, 1, 2, 3, 4, 5, 8, 9, 13, 16, 246}     # pymysql FIELD_TYPE: integers, DECIMAL, FLOAT, DOUBLE, YEAR, BIT
     STRING_CODES = {15, 249, 250, 251, 252, 253, 254}           # VARCHAR, the BLOBs and TEXTs, VAR_STRING, STRING
+    TEMPORAL_CODES = {7, 10, 11, 12, 14}                        # TIMESTAMP, DATE, TIME, DATETIME, NEWDATE
+
+    def _family(self, code):
+        """Numbers, strings, dates and times, or the type itself (JSON, GEOMETRY, ...)."""
+        for name, codes in (('number', self.NUMERIC_CODES), ('string', self.STRING_CODES), ('time', self.TEMPORAL_CODES)):
+            if code in codes:
+                return name
+        return code
+
     APPROXIMATE_CODES = {4, 5}                                  # FLOAT, DOUBLE
 
     def _renamed(self, prefix, arm, tail):
@@ -224,14 +233,15 @@ class MySQLTarget:
         a query is outside every one of them.  The same holds for an operand with an ENUM,
         SET or ZEROFILL column, which the result of a set operation has as a plain string
         or number (an ENUM compares with a number by its index, the string by its digits).
-        And for a column that is a number in one operand and a string in the other: the
-        result is a string, and a condition above compares it as one ('2' > '10'), also when
-        the string operand is a select item NULL that went through a DISTINCT or UNION.
+        And for a column of two families in the two operands (numbers, strings, dates and
+        times, JSON; a bare NULL goes with any): the result is of one of them, usually a
+        string, and a condition above compares it as that ('2' > '10'), also when the
+        string operand is a select item NULL that went through a DISTINCT or UNION.
         An operand that cannot be probed alone (a correlated one; one that fails for any
         other reason) counts as a mix, so that outside the integer fragment no rule,
         ValScope's own included, reports a violation on such a query; unless
-        the query is of the integer fragment (collation_law.integer_fragment), where no
-        column is approximate, an ENUM, a SET or ZEROFILL: otherwise no violation of a rule
+        the query is of the integer fragment (collation_law.integer_fragment), whose
+        columns are integers or the exact results of COUNT and SUM: otherwise no violation of a rule
         could be reported on a set operation inside a correlated sub-query."""
         try:
             import sqlglot
@@ -239,7 +249,7 @@ class MySQLTarget:
             tree = sqlglot.parse_one(sql, read='mysql')
         except Exception:
             return True
-        with_ = tree.args.get('with')
+        with_ = tree.args.get('with_') or tree.args.get('with')
         prefix = with_.sql(dialect='mysql') + ' ' if with_ is not None else ''
         cache = self.__dict__.setdefault('_arm_cache', {})
 
@@ -296,7 +306,7 @@ class MySQLTarget:
                 exact = self.NUMERIC_CODES - self.APPROXIMATE_CODES - {16}
                 if (a in exact and b in self.APPROXIMATE_CODES) or (b in exact and a in self.APPROXIMATE_CODES):
                     return True
-                if (a in self.NUMERIC_CODES and b in self.STRING_CODES) or (b in self.NUMERIC_CODES and a in self.STRING_CODES):
+                if 6 not in (a, b) and self._family(a) != self._family(b):
                     return True
         return False
 
@@ -344,7 +354,7 @@ class MySQLTarget:
         compares = any(isinstance(n, (exp.Intersect, exp.Except)) and id(n) in chain for n in tree.walk())
         if not chain:
             return coarsest if nested else names
-        with_ = tree.args.get('with')
+        with_ = tree.args.get('with_') or tree.args.get('with')
         prefix = with_.sql(dialect='mysql') + ' ' if with_ is not None else ''
         combined = [{n} for n in names]
         codes = [set() for _ in names]

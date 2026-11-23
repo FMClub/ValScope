@@ -628,9 +628,12 @@ def integer_fragment(tr, sql):
     `a + N` has one value under DISTINCT and another without), no unsigned column (it
     becomes a DECIMAL beside a signed one), no string, decimal or float literal, no
     function, cast, CASE, LIKE, outer join, ORDER BY or LIMIT, no table function, no table
-    of another database.  And no IN directly over INTERSECT or EXCEPT: MySQL 8.4.13 answers
-    `5 IN (SELECT a FROM q INTERSECT SELECT a FROM e)` with NULL when `e` is empty, and the
-    same sub-query in a derived table with 0.  Literals have at most 18 digits.  Also
+    of another database.  And no IN whose sub-query has, at any depth, a set operation other
+    than UNION ALL: MySQL 8.4.13 answers `5 IN (SELECT a FROM q INTERSECT SELECT a FROM e)`
+    with NULL when `e` is empty and the same sub-query in a derived table with 0, also when
+    the INTERSECT is an operand of a UNION ALL; and `5 IN (SELECT a FROM (SELECT a FROM q
+    UNION SELECT a FROM q) d)` with 0 when `q.a` has a NULL and no 5.  The mutant is held to
+    the fragment as the original is.  Literals have at most 18 digits.  Also
     accepted, being of the same kind: IN lists, IS UNKNOWN, a comparison or a sub-query as
     a value, SELECT ALL."""
     tables = getattr(getattr(tr, 'exact_columns', None), 'integer_tables', None)
@@ -657,11 +660,9 @@ def integer_fragment(tr, sql):
         if isinstance(n, exp.Join) and (n.args.get('using') or n.args.get('method') or n.args.get('side')):
             return False
         if isinstance(n, exp.In) and n.args.get('query') is not None:
-            sub = n.args['query']
-            while isinstance(sub, (exp.Subquery, exp.Paren)):
-                sub = sub.this
-            if isinstance(sub, (exp.Intersect, exp.Except)):
-                return False        # MySQL 8.4.13 answers IN over INTERSECT / EXCEPT wrongly (see the docstring)
+            for op in n.args['query'].find_all(exp.Union, exp.Intersect, exp.Except):
+                if not isinstance(op, exp.Union) or op.args.get('distinct') is not False:
+                    return False    # MySQL 8.4.13 answers such an IN wrongly (see the docstring)
         if isinstance(n, exp.Table):
             if n.args.get('db') or n.args.get('catalog') or not isinstance(n.this, exp.Identifier):
                 return False

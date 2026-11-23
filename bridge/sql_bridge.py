@@ -1087,6 +1087,40 @@ def _join_source(tr, x):
     return None
 
 
+def _named_columns(tr, t):
+    """For every named sub-query of t (a derived table or CTE body), the select list that
+    names its columns: the one of its leftmost arm.  The queries around it name these
+    columns in their texts, so a mutant that gives a derived table other column names is
+    not the SQL of its term (an unqualified name could then even bind to an outer table)."""
+    out = []
+
+    def naming(x):
+        while isinstance(x, list) and x:
+            if x[0] in SET_TAGS or x[0] == 'Distinct':
+                x = x[1]
+            elif x[0] in ('Where', 'Named'):
+                x = x[2]
+            elif x[0] == 'Proj':
+                return canonical(tr, ['Items'] + [e for e in x[1]])
+            else:
+                return _join_source(tr, x) or canonical(tr, x)
+        return canonical(tr, x)
+
+    def walk(x):
+        if not isinstance(x, list) or not x:
+            return
+        if isinstance(x[0], list):
+            for y in x:
+                walk(y)
+            return
+        if x[0] == 'Named':
+            out.append((x[1], naming(x[2])))
+        for y in x[1:]:
+            walk(y)
+    walk(t)
+    return sorted(out, key=repr)
+
+
 def _arm_sets(tr, t):
     """For every maximal tree of set operations in t, the set of the select lists of its
     arms (canonical).  MySQL / MariaDB derive the collation of a compound column from all
@@ -1288,12 +1322,17 @@ def mutate_sql(sql, cli=DEFAULT_CLI, dialect='mysql', schema=None, exact_columns
     compared = compared_selections(tr, tr.term) if class_rules else None
     in_fragment = integer_fragment(tr, sql) if class_rules else True
     fragment_known = getattr(exact_columns, 'integer_tables', None) is not None
+    named = _named_columns(tr, parse_sexp(tr.term))
     for direction, rule, term in _run_cli(tr.term, cli):
+        if _named_columns(tr, parse_sexp(term)) != named:
+            STATS['outside_model'] += 1     # a derived table would get other column names
+            continue
         if rule in class_rules and not in_fragment:
             STATS['outside_fragment'] += 1  # see integer_fragment
             continue
         # on the integer fragment every column is an integer and equivalent rows are the same
-        # row: the two checks below, about collations and conditions on strings, have no object
+        # row: the two checks below, about collations and conditions on strings, are not needed
+        # (the names of the columns of derived tables are checked above)
         on_fragment = fragment_known and rule in class_rules
         if not on_fragment and changes_compound_collation(tr, tr.term, term):
             STATS['outside_model'] += 1
@@ -1314,6 +1353,9 @@ def mutate_sql(sql, cli=DEFAULT_CLI, dialect='mysql', schema=None, exact_columns
                 STATS['not_in_dialect'] += 1     # INTERSECT ALL / EXCEPT ALL: no SQL for SQLite
             else:
                 skipped += 1
+            continue
+        if text is not None and rule in class_rules and not integer_fragment(tr, text):
+            STATS['outside_fragment'] += 1     # the mutant too must be a query of the fragment
             continue
         if text is not None and (direction, text) not in seen:
             seen.add((direction, text))        # two rules can give the same SQL

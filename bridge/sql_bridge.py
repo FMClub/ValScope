@@ -1143,54 +1143,78 @@ _QUERY_TAGS = SET_TAGS + ('Proj', 'Where', 'Inner', 'Left', 'Distinct', 'T', 'Na
 
 
 def _free_names(tr, t):
-    """For every condition and expression atom of t: the table names that qualify its
-    columns and that the FROM clause of its own query does not bind (they are read from
-    an enclosing query, if at all).  A set of (kind of atom, its number, those names).
+    """For every condition and expression atom of t: what each table name that qualifies
+    a column in its text is bound by.  A set of (kind of atom, its number, the set of
+    (name, how many queries out it is bound: 0 for the FROM clause of the atom's own
+    query, None if by no query of t; a base table or a derived table; which base table)).
 
     In the model an atom is a function of the row of the query it sits in.  Its text says
     the same only while the names in it are bound where they were in the original query:
     a rule that puts the condition `e.a = 9` over a derived table of another name leaves
-    `e` to an outer table.  So a mutant is printed only if _free_names of it is included
-    in that of the original."""
+    `e` to an outer table, and one that puts `EXISTS (SELECT 1 FROM n WHERE d.a = 7)`
+    there leaves `d` to a table two queries out instead of one.  So a mutant is printed
+    only if _free_names of it is included in that of the original.  This compares a
+    mutant with its original; it is not a proof that the text of a mutant means its term
+    (it does not look at unqualified columns: for those see _keeps_names, nor into opaque
+    queries and items)."""
     out = set()
 
     def is_query(x):
         return isinstance(x, list) and bool(x) and isinstance(x[0], str) and x[0] in _QUERY_TAGS
 
     def bound(x):
-        """The names x gives its rows when it is a FROM clause."""
+        """The names x gives its rows when it is a FROM clause, with what each stands for."""
         if x[0] == 'T':
-            return {tr.aliases[int(x[1])]}
+            return {tr.aliases[int(x[1])]: ('T', repr(canonical(tr, x)))}
         if x[0] == 'Named':
-            return {tr.named[int(x[1])]}
+            return {tr.named[int(x[1])]: ('Named', '')}
         if x[0] in ('Inner', 'Left', 'Where', 'Distinct'):
-            return set().union(*[bound(y) for y in x[1:] if is_query(y)])
+            names = {}
+            for y in x[1:]:
+                if is_query(y):
+                    names.update(bound(y))
+            return names
         if x[0] in SET_TAGS:    # printed inside the arms (printer.join_arms_out): bound in each of them
-            return bound(x[1]) & bound(x[2])
-        return set()
+            a, b = bound(x[1]), bound(x[2])
+            return {n: v for n, v in a.items() if b.get(n) == v}
+        return {}
 
-    def walk(x, scope):
+    def binder(name, chain):
+        for depth, scope in enumerate(chain):
+            if name in scope:
+                return (name, depth) + scope[name]
+        return (name, None, '', '')
+
+    def walk(x, chain):
+        """chain: the FROM clauses that bind the names at x, innermost first."""
         if not isinstance(x, list) or not x:
             return
         if isinstance(x[0], list):
             for y in x:
-                walk(y, scope)
+                walk(y, chain)
             return
         if x[0] in ('Atom', 'EAtom'):
             tree = _cached_parse(None, (tr.preds if x[0] == 'Atom' else tr.exprs)[int(x[1])], tr.dialect)
             names = {'?'} if tree is None else {c.table for c in tree.find_all(exp.Column) if c.table}
-            out.add((x[0], int(x[1]), frozenset(names - scope)))
+            out.add((x[0], int(x[1]), frozenset(binder(n, chain) for n in names)))
             return
+        inner = chain
         if is_query(x):
-            scope = set().union(*[bound(y) for y in x[1:] if is_query(y)])
+            own = {}
+            for y in x[1:]:
+                if is_query(y):
+                    own.update(bound(y))
+            inner = [own] + chain
         for y in x[1:]:
-            walk(y, set() if is_query(y) else scope)
-    walk(t, set())
+            # a query in a FROM position is bound as x is; one in a condition also by x
+            walk(y, chain if is_query(x) and is_query(y) else inner)
+    walk(t, [])
     return out
 
 
 def _same_names(tr, term, named, free):
-    """May the mutant `term` be printed, as far as names go?  (_keeps_names, _free_names.)"""
+    """Two necessary conditions for the text of the mutant `term` to mean it, as far as
+    names go: _keeps_names and _free_names."""
     t = parse_sexp(term)
     return _keeps_names(_named_columns(tr, t), named) and _free_names(tr, t) <= free
 

@@ -1069,8 +1069,26 @@ swapped = ('(UnionAll (Proj ((EAtom 7)) (Where (Cmp eq (EAtom 5) (EAtom 6)) (Nam
 report(swapped != tr.term and _keeps_names(_named_columns(tr, parse_sexp(swapped)), named0)
        and not _same_names(tr, swapped, named0, free0),
        'a mutant whose condition names a derived table it is not over is not printed')
-report(_same_names(tr, tr.term, named0, free0) and all(not s for _, _, s in free0),
+report(_same_names(tr, tr.term, named0, free0) and all(d == 0 for _, _, s in free0 for _, d, _, _ in s),
        'the names of the original bind in its own FROM clauses (%r)' % sorted(free0, key=repr))
+tr = Translation("SELECT 1 FROM (SELECT a FROM q) AS d WHERE EXISTS (SELECT 1 FROM n WHERE d.a = 7) UNION ALL "
+                 "SELECT 1 FROM (SELECT a FROM w) AS e WHERE a = 77", 'mysql', kind='set')
+arms = parse_sexp(tr.term)
+
+
+def unparse(x):
+    return x if isinstance(x, str) else '(%s)' % ' '.join(unparse(y) for y in x)
+
+
+def over(arm, k):       # the arm with its derived table numbered k
+    proj, where = arm[:2], arm[2]
+    return proj + [where[:2] + [['Named', str(k)] + where[2][2:]]]
+
+
+swapped = unparse(['UnionAll', over(arms[2], 0), over(arms[1], 1)])
+report(not _same_names(tr, swapped, _named_columns(tr, arms), _free_names(tr, arms))
+       and _same_names(tr, tr.term, _named_columns(tr, arms), _free_names(tr, arms)),
+       'nor one whose sub-query names a derived table that is now further out')
 tr = Translation("SELECT t.a FROM t JOIN u ON t.a < u.b OR u.a = 1 WHERE t.b > 1", 'mysql', kind='set')
 split = '(UnionAll %s %s)' % (tr.term, tr.term)
 report(_free_names(tr, parse_sexp('(Proj ((EAtom 6)) (Where (Cmp gt (EAtom 4) (EAtom 5)) (UnionAll '

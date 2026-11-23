@@ -1114,34 +1114,25 @@ def _named_columns(tr, t):
                 walk(y)
             return
         if x[0] == 'Named':
-            out.append(repr((tr.named[int(x[1])].lower(), naming(x[2]))))
+            out.append(repr((tr.named[int(x[1])], naming(x[2]))))
         for y in x[1:]:
             walk(y)
     walk(t)
     return out
 
 
-def _alias_clash(sql, dialect):
-    """Does the query give one name to two things: two aliases, or an alias and a table
-    read without one?  Only then can a reference qualified by a name bind to something
-    else when a rule moves or drops the derived table of that name."""
-    try:
-        tree = sqlglot.parse_one(sql, read=dialect)
-    except Exception:
-        return True
-    names = [n.alias_or_name.lower() for n in tree.find_all(exp.Table, exp.Subquery, exp.CTE) if n.alias_or_name]
-    return len(names) != len(set(names))
-
-
-def _keeps_names(mutant, original, clash):
-    """May the mutant be printed, as far as the names of its derived tables go?  Each one
-    it has must be one of the original's, with the same naming select list.  When the
-    query uses a name twice the mutant must have exactly the original's, in order: a rule
-    that drops, repeats or moves one could leave a qualified reference to bind to the
-    other thing of that name.  With all names distinct such a reference can only fail."""
-    if clash:
-        return mutant == original
-    return set(mutant) <= set(original)
+def _keeps_names(mutant, original):
+    """May the mutant be printed, as far as its derived tables go?  Their names and naming
+    select lists, in order, must be those of the original, once or several times over (a
+    rule may repeat the whole query, as when it splits a condition into a UNION ALL).
+    The texts of the queries around a derived table name it and its columns, so a mutant
+    that drops, renames or moves one can leave a name to bind to something else: an outer
+    table of that name, or a column of an outer table.  Names are compared as written:
+    MySQL can keep `X` and `x` apart."""
+    if not original:
+        return not mutant
+    n = len(original)
+    return len(mutant) % n == 0 and len(mutant) >= n and all(mutant[i] == original[i % n] for i in range(len(mutant)))
 
 
 def _arm_sets(tr, t):
@@ -1346,10 +1337,10 @@ def mutate_sql(sql, cli=DEFAULT_CLI, dialect='mysql', schema=None, exact_columns
     # the query as written and as it is run (re-printed, its CTEs inlined) must both be of the fragment
     in_fragment = (integer_fragment(tr, sql) and integer_fragment(tr, original)) if class_rules else True
     fragment_known = getattr(exact_columns, 'integer_tables', None) is not None
-    named, clash = _named_columns(tr, parse_sexp(tr.term)), _alias_clash(sql, dialect)
+    named = _named_columns(tr, parse_sexp(tr.term))
     for direction, rule, term in _run_cli(tr.term, cli):
-        if not _keeps_names(_named_columns(tr, parse_sexp(term)), named, clash):
-            STATS['outside_model'] += 1     # a derived table would get other column names
+        if not _keeps_names(_named_columns(tr, parse_sexp(term)), named):
+            STATS['outside_model'] += 1     # the derived tables are not those of the original
             continue
         if rule in class_rules and not in_fragment:
             STATS['outside_fragment'] += 1  # see integer_fragment
@@ -1413,10 +1404,10 @@ def mutate_value(sql, cli=DEFAULT_CLI, dialect='mysql', translation=None, schema
     if original is None:
         raise Unsupported('the re-printed query does not parse back to its term')
     mutants, having_mutants, skipped = [], [], 0
-    named, clash = _named_columns(tr, parse_sexp(tr.term)), _alias_clash(sql, dialect)
+    named = _named_columns(tr, parse_sexp(tr.term))
     for fields in _run_cli(tr.term, cli):
-        if not _keeps_names(_named_columns(tr, parse_sexp(fields[-1])), named, clash):
-            STATS['outside_model'] += 1     # a derived table would get other column names
+        if not _keeps_names(_named_columns(tr, parse_sexp(fields[-1])), named):
+            STATS['outside_model'] += 1     # the derived tables are not those of the original
             continue
         try:
             text = _validated(tr, fields[-1], 'value')

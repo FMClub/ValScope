@@ -1035,7 +1035,7 @@ inside = ["SELECT DISTINCT p.a, p.b FROM p JOIN q ON p.a = q.a OR p.b < 3 WHERE 
           "SELECT b, COUNT(a), MIN(a), SUM(a) FROM p GROUP BY b HAVING COUNT(a) > 1",
           "WITH d AS (SELECT a FROM p UNION ALL SELECT b FROM q) SELECT DISTINCT a FROM d",
           "SELECT x.a FROM (SELECT DISTINCT * FROM p) AS x WHERE x.a = -1"]
-outside = ["SELECT a + 1 FROM p", "SELECT a FROM p WHERE a * 2 = 4", "SELECT -a FROM p",
+outside = ["SELECT a + 1 FROM p", "SELECT p.a FROM p LEFT JOIN q ON p.a = q.a INTERSECT ALL SELECT a FROM q", "SELECT a FROM p WHERE a * 2 = 4", "SELECT -a FROM p",
            "SELECT a FROM p WHERE a = 99999999999999999999", "SELECT p.a FROM p RIGHT JOIN q ON p.a = q.a",
            "SELECT a FROM p WHERE a IN (SELECT a FROM q INTERSECT SELECT b FROM p)",
            "SELECT a FROM p WHERE a NOT IN (SELECT a FROM q EXCEPT SELECT b FROM p)",
@@ -1052,12 +1052,11 @@ report(all(integer_fragment(tr, q) for q in inside), 'the integer fragment: ' +
        '; '.join(q for q in inside if not integer_fragment(tr, q)))
 report(not any(integer_fragment(tr, q) for q in outside), 'outside the integer fragment: ' +
        '; '.join(q for q in outside if integer_fragment(tr, q)))
-from sql_bridge import _alias_clash, _keeps_names  # noqa: E402
-report(_alias_clash("SELECT a FROM p AS e WHERE EXISTS (SELECT a FROM (SELECT a FROM q) AS e WHERE e.a = 5)", 'mysql')
-       and not _alias_clash("SELECT a FROM p WHERE EXISTS (SELECT a FROM (SELECT a FROM q) AS e WHERE e.a = 5)", 'mysql')
-       and not _keeps_names(['f'], ['e', 'f'], True) and _keeps_names(['f'], ['e', 'f'], False)
-       and _keeps_names(['d', 'e', 'd', 'e'], ['d', 'e'], False) and not _keeps_names(['g'], ['e', 'f'], False),
-       'a name used twice in the query: the derived tables of a mutant are exactly the original ones')
+from sql_bridge import _keeps_names  # noqa: E402
+report(_keeps_names(['d'], ['d']) and _keeps_names(['d', 'e', 'd', 'e'], ['d', 'e']) and _keeps_names([], [])
+       and not _keeps_names(['y'], ['d', 'y']) and not _keeps_names(['e', 'd'], ['d', 'e'])
+       and not _keeps_names(['x'], ['X']) and not _keeps_names(['d'], []) and not _keeps_names([], ['d']),
+       'the derived tables of a mutant are those of the original, once or several times over')
 # a select list and a WHERE over a UNION ALL of joins are printed inside the arms
 from printer import join_arms_out  # noqa: E402
 tr = Translation("SELECT t.a FROM t JOIN u ON t.a < u.b OR u.a = 1 WHERE t.b > 1", 'mysql', kind='set')

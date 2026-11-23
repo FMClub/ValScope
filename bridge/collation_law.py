@@ -632,8 +632,9 @@ def integer_fragment(tr, sql):
     than UNION ALL: MySQL 8.4.13 answers `5 IN (SELECT a FROM q INTERSECT SELECT a FROM e)`
     with NULL when `e` is empty and the same sub-query in a derived table with 0, also when
     the INTERSECT is an operand of a UNION ALL; and `5 IN (SELECT a FROM (SELECT a FROM q
-    UNION SELECT a FROM q) d)` with 0 when `q.a` has a NULL and no 5.  The mutant is held to
-    the fragment as the original is.  Literals have at most 18 digits.  Also
+    UNION SELECT a FROM q) d)` with 0 when `q.a` has a NULL and no 5.  And no INTERSECT or EXCEPT in a query with a left join:
+    MySQL 8.4.13 matches the NULL that the join pads a NOT NULL column with to the 0 of another
+    operand.  The mutant is held to the fragment as the original is.  Literals have at most 18 digits.  Also
     accepted, being of the same kind: IN lists, IS UNKNOWN, a comparison or a sub-query as
     a value, SELECT ALL."""
     tables = getattr(getattr(tr, 'exact_columns', None), 'integer_tables', None)
@@ -650,6 +651,9 @@ def integer_fragment(tr, sql):
             if n.alias.lower() in everything or n.alias.lower() in local:
                 return False       # a CTE named as a table, whatever the case: which is read?
             local.add(n.alias.lower())
+    if any(str(j.args.get('side') or '').upper() == 'LEFT' for j in tree.find_all(exp.Join)) and \
+            tree.find(exp.Intersect, exp.Except) is not None:
+        return False       # MySQL matches the NULL an outer join pads a NOT NULL column with to 0 (see the docstring)
     for n in tree.walk():
         if type(n) not in _FRAGMENT:
             return False

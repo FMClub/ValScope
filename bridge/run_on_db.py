@@ -198,6 +198,19 @@ class MySQLTarget:
     NUMERIC_CODES = {0, 1, 2, 3, 4, 5, 8, 9, 13, 16, 246}     # pymysql FIELD_TYPE: integers, DECIMAL, FLOAT, DOUBLE, YEAR, BIT
     APPROXIMATE_CODES = {4, 5}                                  # FLOAT, DOUBLE
 
+    def _renamed(self, prefix, arm, tail):
+        """The probe of an operand with two columns of one name, which is no derived table
+        as it stands: the same derived table with a list of column names (None if the
+        operand cannot be run alone)."""
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute('%s(%s) LIMIT 0' % (prefix, arm.sql(dialect='mysql')))
+                cur.fetchall()
+                names = ', '.join('vs_c%d' % k for k in range(len(cur._result.fields)))
+        except self.pymysql.err.MySQLError:
+            return None
+        return '%sSELECT * FROM (%s) AS vs_arm (%s) %s' % (prefix, arm.sql(dialect='mysql'), names, tail)
+
     def _mixes_precision(self, sql):
         """Whether some set operation of the query, at any depth, has a column that is an
         exact number (an integer, a DECIMAL) in one operand and a FLOAT or DOUBLE in the
@@ -226,26 +239,13 @@ class MySQLTarget:
         prefix = with_.sql(dialect='mysql') + ' ' if with_ is not None else ''
         cache = self.__dict__.setdefault('_arm_cache', {})
 
-        def renamed(arm, tail):
-            """The probe of an operand with two columns of one name, which is no derived table
-            as it stands: the same derived table with a list of column names (None if the
-            operand cannot be run alone)."""
-            try:
-                with self.conn.cursor() as cur:
-                    cur.execute('%s(%s) LIMIT 0' % (prefix, arm.sql(dialect='mysql')))
-                    cur.fetchall()
-                    names = ', '.join('vs_c%d' % k for k in range(len(cur._result.fields)))
-            except self.pymysql.err.MySQLError:
-                return None
-            return '%sSELECT * FROM (%s) AS vs_arm (%s) %s' % (prefix, arm.sql(dialect='mysql'), names, tail)
-
         def codes(arm):
             while isinstance(arm, (exp.Paren, exp.Subquery)) and arm.args.get('alias') is None:
                 arm = arm.this
             probe = '%sSELECT * FROM (%s) AS vs_arm LIMIT 0' % (prefix, arm.sql(dialect='mysql'))
             if probe not in cache:
                 cache[probe] = None
-                for text in (probe, renamed(arm, 'LIMIT 0')):
+                for text in (probe, self._renamed(prefix, arm, 'LIMIT 0')):
                     try:
                         with self.conn.cursor() as cur:
                             cur.execute(text)
@@ -265,7 +265,7 @@ class MySQLTarget:
             probe = '%sSELECT * FROM (%s) AS vs_arm LIMIT 0 -- flags' % (prefix, arm.sql(dialect='mysql'))
             if probe not in cache:
                 cache[probe] = True
-                for text in (probe, renamed(arm, 'LIMIT 0 -- flags')):
+                for text in (probe, self._renamed(prefix, arm, 'LIMIT 0 -- flags')):
                     try:
                         with self.conn.cursor() as cur:
                             cur.execute(text)
@@ -349,7 +349,7 @@ class MySQLTarget:
             cache = self.__dict__.setdefault('_arm_cache', {})
             if probe not in cache:      # the same arm recurs in the original and its mutants
                 cache[probe] = None
-                for text in (probe, renamed(arm, 'LIMIT 0')):
+                for text in (probe, self._renamed(prefix, arm, 'LIMIT 0')):
                     try:
                         with self.conn.cursor() as cur:
                             cur.execute(text)

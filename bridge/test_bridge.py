@@ -1030,7 +1030,8 @@ tr = Translation("SELECT a FROM p", 'mysql', kind='set', schema={'p': ['a', 'b']
                  exact_columns=ec)
 inside = ["SELECT DISTINCT p.a, p.b FROM p JOIN q ON p.a = q.a OR p.b < 3 WHERE p.a IS NOT NULL",
           "SELECT a FROM p WHERE a IN (SELECT a FROM q UNION ALL SELECT b FROM p)",
-          "SELECT a FROM p WHERE EXISTS (SELECT a FROM q INTERSECT SELECT b FROM p)",
+          "SELECT a FROM p WHERE EXISTS (SELECT a FROM q UNION SELECT b FROM p)",
+          "SELECT a FROM p INTERSECT ALL (SELECT a FROM q EXCEPT SELECT b FROM p)",
           "SELECT p.a FROM p LEFT JOIN q ON p.a = q.a",
           "SELECT b, COUNT(a), MIN(a), SUM(a) FROM p GROUP BY b HAVING COUNT(a) > 1",
           "WITH d AS (SELECT a FROM p UNION ALL SELECT b FROM q) SELECT DISTINCT a FROM d",
@@ -1048,7 +1049,10 @@ outside = ["SELECT a + 1 FROM p", "SELECT p.a FROM p LEFT JOIN q ON p.a = q.a IN
            "SELECT a FROM JSON_TABLE('[1]', '$[*]' COLUMNS (a INT PATH '$')) AS p",
            "WITH T AS (SELECT a FROM p) SELECT a FROM T", "SELECT CASE WHEN a = 1 THEN 1 ELSE 2 END FROM p",
            "SELECT a FROM p UNION ALL SELECT c FROM t", "SELECT MIN(c) FROM t",
-           "SELECT a FROM p WHERE EXISTS (SELECT a FROM q WHERE q.a = p.a EXCEPT ALL SELECT a FROM q)"]
+           "SELECT a FROM p WHERE EXISTS (SELECT a FROM q WHERE q.a = p.a EXCEPT ALL SELECT a FROM q)",
+           "SELECT a FROM (SELECT a FROM p EXCEPT SELECT a FROM q) AS d",
+           "WITH d AS (SELECT a FROM p INTERSECT SELECT a FROM q) SELECT a FROM d",
+           "SELECT a FROM p WHERE EXISTS (SELECT a FROM p INTERSECT SELECT a FROM q)"]
 report(all(integer_fragment(tr, q) for q in inside), 'the integer fragment: ' +
        '; '.join(q for q in inside if not integer_fragment(tr, q)))
 report(not any(integer_fragment(tr, q) for q in outside), 'outside the integer fragment: ' +

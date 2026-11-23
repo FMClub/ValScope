@@ -609,18 +609,15 @@ _FRAGMENT = (exp.Select, exp.From, exp.Join, exp.Where, exp.Having, exp.Group, e
              exp.Distinct, exp.Count, exp.Min, exp.Max, exp.Sum, exp.In, exp.Exists, exp.With, exp.CTE)
 
 
-def _in_condition(n):
-    """Is the query n inside a sub-query of a condition or expression (EXISTS, IN, a scalar
-    sub-query), at any depth, and not only an operand or a derived table?"""
+def _top_level(n):
+    """Is the set operation n an operand of the statement itself (through set operations
+    and parentheses only), and not inside a derived table, a CTE or a sub-query?"""
     while n.parent is not None:
-        p = n.parent
-        if isinstance(p, (exp.Exists, exp.In)):
-            return True
-        if isinstance(n, exp.Subquery) and not isinstance(p, (exp.Union, exp.Intersect, exp.Except, exp.From,
-                                                              exp.Join, exp.Paren, exp.Subquery)):
-            return True
-        n = p
-    return False
+        n = n.parent
+        if not isinstance(n, (exp.Union, exp.Intersect, exp.Except, exp.Paren)) and \
+                not (isinstance(n, exp.Subquery) and not n.alias):
+            return False
+    return True
 
 
 def integer_fragment(tr, sql):
@@ -649,10 +646,14 @@ def integer_fragment(tr, sql):
     UNION SELECT a FROM q) d)` with 0 when `q.a` has a NULL and no 5.  And no INTERSECT or
     EXCEPT in a query with a left join: MySQL 8.4.13 matches the NULL that the join pads a
     NOT NULL column with to the 0 of another operand.  The mutant is held to the fragment
-    as the original is.  And no EXCEPT ALL or INTERSECT ALL inside a sub-query of a
-    condition or expression (where it can be correlated): MySQL 8.4.13 answers `SELECT a, b FROM p AS t WHERE EXISTS ((SELECT 1 FROM n WHERE
-    t.b = 2) EXCEPT ALL (SELECT 2 FROM n WHERE n.a = t.a))` with a row too many (EXCEPT is
-    right).  Literals have at most 18 digits.  Also accepted, being of the same
+    as the original is.  And INTERSECT and EXCEPT, with ALL or not, only as operands of
+    the statement itself, not in a derived table, a CTE or a sub-query.  MySQL 8.4.13
+    answers `SELECT * FROM ((SELECT 9 FROM n) EXCEPT (SELECT NULL FROM p)) AS d` with no row
+    (at the top level the same compound gives 9: in a derived table a NULL of one operand
+    matches a value of a NOT NULL item of the other); `SELECT EXISTS ((SELECT * FROM p
+    WHERE a = 3) INTERSECT (SELECT * FROM p WHERE a = 5))` with 1 (a `*` operand under
+    EXISTS is compared as one constant); and a correlated EXCEPT ALL or INTERSECT ALL
+    under EXISTS with rows of an earlier outer row.  Literals have at most 18 digits.  Also accepted, being of the same
     kind: IN lists, IS UNKNOWN, a comparison or a sub-query as a value, SELECT ALL."""
     tables = getattr(getattr(tr, 'exact_columns', None), 'integer_tables', None)
     if tables is None:
@@ -681,7 +682,7 @@ def integer_fragment(tr, sql):
         if isinstance(n, exp.Join) and (n.args.get('using') or n.args.get('method')
                                         or str(n.args.get('side') or '').upper() not in ('', 'LEFT')):
             return False
-        if isinstance(n, (exp.Except, exp.Intersect)) and n.args.get('distinct') is False and _in_condition(n):
+        if isinstance(n, (exp.Except, exp.Intersect)) and not _top_level(n):
             return False    # MySQL 8.4.13 keeps rows of an earlier outer row in a correlated EXCEPT ALL
         if isinstance(n, exp.In) and n.args.get('query') is not None:
             for op in n.args['query'].find_all(exp.Union, exp.Intersect, exp.Except):

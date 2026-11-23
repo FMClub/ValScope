@@ -210,7 +210,9 @@ class MySQLTarget:
         a query is outside every one of them.  The same holds for an operand with an ENUM,
         SET or ZEROFILL column, which the result of a set operation has as a plain string
         or number (an ENUM compares with a number by its index, the string by its digits).
-        An operand that cannot be probed alone (a correlated one) counts as a mix, unless
+        An operand that cannot be probed alone (a correlated one; one that fails for any
+        other reason) counts as a mix, so that outside the integer fragment no rule,
+        ValScope's own included, reports a violation on such a query; unless
         the query is of the integer fragment (collation_law.integer_fragment), where no
         column is approximate, an ENUM, a SET or ZEROFILL: otherwise no violation of a rule
         could be reported on a set operation inside a correlated sub-query."""
@@ -229,13 +231,17 @@ class MySQLTarget:
                 arm = arm.this
             probe = '%sSELECT * FROM (%s) AS vs_arm LIMIT 0' % (prefix, arm.sql(dialect='mysql'))
             if probe not in cache:
-                try:
-                    with self.conn.cursor() as cur:
-                        cur.execute(probe)
-                        cur.fetchall()
-                        cache[probe] = [(self.columns.name(f.charsetnr), f.type_code) for f in cur._result.fields]
-                except self.pymysql.err.MySQLError:
-                    cache[probe] = None
+                cache[probe] = None
+                # the second form is for an operand with two columns of one name, which is no derived table
+                for text in (probe, '%s(%s) LIMIT 0' % (prefix, arm.sql(dialect='mysql'))):
+                    try:
+                        with self.conn.cursor() as cur:
+                            cur.execute(text)
+                            cur.fetchall()
+                            cache[probe] = [(self.columns.name(f.charsetnr), f.type_code) for f in cur._result.fields]
+                        break
+                    except self.pymysql.err.MySQLError:
+                        pass
             return None if cache[probe] is None else [code for _, code in cache[probe]]
 
         def retyped(arm):
@@ -246,13 +252,16 @@ class MySQLTarget:
                 arm = arm.this
             probe = '%sSELECT * FROM (%s) AS vs_arm LIMIT 0 -- flags' % (prefix, arm.sql(dialect='mysql'))
             if probe not in cache:
-                try:
-                    with self.conn.cursor() as cur:
-                        cur.execute(probe)
-                        cur.fetchall()
-                        cache[probe] = any(f.flags & (256 | 2048 | 64) for f in cur._result.fields)
-                except self.pymysql.err.MySQLError:
-                    cache[probe] = True
+                cache[probe] = True
+                for text in (probe, '%s(%s) LIMIT 0 -- flags' % (prefix, arm.sql(dialect='mysql'))):
+                    try:
+                        with self.conn.cursor() as cur:
+                            cur.execute(text)
+                            cur.fetchall()
+                            cache[probe] = any(f.flags & (256 | 2048 | 64) for f in cur._result.fields)
+                        break
+                    except self.pymysql.err.MySQLError:
+                        pass
             return cache[probe]
 
         integers = getattr(self.exact, 'integer_tables', None) is not None and sql_bridge.integer_fragment(
@@ -327,13 +336,17 @@ class MySQLTarget:
             probe = '%sSELECT * FROM (%s) AS vs_arm LIMIT 0' % (prefix, arm.sql(dialect='mysql'))
             cache = self.__dict__.setdefault('_arm_cache', {})
             if probe not in cache:      # the same arm recurs in the original and its mutants
-                try:
-                    with self.conn.cursor() as cur:
-                        cur.execute(probe)
-                        cur.fetchall()
-                        cache[probe] = [(self.columns.name(f.charsetnr), f.type_code) for f in cur._result.fields]
-                except self.pymysql.err.MySQLError:
-                    cache[probe] = None
+                cache[probe] = None
+                # the second form is for an operand with two columns of one name, which is no derived table
+                for text in (probe, '%s(%s) LIMIT 0' % (prefix, arm.sql(dialect='mysql'))):
+                    try:
+                        with self.conn.cursor() as cur:
+                            cur.execute(text)
+                            cur.fetchall()
+                            cache[probe] = [(self.columns.name(f.charsetnr), f.type_code) for f in cur._result.fields]
+                        break
+                    except self.pymysql.err.MySQLError:
+                        pass
             got = cache[probe]
             if got is None:
                 return coarsest

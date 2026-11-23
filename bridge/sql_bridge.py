@@ -363,7 +363,13 @@ class Translation(Printer):
         if source is None:
             raise Unsupported('SELECT without FROM')
         term, first_width = self._table(source.this)
-        for k, join in enumerate(node.args.get('joins') or []):
+        joins = node.args.get('joins') or []
+        for k, join in enumerate(joins):
+            if not (join.args.get('kind') or join.args.get('side') or join.args.get('on') is not None) and \
+                    any(later.args.get('on') is not None for later in joins[k + 1:]):
+                # in MySQL a comma binds weaker than JOIN: the ON of `t, u JOIN v ON ...` does not see t
+                # (it reads an outer t, or fails), while the re-printed CROSS JOIN would let it
+                raise Unsupported('a comma join before a JOIN with ON')
             if join.args.get('using') or join.args.get('method'):
                 raise Unsupported('USING / NATURAL join')
             side = str(join.args.get('side') or '').upper()

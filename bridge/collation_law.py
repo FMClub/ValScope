@@ -659,6 +659,8 @@ def integer_fragment(tr, sql):
     if tables is None:
         return True
     everything = getattr(tr.exact_columns, 'all_tables', set())
+    if '/*!' in sql or '/*+' in sql:
+        return False       # a versioned comment is executed by the server and unseen by the parser
     try:
         tree = sqlglot.parse_one(sql, read=tr.dialect)
     except Exception:
@@ -683,7 +685,7 @@ def integer_fragment(tr, sql):
                                         or str(n.args.get('side') or '').upper() not in ('', 'LEFT')):
             return False
         if isinstance(n, (exp.Except, exp.Intersect)) and not _top_level(n):
-            return False    # MySQL 8.4.13 keeps rows of an earlier outer row in a correlated EXCEPT ALL
+            return False    # MySQL 8.4.13 answers these wrongly in derived tables and sub-queries (see the docstring)
         if isinstance(n, exp.In) and n.args.get('query') is not None:
             for op in n.args['query'].find_all(exp.Union, exp.Intersect, exp.Except):
                 if not isinstance(op, exp.Union) or op.args.get('distinct') is not False:

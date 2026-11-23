@@ -226,21 +226,33 @@ class MySQLTarget:
         prefix = with_.sql(dialect='mysql') + ' ' if with_ is not None else ''
         cache = self.__dict__.setdefault('_arm_cache', {})
 
+        def renamed(arm, tail):
+            """The probe of an operand with two columns of one name, which is no derived table
+            as it stands: the same derived table with a list of column names (None if the
+            operand cannot be run alone)."""
+            try:
+                with self.conn.cursor() as cur:
+                    cur.execute('%s(%s) LIMIT 0' % (prefix, arm.sql(dialect='mysql')))
+                    cur.fetchall()
+                    names = ', '.join('vs_c%d' % k for k in range(len(cur._result.fields)))
+            except self.pymysql.err.MySQLError:
+                return None
+            return '%sSELECT * FROM (%s) AS vs_arm (%s) %s' % (prefix, arm.sql(dialect='mysql'), names, tail)
+
         def codes(arm):
             while isinstance(arm, (exp.Paren, exp.Subquery)) and arm.args.get('alias') is None:
                 arm = arm.this
             probe = '%sSELECT * FROM (%s) AS vs_arm LIMIT 0' % (prefix, arm.sql(dialect='mysql'))
             if probe not in cache:
                 cache[probe] = None
-                # the second form is for an operand with two columns of one name, which is no derived table
-                for text in (probe, '%s(%s) LIMIT 0' % (prefix, arm.sql(dialect='mysql'))):
+                for text in (probe, renamed(arm, 'LIMIT 0')):
                     try:
                         with self.conn.cursor() as cur:
                             cur.execute(text)
                             cur.fetchall()
                             cache[probe] = [(self.columns.name(f.charsetnr), f.type_code) for f in cur._result.fields]
                         break
-                    except self.pymysql.err.MySQLError:
+                    except (self.pymysql.err.MySQLError, TypeError, AttributeError):
                         pass
             return None if cache[probe] is None else [code for _, code in cache[probe]]
 
@@ -253,14 +265,14 @@ class MySQLTarget:
             probe = '%sSELECT * FROM (%s) AS vs_arm LIMIT 0 -- flags' % (prefix, arm.sql(dialect='mysql'))
             if probe not in cache:
                 cache[probe] = True
-                for text in (probe, '%s(%s) LIMIT 0 -- flags' % (prefix, arm.sql(dialect='mysql'))):
+                for text in (probe, renamed(arm, 'LIMIT 0 -- flags')):
                     try:
                         with self.conn.cursor() as cur:
                             cur.execute(text)
                             cur.fetchall()
                             cache[probe] = any(f.flags & (256 | 2048 | 64) for f in cur._result.fields)
                         break
-                    except self.pymysql.err.MySQLError:
+                    except (self.pymysql.err.MySQLError, TypeError, AttributeError):
                         pass
             return cache[probe]
 
@@ -337,15 +349,14 @@ class MySQLTarget:
             cache = self.__dict__.setdefault('_arm_cache', {})
             if probe not in cache:      # the same arm recurs in the original and its mutants
                 cache[probe] = None
-                # the second form is for an operand with two columns of one name, which is no derived table
-                for text in (probe, '%s(%s) LIMIT 0' % (prefix, arm.sql(dialect='mysql'))):
+                for text in (probe, renamed(arm, 'LIMIT 0')):
                     try:
                         with self.conn.cursor() as cur:
                             cur.execute(text)
                             cur.fetchall()
                             cache[probe] = [(self.columns.name(f.charsetnr), f.type_code) for f in cur._result.fields]
                         break
-                    except self.pymysql.err.MySQLError:
+                    except (self.pymysql.err.MySQLError, TypeError, AttributeError):
                         pass
             got = cache[probe]
             if got is None:
@@ -790,7 +801,8 @@ def main():
                     relation = FLIP_VALUE[relation]
                 cover = bool(trs) and trs[0].cover_for(text)
                 if rule in sql_bridge._class_rules(sql_bridge.DEFAULT_CLI) and \
-                        (cover or not sql_bridge.integer_fragment(trs[0] if trs else None, sql)):
+                        (cover or not all(sql_bridge.integer_fragment(trs[0] if trs else None, q)
+                                          for q in (sql, original, text))):
                     # under DISTINCT or UNION the rows no longer correspond one to one, and
                     # the theorems for that (VDistinct.v, VSet.v) are about the rules of
                     # the registry; a rule of a class of worlds has none.  And a rule of a

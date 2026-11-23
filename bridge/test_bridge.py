@@ -1074,6 +1074,13 @@ swapped = ('(UnionAll (Proj ((EAtom 7)) (Where (Cmp eq (EAtom 5) (EAtom 6)) (Nam
 report(swapped != tr.term and _keeps_names(_named_columns(tr, parse_sexp(swapped)), named0)
        and not _same_names(tr, swapped, named0, free0),
        'a mutant whose condition names a derived table it is not over is not printed')
+try:
+    Translation("SELECT 7 FROM u, n AS g INNER JOIN w AS v ON u.b = 2", 'mysql', kind='set')
+    report(False, 'a comma join before a JOIN with ON is not translated')
+except Unsupported:
+    report(True, 'a comma join before a JOIN with ON is not translated')
+report(Translation("SELECT 7 FROM u, n AS g, w AS v WHERE u.b = 2", 'mysql', kind='set') is not None,
+       'comma joins alone are translated')
 report(_same_names(tr, tr.term, named0, free0) and all(len(c) == 1 for _, _, c in free0),
        'the names of the original bind in its own FROM clauses (%r)' % sorted(free0, key=repr))
 tr = Translation("SELECT 1 FROM (SELECT a FROM q) AS d WHERE EXISTS (SELECT 1 FROM n WHERE d.a = 7) UNION ALL "

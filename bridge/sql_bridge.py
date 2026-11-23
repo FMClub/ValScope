@@ -120,6 +120,46 @@ def _mask_any(mask):
     return mask[1] is True if mask[0] == 'one' else _mask_any(mask[1]) or _mask_any(mask[2])
 
 
+_SAME_LEVEL = (exp.EQ, exp.NEQ, exp.LT, exp.GT, exp.LTE, exp.GTE, exp.NullSafeEQ, exp.NullSafeNEQ)
+_PREDICATES = _SAME_LEVEL + (exp.In, exp.Like, exp.Between, exp.Is, exp.RegexpLike, exp.Not)
+
+
+def _check_read_as_written(tree, sql, dialect):
+    """Refuse (Unsupported) the texts that the parser reads, or the printer writes back,
+    otherwise than MySQL reads them; each was found as a re-printed query with other rows
+    than the query as written (the twentieth and twenty-first audits).
+
+    - MySQL has the comparison operators, IS, IN, LIKE and BETWEEN on one level, from left
+      to right: `a = b < 1` is `(a = b) < 1`.  The parser binds `<` tighter, so a
+      comparison whose right operand is a predicate without parentheses of its own is
+      refused (with `<=>` also one in parentheses, which the parser adds itself).
+    - `a NOT IN (1, 2) < b` is printed back as `NOT a IN (1, 2) < b`, which MySQL reads as
+      `NOT (a IN (1, 2) < b)`: a NOT that is an operand of an operator is refused.
+    - A LIMIT on a parenthesised query, and the joins nested after a derived table
+      (`t JOIN (SELECT ...) AS d JOIN u ON ... ON ...`), would be dropped.
+    - A versioned comment or a hint is run by the server and is a comment to the parser."""
+    if dialect != 'mysql':
+        return
+    if '/*!' in sql or '/*+' in sql:
+        raise Unsupported('a versioned comment or a hint')
+    for n in tree.walk():
+        if isinstance(n, _SAME_LEVEL):
+            right = n.expression
+            if isinstance(n, (exp.NullSafeEQ, exp.NullSafeNEQ)):
+                while isinstance(right, exp.Paren):
+                    right = right.this
+            if isinstance(right, _PREDICATES):
+                raise Unsupported('a comparison of a predicate without parentheses')
+        if isinstance(n, exp.Not) and isinstance(n.parent, (exp.Binary, exp.In, exp.Between)) and \
+                not isinstance(n.parent, exp.Connector):
+            raise Unsupported('NOT as an operand')
+        if isinstance(n, (exp.Subquery, exp.Paren)):
+            if n.args.get('limit') or n.args.get('offset') or (n.args.get('order') and n is not tree):
+                raise Unsupported('LIMIT or ORDER BY on a parenthesised query')
+            if n.args.get('joins'):
+                raise Unsupported('nested join')
+
+
 class Translation(Printer):
     """One SQL query translated to an algebra term, with its atom tables.
 
@@ -140,6 +180,7 @@ class Translation(Printer):
         if dialect == 'mysql':
             sql = _mysql_population_names(sql)
         tree = sqlglot.parse_one(sql, read=dialect)
+        _check_read_as_written(tree, sql, dialect)
         _check_deterministic(tree)
         if tree.args.get('order') is not None and not (tree.args.get('limit') or tree.args.get('offset')):
             # ORDER BY of the whole query, without LIMIT: the bag of rows is the same without
@@ -192,6 +233,8 @@ class Translation(Printer):
             # every reference to a CTE, also inside atoms that are kept as text,
             # becomes a derived table with the CTE's body
             if isinstance(node, exp.Table) and not node.args.get('db') and node.name.lower() in self.ctes:
+                if node.args.get('joins'):
+                    raise Unsupported('nested join')      # the joins of the reference would be lost
                 alias = node.alias_or_name
                 return exp.Subquery(this=self.ctes[node.name.lower()].copy(),
                                     alias=exp.TableAlias(this=exp.to_identifier(alias)))

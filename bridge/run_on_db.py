@@ -245,10 +245,10 @@ class MySQLTarget:
             probe = '%sSELECT * FROM (%s) AS vs_arm LIMIT 0' % (prefix, arm.sql(dialect='mysql'))
             if probe not in cache:
                 cache[probe] = None
-                for text in (probe, self._renamed(prefix, arm, 'LIMIT 0')):
+                for attempt in (lambda: probe, lambda: self._renamed(prefix, arm, 'LIMIT 0')):
                     try:
                         with self.conn.cursor() as cur:
-                            cur.execute(text)
+                            cur.execute(attempt())
                             cur.fetchall()
                             cache[probe] = [(self.columns.name(f.charsetnr), f.type_code) for f in cur._result.fields]
                         break
@@ -265,10 +265,10 @@ class MySQLTarget:
             probe = '%sSELECT * FROM (%s) AS vs_arm LIMIT 0 -- flags' % (prefix, arm.sql(dialect='mysql'))
             if probe not in cache:
                 cache[probe] = True
-                for text in (probe, self._renamed(prefix, arm, 'LIMIT 0 -- flags')):
+                for attempt in (lambda: probe, lambda: self._renamed(prefix, arm, 'LIMIT 0 -- flags')):
                     try:
                         with self.conn.cursor() as cur:
-                            cur.execute(text)
+                            cur.execute(attempt())
                             cur.fetchall()
                             cache[probe] = any(f.flags & (256 | 2048 | 64) for f in cur._result.fields)
                         break
@@ -349,10 +349,10 @@ class MySQLTarget:
             cache = self.__dict__.setdefault('_arm_cache', {})
             if probe not in cache:      # the same arm recurs in the original and its mutants
                 cache[probe] = None
-                for text in (probe, self._renamed(prefix, arm, 'LIMIT 0')):
+                for attempt in (lambda: probe, lambda: self._renamed(prefix, arm, 'LIMIT 0')):
                     try:
                         with self.conn.cursor() as cur:
-                            cur.execute(text)
+                            cur.execute(attempt())
                             cur.fetchall()
                             cache[probe] = [(self.columns.name(f.charsetnr), f.type_code) for f in cur._result.fields]
                         break
@@ -774,9 +774,9 @@ def main():
             st['TRANSLATION_MISMATCH'] += 1
             print('TRANSLATION MISMATCH\n  written  : %s\n  reprinted: %s' % (sql, original))
             if out and not args.flip:
-                # recorded like a violation: the re-printed query means the same (the bridge
-                # only drops parentheses, ORDER BY without LIMIT, ...), so different rows are
-                # a DBMS bug or a bridge bug; reduce_mysql.py reduces such a pair too
+                # recorded like a violation: the re-printed query should mean the same (the bridge
+                # drops parentheses, ORDER BY without LIMIT, ...), so different rows are
+                # a DBMS bug or a bridge bug (sql_bridge._check_read_as_written lists those found); reduce_mysql.py reduces such a pair too
                 out.write(json.dumps({'rule': 'TRANSLATION', 'expect': 'Same', 'verdict': 'translation mismatch',
                                       'value': bool(args.value), 'query': sql, 'original': sql, 'mutant': original,
                                       'original_rows': len(written.rows), 'mutant_rows': len(base.rows)}) + '\n')

@@ -653,7 +653,11 @@ def integer_fragment(tr, sql):
     matches a value of a NOT NULL item of the other); `SELECT EXISTS ((SELECT * FROM p
     WHERE a = 3) INTERSECT (SELECT * FROM p WHERE a = 5))` with 1 (a `*` operand under
     EXISTS is compared as one constant); and a correlated EXCEPT ALL or INTERSECT ALL
-    under EXISTS with rows of an earlier outer row.  Literals have at most 18 digits.  Also accepted, being of the same
+    under EXISTS with rows of an earlier outer row.  No NULL as a select item: its
+    column is a binary string once it goes through a UNION or DISTINCT in a derived table,
+    a set operation of it with an integer column is a VARCHAR, and two such columns
+    compare as strings ('2' > '10'), so the columns of the fragment would not all be
+    integers.  No versioned comment or hint.  Literals have at most 18 digits.  Also accepted, being of the same
     kind: IN lists, IS UNKNOWN, a comparison or a sub-query as a value, SELECT ALL."""
     tables = getattr(getattr(tr, 'exact_columns', None), 'integer_tables', None)
     if tables is None:
@@ -677,6 +681,12 @@ def integer_fragment(tr, sql):
     for n in tree.walk():
         if type(n) not in _FRAGMENT:
             return False
+        if isinstance(n, exp.Null):
+            item = n.parent
+            while isinstance(item, (exp.Alias, exp.Paren)):
+                item = item.parent
+            if isinstance(item, exp.Select):
+                return False    # a select item NULL is a string to MySQL once it goes through a UNION (see the docstring)
         if isinstance(n, exp.Literal) and not (n.is_int and not n.is_string and len(n.name.lstrip('0')) <= 18):
             return False
         if isinstance(n, exp.Neg) and not isinstance(n.this, exp.Literal):

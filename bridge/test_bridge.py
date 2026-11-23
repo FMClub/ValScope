@@ -1051,6 +1051,7 @@ outside = ["SELECT a + 1 FROM p", "SELECT p.a FROM p LEFT JOIN q ON p.a = q.a IN
            "SELECT a FROM p UNION ALL SELECT c FROM t", "SELECT MIN(c) FROM t",
            "SELECT a FROM p WHERE EXISTS (SELECT a FROM q WHERE q.a = p.a EXCEPT ALL SELECT a FROM q)",
            "SELECT a FROM (SELECT a FROM p EXCEPT SELECT a FROM q) AS d",
+           "SELECT a FROM (SELECT NULL AS a FROM p) AS d", "SELECT NULL, a FROM p",
            "WITH d AS (SELECT a FROM p INTERSECT SELECT a FROM q) SELECT a FROM d",
            "SELECT a FROM p WHERE EXISTS (SELECT a FROM p INTERSECT SELECT a FROM q)"]
 report(all(integer_fragment(tr, q) for q in inside), 'the integer fragment: ' +
@@ -1081,6 +1082,29 @@ except Unsupported:
     report(True, 'a comma join before a JOIN with ON is not translated')
 report(Translation("SELECT 7 FROM u, n AS g, w AS v WHERE u.b = 2", 'mysql', kind='set') is not None,
        'comma joins alone are translated')
+refused = ["SELECT a FROM p WHERE a = b < 1", "SELECT a FROM p WHERE a < b = b > a", "SELECT a NOT IN (1, 2) < b FROM p",
+           "SELECT a FROM p WHERE b = a NOT IN (1, 2)", "SELECT a FROM p WHERE a <=> b < 1",
+           "((SELECT a FROM p) LIMIT 0) UNION ALL (SELECT a FROM q)", "SELECT 1 FROM ((SELECT a FROM p) LIMIT 0) AS d",
+           "SELECT d.a FROM k AS d LEFT JOIN (SELECT k.b AS c0 FROM k) AS t JOIN w AS h ON h.a = t.c0 ON d.a = t.c0",
+           "WITH c1 AS (SELECT a FROM n) SELECT d.a FROM k AS d JOIN c1 AS t JOIN w AS h ON h.a = t.a ON d.a = t.a",
+           "SELECT a, b FROM p WHERE a = 2 /*! OR 1 = 1 */"]
+kept = ["SELECT a FROM p WHERE NOT a = b", "SELECT a FROM p WHERE a = b IS NULL", "SELECT a FROM p WHERE (a = b) < 1",
+        "SELECT a FROM p WHERE a = (b < 1)", "SELECT a FROM p WHERE a < b = b", "SELECT a FROM p WHERE NOT a IN (1, 2)",
+        "SELECT a FROM p WHERE a NOT IN (1, 2) AND b = 1", "SELECT NOT a = b FROM p"]
+
+
+def translates(q):
+    try:
+        Translation(q, 'mysql', kind='set')
+        return True
+    except Unsupported:
+        return False
+
+
+report(not any(translates(q) for q in refused), 'texts MySQL reads otherwise than the parser or printer are refused: ' +
+       '; '.join(q for q in refused if translates(q)))
+report(all(translates(q) for q in kept), 'and those read alike are translated: ' +
+       '; '.join(q for q in kept if not translates(q)))
 report(_same_names(tr, tr.term, named0, free0) and all(len(c) == 1 for _, _, c in free0),
        'the names of the original bind in its own FROM clauses (%r)' % sorted(free0, key=repr))
 tr = Translation("SELECT 1 FROM (SELECT a FROM q) AS d WHERE EXISTS (SELECT 1 FROM n WHERE d.a = 7) UNION ALL "

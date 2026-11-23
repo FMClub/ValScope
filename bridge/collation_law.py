@@ -268,7 +268,10 @@ def compared_selections(tr, term):
     operation on a string column converts it ('12' and a string with the same collation
     key need not be the same number; a cast to binary tells 'a' from 'A'), as does a
     comparison of a string column with a number or with another column, a CASE, a
-    sub-query."""
+    sub-query.  The select items of a projection are held to the same: a bare column, an
+    operand over integer columns, a literal or `*`; `s + 0` has two values on '12' and a
+    string with the same key.  And a comparison of rows whose output such a condition or
+    item reads is one of these sub-queries too."""
     cache = tr._law_cache
     exact = getattr(tr, '_exact_names', set())
     by_table = getattr(tr.exact_columns, 'by_table', None) or {}
@@ -282,6 +285,26 @@ def compared_selections(tr, term):
                 return True
         return False
     foreign = foreign_tables()
+
+    def opaque_sources():
+        """Does the query read something whose columns are not known as those of a base
+        table of the database: a table function (the columns of a JSON_TABLE have the
+        names and not the types of columns of the schema), a derived table that was not
+        translated, a name that is not a table of the schema; or a table with an invisible
+        column, which `SELECT *` leaves out, so that rows the model keeps apart are equal
+        on the server?  Then every condition and select item is taken to tell rows apart."""
+        hidden = getattr(tr.exact_columns, 'invisible_tables', None) or set()
+        known = {name.strip('`').lower() for name in tr.schema} if tr.schema else None
+        for text in tr.tables:
+            t = _cached_parse(cache, text, tr.dialect, 'table')
+            t = t.args['from_' if 'from_' in t.args else 'from'].this if isinstance(t, exp.Select) else None
+            if not isinstance(t, exp.Table) or not isinstance(t.this, exp.Identifier) or t.args.get('joins'):
+                return True
+            name = t.name.lower()
+            if name in hidden or (known is not None and name not in known):
+                return True
+        return False
+    opaque = opaque_sources()
 
     def exact_only(t):
         cols = [n for n in t.walk() if isinstance(n, (exp.Column, exp.Star))]
@@ -319,6 +342,8 @@ def compared_selections(tr, term):
         tag = p[0]
         if tag in ('True', 'False'):
             return False
+        if opaque:
+            return True
         if tag in ('Not', 'And', 'Or'):
             return any(telling(y) for y in p[1:])
         if tag == 'IsNull':
@@ -338,33 +363,55 @@ def compared_selections(tr, term):
             t = t.this
         return t
 
+    def telling_item(x):
+        """A select item which may have different values on equivalent rows: anything but
+        a bare column, an operand over integer columns, a literal, or `*`."""
+        if isinstance(x, list) and x and x[0] == 'EAtom':
+            t = _cached_parse(cache, tr.exprs[int(x[1])], tr.dialect)
+            inner = _strip(t) if t is not None else None
+            if not opaque and (isinstance(inner, exp.Star)
+                               or (isinstance(inner, exp.Column) and isinstance(inner.this, exp.Star))):
+                return False
+        return opaque or operand(x) not in ('column', 'exact', 'number', 'string')
+
+    def tells_here(q):
+        """Does the node itself evaluate a condition or select items that may tell
+        equivalent rows apart?"""
+        if q[0] == 'Where' or q[0] == 'Inner':
+            return telling(q[1])
+        if q[0] == 'Left':
+            return telling(q[2])
+        if q[0] == 'Proj':
+            return any(telling_item(x) for x in q[1])
+        return False
+
     def selects_apart(q):
         if not isinstance(q, list) or not q:
             return False
         if isinstance(q[0], list):
             return any(selects_apart(y) for y in q)
-        if q[0] == 'Where' and telling(q[1]):
-            return True
-        if q[0] == 'Inner' and telling(q[1]):
-            return True
-        if q[0] == 'Left' and telling(q[2]):
+        if tells_here(q):
             return True
         return any(selects_apart(y) for y in q[1:])
 
     out = set()
 
-    def walk(q):
+    def walk(q, read_apart):
+        """`read_apart`: a condition or select item above `q` reads its rows and may tell
+        equivalent ones apart; then which row a comparison below keeps of each class
+        matters, and the server need not keep the one the mutant's would."""
         if not isinstance(q, list) or not q:
             return
         if isinstance(q[0], list):
             for y in q:
-                walk(y)
+                walk(y, read_apart)
             return
-        if q[0] in COMPARING and selects_apart(q):
+        if q[0] in COMPARING and (read_apart or selects_apart(q)):
             out.add(repr(q))
+        read_apart = read_apart or tells_here(q)
         for y in q[1:]:
-            walk(y)
-    walk(parse_sexp(term) if isinstance(term, str) else term)
+            walk(y, read_apart)
+    walk(parse_sexp(term) if isinstance(term, str) else term, False)
     return frozenset(out)
 
 

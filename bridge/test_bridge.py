@@ -1000,6 +1000,22 @@ report(len(compared_selections(tr, ['Proj', items, ['Distinct', ['Where', left, 
        and len(compared_selections(tr, ['Proj', items, ['Distinct', ['Where', right, table]]])) == 1
        and compared_selections(tr, ['Proj', items, ['UnionAll', ['Where', left, table], ['Where', right, table]]]) == frozenset(),
        'a column compared with a number or a column may be converted; UNION ALL compares no rows')
+tr = Translation("SELECT DISTINCT t.a, t.c + 0 FROM t WHERE t.a = 2", 'mysql', kind='set')
+tree = parse_sexp(tr.term)
+(_, (_, items, (_, cond, table))) = tree
+report(len(compared_selections(tr, tree)) == 1
+       and compared_selections(tr, ['Proj', items, ['Where', cond, ['Distinct', table]]]) != compared_selections(tr, tree)
+       and len(compared_selections(tr, ['Proj', items, ['Where', cond, ['Distinct', table]]])) == 1,
+       'a select item that converts a string tells rows apart, below and above a DISTINCT')
+tr = Translation("SELECT DISTINCT t.a, t.c, 1, * FROM t WHERE t.c = 'x'", 'mysql', kind='set')
+report(compared_selections(tr, parse_sexp(tr.term)) == frozenset(), 'bare columns, literals and * as select items do not')
+tr = Translation("SELECT DISTINCT a FROM JSON_TABLE('[1]', '$[*]' COLUMNS (a INT PATH '$')) AS jt WHERE a = 12", 'mysql', kind='set')
+report(len(compared_selections(tr, parse_sexp(tr.term))) == 1, 'the columns of a table function are not columns of the schema')
+from collation_law import ExactColumns  # noqa: E402
+ec = ExactColumns({'a': 'integer'})
+ec.invisible_tables = {'t'}
+tr = Translation("SELECT DISTINCT a FROM t WHERE a = 12", 'mysql', kind='set', exact_columns=ec)
+report(len(compared_selections(tr, parse_sexp(tr.term))) == 1, 'a table with an invisible column: SELECT * is not the row')
 for hidden in ("t.c = -'12'", "t.c = (-(-'12'))", "t.c + 0 = '12'", "CAST(t.c AS SIGNED) = '12'", "NULLIF(t.c, 12) IS NULL",
                "(CASE WHEN t.c = 12 THEN 'x' ELSE 'y' END) = 'x'", "CONVERT(t.c USING binary) = 'a'",
                "t.c = _binary 'a'"):

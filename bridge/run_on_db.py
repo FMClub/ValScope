@@ -92,6 +92,14 @@ class MySQLTarget:
             from sql_bridge import ExactColumns
             self.exact = ExactColumns({c: 'integer' for c in exact - other})
             self.exact.by_table = by_table
+            # tables with an invisible column: SELECT * leaves it out (collation_law.compared_selections)
+            cur.execute('SELECT TABLE_NAME, EXTRA FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = %s',
+                        (args.database,))
+            self.exact.invisible_tables = set()
+            for t, extra in cur.fetchall():
+                t, extra = (x.decode() if isinstance(x, bytes) else x for x in (t, extra))
+                if 'INVISIBLE' in (extra or '').upper():
+                    self.exact.invisible_tables.add(t.lower())
 
     def folds(self, collations_a, collations_b):
         return self.columns.folds(collations_a, collations_b)

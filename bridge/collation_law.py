@@ -609,6 +609,20 @@ _FRAGMENT = (exp.Select, exp.From, exp.Join, exp.Where, exp.Having, exp.Group, e
              exp.Distinct, exp.Count, exp.Min, exp.Max, exp.Sum, exp.In, exp.Exists, exp.With, exp.CTE)
 
 
+def _in_condition(n):
+    """Is the query n inside a sub-query of a condition or expression (EXISTS, IN, a scalar
+    sub-query), at any depth, and not only an operand or a derived table?"""
+    while n.parent is not None:
+        p = n.parent
+        if isinstance(p, (exp.Exists, exp.In)):
+            return True
+        if isinstance(n, exp.Subquery) and not isinstance(p, (exp.Union, exp.Intersect, exp.Except, exp.From,
+                                                              exp.Join, exp.Paren, exp.Subquery)):
+            return True
+        n = p
+    return False
+
+
 def integer_fragment(tr, sql):
     """Is `sql` a query of the fragment on which a rule proved for a class of worlds is
     judged?  True when the database gave no list of its integer tables (a test without a
@@ -635,7 +649,10 @@ def integer_fragment(tr, sql):
     UNION SELECT a FROM q) d)` with 0 when `q.a` has a NULL and no 5.  And no INTERSECT or
     EXCEPT in a query with a left join: MySQL 8.4.13 matches the NULL that the join pads a
     NOT NULL column with to the 0 of another operand.  The mutant is held to the fragment
-    as the original is.  Literals have at most 18 digits.  Also accepted, being of the same
+    as the original is.  And no EXCEPT ALL or INTERSECT ALL inside a sub-query of a
+    condition or expression (where it can be correlated): MySQL 8.4.13 answers `SELECT a, b FROM p AS t WHERE EXISTS ((SELECT 1 FROM n WHERE
+    t.b = 2) EXCEPT ALL (SELECT 2 FROM n WHERE n.a = t.a))` with a row too many (EXCEPT is
+    right).  Literals have at most 18 digits.  Also accepted, being of the same
     kind: IN lists, IS UNKNOWN, a comparison or a sub-query as a value, SELECT ALL."""
     tables = getattr(getattr(tr, 'exact_columns', None), 'integer_tables', None)
     if tables is None:
@@ -664,6 +681,8 @@ def integer_fragment(tr, sql):
         if isinstance(n, exp.Join) and (n.args.get('using') or n.args.get('method')
                                         or str(n.args.get('side') or '').upper() not in ('', 'LEFT')):
             return False
+        if isinstance(n, (exp.Except, exp.Intersect)) and n.args.get('distinct') is False and _in_condition(n):
+            return False    # MySQL 8.4.13 keeps rows of an earlier outer row in a correlated EXCEPT ALL
         if isinstance(n, exp.In) and n.args.get('query') is not None:
             for op in n.args['query'].find_all(exp.Union, exp.Intersect, exp.Except):
                 if not isinstance(op, exp.Union) or op.args.get('distinct') is not False:

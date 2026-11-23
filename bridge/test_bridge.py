@@ -1047,7 +1047,8 @@ outside = ["SELECT a + 1 FROM p", "SELECT p.a FROM p LEFT JOIN q ON p.a = q.a IN
            "SELECT a FROM p ORDER BY a LIMIT 1", "SELECT a FROM other.p", "SELECT 'x' FROM p",
            "SELECT a FROM JSON_TABLE('[1]', '$[*]' COLUMNS (a INT PATH '$')) AS p",
            "WITH T AS (SELECT a FROM p) SELECT a FROM T", "SELECT CASE WHEN a = 1 THEN 1 ELSE 2 END FROM p",
-           "SELECT a FROM p UNION ALL SELECT c FROM t", "SELECT MIN(c) FROM t"]
+           "SELECT a FROM p UNION ALL SELECT c FROM t", "SELECT MIN(c) FROM t",
+           "SELECT a FROM p WHERE EXISTS (SELECT a FROM q WHERE q.a = p.a EXCEPT ALL SELECT a FROM q)"]
 report(all(integer_fragment(tr, q) for q in inside), 'the integer fragment: ' +
        '; '.join(q for q in inside if not integer_fragment(tr, q)))
 report(not any(integer_fragment(tr, q) for q in outside), 'outside the integer fragment: ' +

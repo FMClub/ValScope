@@ -294,8 +294,8 @@ fixes of PR #1 are merged; the design problems below are still open.
    Rules proved in `SqlFull.v` and exported as a mutator are judged on the integer fragment
    (`collation_law.integer_fragment`). The audits compared the server with an evaluator of
    the fragment (some 165,000 queries) and found eight candidates, `issues/025` to `032`.
-   Three of them (`026` to `028`) are excluded from the fragment, so that a campaign does not
-   report them again; the others are left in and are reported when met (README of the
+   Three of them (`026` to `028`) are excluded from the fragment and a text with `!!` (`025`) is
+   not translated, so that a campaign does not report them again; the others are left in and are reported when met (README of the
    bridge in SQLMRLab, "What the server does on the fragment is still its own"). The
    checker's own faults found by the same audits are fixed (`bridge/sql_bridge.py`
    `_same_names`, `_check_read_as_written`; `run_on_db.py` `_mixes_precision`); what is still

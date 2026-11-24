@@ -2,6 +2,8 @@
 import os
 import sys
 from decimal import Decimal
+from subprocess import TimeoutExpired
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sql_bridge import mutate_sql, mutate_value_sql, mutate_value, Translation, Unsupported  # noqa: E402
@@ -1204,6 +1206,15 @@ items, (_, (_, left, right), table) = tree[1], tree[2]
 report(compared_selections(tr, ['Proj', items, ['Distinct', ['Where', left, table]]]) == frozenset(),
        'IS NULL of a bare column respects the collation')
 report(sql_bridge._class_rules(sql_bridge.DEFAULT_CLI) == set(), "ValScope's own mutator has no rule of a class of worlds")
+with patch.object(sql_bridge, '_CLASS_RULES', {}):
+    with patch.object(sql_bridge.subprocess, 'run', side_effect=TimeoutExpired('mutator', 30)):
+        try:
+            sql_bridge._class_rules('mutator')
+        except sql_bridge.ClassRulesError:
+            report('mutator' not in sql_bridge._CLASS_RULES, 'a class-rules timeout fails closed without caching')
+        else:
+            report(False, 'a class-rules timeout fails closed without caching')
+    report(sql_bridge._class_rules(sql_bridge.DEFAULT_CLI) == set(), 'a successful empty class-rules result is allowed')
 
 print('%d failures' % failures)
 sys.exit(1 if failures else 0)

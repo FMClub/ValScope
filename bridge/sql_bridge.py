@@ -951,17 +951,22 @@ def _cli_process(cli):
 _CLASS_RULES = {}
 
 
+class ClassRulesError(RuntimeError):
+    """The mutator's domain restrictions could not be read."""
+
+
 def _class_rules(cli):
     """The names of the rules of `cli` that are sound in a class of worlds only (rules
-    proved against the semantics of one dialect); none for a mutator without such rules
-    or without the option."""
+    proved against the semantics of one dialect). An empty list must come from
+    a successful lookup."""
     if cli not in _CLASS_RULES:
         try:
             listed = subprocess.run([cli, '--class-rules'], capture_output=True, text=True, timeout=30)
-            names = set(listed.stdout.split('\n')) - {''} if listed.returncode == 0 else set()
-        except (OSError, subprocess.SubprocessError):
-            names = set()
-        _CLASS_RULES[cli] = names
+        except (OSError, subprocess.SubprocessError) as error:
+            raise ClassRulesError(f'{cli}: cannot read --class-rules: {error}') from error
+        if listed.returncode:
+            raise ClassRulesError(f'{cli}: --class-rules exited {listed.returncode}: {listed.stderr.strip()}')
+        _CLASS_RULES[cli] = set(filter(None, listed.stdout.splitlines()))
     return _CLASS_RULES[cli]
 
 
@@ -1537,8 +1542,8 @@ def mutate_sql(sql, cli=DEFAULT_CLI, dialect='mysql', schema=None, exact_columns
         if text is not None and rule in class_rules and not integer_fragment(tr, text):
             STATS['outside_fragment'] += 1     # the mutant too must be a query of the fragment
             continue
-        if text is not None and (direction, text) not in seen:
-            seen.add((direction, text))        # two rules can give the same SQL
+        if text is not None and (direction, rule, text) not in seen:
+            seen.add((direction, rule, text))
             mutants.append((direction, rule, text))
     return original, mutants, skipped
 
@@ -1562,6 +1567,7 @@ def mutate_value(sql, cli=DEFAULT_CLI, dialect='mysql', translation=None, schema
     Translation.type_probe, and the mutants of the HAVING predicate as
     (direction, rule, mutant_sql).  For those, 'Up' means the mutant returns the
     same rows and possibly more, 'Down' a subset."""
+    class_rules = _class_rules(cli)
     tr = Translation(sql, dialect, kind='value', schema=schema, exact_columns=exact_columns)
     if translation is not None:
         translation.append(tr)
@@ -1589,8 +1595,8 @@ def mutate_value(sql, cli=DEFAULT_CLI, dialect='mysql', translation=None, schema
             mutants.append((relation, rule, int(column), text))
         else:
             direction, rule, _ = fields
-            if rule in _class_rules(cli) and not (integer_fragment(tr, sql) and integer_fragment(tr, original)
-                                                  and integer_fragment(tr, text)):
+            if rule in class_rules and not (integer_fragment(tr, sql) and integer_fragment(tr, original)
+                                            and integer_fragment(tr, text)):
                 STATS['outside_fragment'] += 1       # a rule of a class of worlds on the HAVING condition
                 continue
             if getattr(tr, 'has_window', False):

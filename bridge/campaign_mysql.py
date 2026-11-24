@@ -46,13 +46,16 @@ def parse_run(stdout):
     """What a campaign keeps of the output of one run_on_db.py run: the totals (its last
     dict line), the counts of the server's errors, the internal errors with their first query
     ('INTERNAL ERROR: ...' and '  query: ...'), and the refused mutants ('MUTANT FAILED')."""
-    out = {'totals': collections.Counter(), 'errors': collections.Counter(), 'internal': [], 'failed': []}
+    out = {'totals': collections.Counter(), 'errors': collections.Counter(), 'internal': [], 'failed': [],
+           'by_direction': collections.Counter()}
     lines = stdout.splitlines()
     in_errors = False
     for i, line in enumerate(lines):
         nxt = lines[i + 1].split(': ', 1)[-1] if i + 1 < len(lines) else ''
         if line.startswith('{'):
             out['totals'].update(ast.literal_eval(line))
+        elif line.startswith('ok checks per rule and direction: '):
+            out['by_direction'].update(ast.literal_eval(line.removeprefix('ok checks per rule and direction: ')))
         elif line.startswith('INTERNAL ERROR:'):
             out['internal'].append((line, nxt))
         elif line.startswith('MUTANT FAILED'):
@@ -87,6 +90,11 @@ def main():
     ap.add_argument('--database', default='vs_campaign')
     ap.add_argument('--out', default=None, help='JSON lines file for the violations')
     a = ap.parse_args()
+    import sql_bridge
+    try:
+        sql_bridge._class_rules(sql_bridge.DEFAULT_CLI)
+    except sql_bridge.ClassRulesError as error:
+        ap.exit(1, f'{error}\n')
     import pymysql
     admin = pymysql.connect(host=a.host, port=a.port, user=a.user, password=a.password, autocommit=True)
     cur = admin.cursor()
@@ -98,6 +106,7 @@ def main():
     gen_opts = [o for o, on in (('--focus', a.focus), ('--rich', a.rich), ('--tidb', a.tidb),
                                 ('--no-set-all', a.no_set_all), ('--no-group-window', a.no_group_window)) if on]
     total, pairs, errors, failed, internal = collections.Counter(), set(), collections.Counter(), [], {}
+    by_direction = collections.Counter()
     for seed in parse_range(a.seeds):
         used = gen_mysql_db.build(cur, a.database, seed)
         new = 0
@@ -114,6 +123,7 @@ def main():
                                ['--out', vfile, '--show-failed', '1'], capture_output=True, text=True)
             run = parse_run(r.stdout)
             total.update(run['totals'])
+            by_direction.update(run['by_direction'])
             errors.update(run['errors'])
             for message, query in run['internal']:
                 internal.setdefault(message, '[seed %d] %s' % (seed, query))
@@ -140,6 +150,7 @@ def main():
     total['violating_pairs'] = len(pairs)
     print('server: %s' % version)
     print(dict(total))
+    print('ok checks per rule and direction:', dict(by_direction))
     if errors:      # queries the server refused (mutant_failed, original_failed)
         print('most frequent errors:')
         for message, count in errors.most_common(10):

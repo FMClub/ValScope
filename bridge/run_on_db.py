@@ -733,10 +733,14 @@ def main():
     ap.add_argument('--flip', action='store_true',
                     help='negative control: expect the opposite relation (must report violations)')
     args = ap.parse_args()
+    try:
+        class_rules = sql_bridge._class_rules(sql_bridge.DEFAULT_CLI)
+    except sql_bridge.ClassRulesError as error:
+        ap.exit(1, f'{error}\n')
     target = SQLiteTarget(args) if args.sqlite else MySQLTarget(args)
     print('comparing modulo collation: %s' % target.name)
     out = open(args.out, 'a') if args.out else None
-    st, by_rule = collections.Counter(), collections.Counter()
+    st, by_rule, by_direction = collections.Counter(), collections.Counter(), collections.Counter()
     for line in open(args.queries, encoding='utf-8'):
         sql = line.strip().rstrip(';')
         if not sql or sql.upper().startswith(('USE ', '--')):
@@ -826,7 +830,7 @@ def main():
                         continue
                     relation = FLIP_VALUE[relation]
                 cover = bool(trs) and trs[0].cover_for(text)
-                if rule in sql_bridge._class_rules(sql_bridge.DEFAULT_CLI) and \
+                if rule in class_rules and \
                         (cover or not all(sql_bridge.integer_fragment(trs[0] if trs else None, q)
                                           for q in (sql, original, text))):
                     # under DISTINCT or UNION the rows no longer correspond one to one, and
@@ -851,6 +855,7 @@ def main():
             if verdict == 'ok':
                 st['checked_ok'] += 1
                 by_rule[rule] += 1
+                by_direction[mutant[1], mutant[0]] += 1
             elif verdict in ('incomparable', 'collation'):
                 st[verdict] += 1
             else:
@@ -876,6 +881,7 @@ def main():
         st['class_mutants_outside_fragment'] = sql_bridge.STATS['outside_fragment']
     print(dict(st))
     print('ok checks per rule:', dict(by_rule))
+    print('ok checks per rule and direction:', dict(by_direction))
     if ERRORS:
         print('most frequent errors:')
         for msg, n in ERRORS.most_common(10):

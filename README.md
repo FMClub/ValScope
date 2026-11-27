@@ -612,7 +612,8 @@ MariaDB 10.11, 11.4 and 11.8 and on MySQL 8.4 and 9 (`.github/workflows/sql.yml`
 script on any other image). None was reported upstream (no access
 to the trackers from the environment this was written in). The columns say where the
 script gives a wrong result; Percona Server 8.4.11 behaves as MySQL 8.4 for 008 and 015, and
-TiDB, PolarDB-X and OceanBase are in the last column of 016 to 024.
+TiDB, PolarDB-X and OceanBase are in the last column of 016 to 024. 025 to 032 were found on MySQL 8.4.13 by the audits of the checker of
+SQLMRLab's bridge (rules proved in a formal semantics); they were tried on no other server.
 
 | Issue | What | MariaDB 10.11.14 | MariaDB 11.4.13 / 11.8.9 / 13.0.2 | MySQL 8.4.13 / 9.7.4 |
 | --- | --- | --- | --- | --- |
@@ -636,6 +637,14 @@ TiDB, PolarDB-X and OceanBase are in the last column of 016 to 024.
 | [022](issues/022-polardbx-setop-distinct-left-join-where-lost.md) | PolarDB-X: in an `INTERSECT` / `EXCEPT` arm, `(SELECT DISTINCT * FROM u) LEFT JOIN u ... WHERE b.x IN (subquery)` loses its `WHERE` | correct | not run | correct (9.7.4); **PolarDB-X 5.4.19: wrong** |
 | [023](issues/023-oceanbase-sum-minus-constant-count-distinct.md) | OceanBase: `SUM(x - k)` next to `SUM(x)` and `COUNT(DISTINCT x)` is `SUM(x) - k * COUNT(DISTINCT x)` (also `AVG`, `VAR_SAMP`, `STDDEV_SAMP`; a negative variance) | correct | not run | correct (9.7.4); **OceanBase CE 4.4.2.1: wrong** |
 | [024](issues/024-polardbx-right-union-operand-parentheses.md) | PolarDB-X: the parentheses of a `UNION` on the right of a `UNION ALL` (or of a `UNION ALL` on the right of a `UNION`) are dropped: `t UNION ALL (2 UNION 3)` loses the duplicates of `t` | correct | not run | correct (9.7.4); **PolarDB-X 5.4.19: wrong** |
+| [025](issues/025-mysql-double-bang-is-one-not.md) | MySQL: `!!x` is read as `!x` (`SELECT !!1` is 0) | not run | not run | wrong (8.4.13; 9.7.4 not run) |
+| [026](issues/026-mysql-correlated-except-all-exists.md) | MySQL: a correlated `EXCEPT ALL` under `EXISTS` keeps rows of an earlier outer row | not run | not run | wrong (8.4.13; 9.7.4 not run) |
+| [027](issues/027-mysql-derived-except-null-matches-constant.md) | MySQL: in a derived table, `EXCEPT` / `INTERSECT` match a NULL of one operand with any `NOT NULL` value of the other (a form of 008) | not run | not run | wrong (8.4.13; 9.7.4 not run) |
+| [028](issues/028-mysql-exists-star-intersect.md) | MySQL: under `EXISTS`, a `SELECT *` operand of `INTERSECT` / `EXCEPT` is compared as one constant column | not run | not run | wrong (8.4.13; 9.7.4 not run) |
+| [029](issues/029-mysql-correlated-min-left-join-cross-join.md) | MySQL: a correlated scalar `MIN` over a left join and a further join keeps the value of an earlier outer row | not run | not run | wrong (8.4.13; 9.7.4 not run) |
+| [030](issues/030-mysql-left-join-derived-constant-item.md) | MySQL: a constant item of a derived table on the NULL side of a left join is read as the constant in `WHERE` | not run | not run | wrong (8.4.13; 9.7.4 not run) |
+| [031](issues/031-mysql-in-grouped-having-subquery-null.md) | MySQL: `x IN (SELECT ... GROUP BY ... HAVING ...)` is NULL instead of 0 | not run | not run | wrong (8.4.13; 9.7.4 not run) |
+| [032](issues/032-mysql-left-join-on-empty-in-subquery.md) | MySQL: a left join whose `ON` is an `IN` over an empty sub-query joins every row | not run | not run | wrong (8.4.13; 9.7.4 not run) |
 
 MariaDB 13.0.2 (the `latest` image, through `.github/workflows/sql.yml`) was checked for
 003 and 009 to 014, and a campaign on it found 003, 010, 012 and 013 again; 005 and 006 were

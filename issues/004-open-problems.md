@@ -290,6 +290,20 @@ fixes of PR #1 are merged; the design problems below are still open.
    server and any SQLite file, and documents how to add another DBMS
    (`docs/USAGE.md`, section 9), but no PostgreSQL target exists.
 
+1f. **MySQL 8.4.13 under the rules of SQLMRLab's bridge (audits 15 to 23 of the bridge).**
+   Rules proved in `SqlFull.v` and exported as a mutator are judged on the integer fragment
+   (`collation_law.integer_fragment`). The audits compared the server with an evaluator of
+   the fragment (some 165,000 queries) and found eight candidates, `issues/025` to `032`.
+   Three of them (`026` to `028`) are excluded from the fragment and a text with `!!` (`025`) is
+   not translated, so that a campaign does not report them again; the others are left in and are reported when met (README of the
+   bridge in SQLMRLab, "What the server does on the fragment is still its own"). The
+   checker's own faults found by the same audits are fixed (`bridge/sql_bridge.py`
+   `_same_names`, `_check_read_as_written`; `run_on_db.py` `_mixes_precision`); what is still
+   open there: the name checks and the re-print check are necessary conditions found by
+   audits, not proofs; a mutant `SELECT DISTINCT * FROM (...)` over two items of one name is
+   refused by the server (error 1060) and not judged; outside the fragment a set operation
+   with a correlated operand is never judged.
+
 ## D. Environment
 
 1. The local MariaDB server is stopped from time to time when the container is idle and

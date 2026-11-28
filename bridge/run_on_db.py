@@ -207,6 +207,7 @@ class MySQLTarget:
         return code
 
     APPROXIMATE_CODES = {4, 5}                                  # FLOAT, DOUBLE
+    ARM_ROWS = 100000       # at most this many rows of an operand are read to see how it converts
 
     def _renamed(self, prefix, arm, tail):
         """The probe of an operand with two columns of one name, which is no derived table
@@ -230,7 +231,10 @@ class MySQLTarget:
         operand, even an empty one, does not, and a BIGINT above 2^53 equals a DOUBLE it
         is not equal to as an integer.  No model of the mutation rules has this
         conversion (theirs keeps one equivalence of values throughout a query), so such
-        a query is outside every one of them.  The same holds for an operand with an ENUM,
+        a query is outside every one of them, unless the values of the exact operand all
+        go to DOUBLEs one to one (converts_exactly: integers within 2^53, DECIMALs of at
+        most 15 significant digits), when the conversion keeps apart what the operand
+        kept apart and the two equivalences agree on the values that cross it.  The same holds for an operand with an ENUM,
         SET or ZEROFILL column, which the result of a set operation has as a plain string
         or number (an ENUM compares with a number by its index, the string by its digits).
         And for a column of two families in the two operands (numbers, strings, dates and
@@ -294,6 +298,33 @@ class MySQLTarget:
                         pass
             return cache[probe]
 
+        def converts_exactly(arm, column):
+            """Whether the server turns the values of `column` of the exact operand `arm` into
+            DOUBLEs one to one: an integer within 2^53, a DECIMAL of at most 15 significant
+            digits (DBL_DIG) goes to a DOUBLE no other such value goes to, so the conversion
+            keeps apart what the operand kept apart, and the query stays in the models of
+            the rules.  The operand is run alone, as the probe above; when it cannot be, or
+            has more than ARM_ROWS rows, or a value that is not such a number, the
+            conversion counts as one that can merge values."""
+            while isinstance(arm, (exp.Paren, exp.Subquery)) and arm.args.get('alias') is None:
+                arm = arm.this
+            tail = 'LIMIT %d' % (self.ARM_ROWS + 1)
+            probe = '%sSELECT * FROM (%s) AS vs_arm %s' % (prefix, arm.sql(dialect='mysql'), tail)
+            if probe not in cache:
+                cache[probe] = None
+                for attempt in (lambda: probe, lambda: self._renamed(prefix, arm, tail)):
+                    try:
+                        with self.conn.cursor() as cur:
+                            cur.execute(attempt())
+                            cache[probe] = cur.fetchall()
+                        break
+                    except (self.pymysql.err.MySQLError, TypeError, AttributeError):
+                        pass
+            rows = cache[probe]
+            if rows is None or len(rows) > self.ARM_ROWS:
+                return False
+            return all(exact_in_double(row[column]) for row in rows)
+
         integers = getattr(self.exact, 'integer_tables', None) is not None and sql_bridge.integer_fragment(
             types_ns(exact_columns=self.exact, dialect='mysql'), sql)
         for node in tree.walk():
@@ -306,11 +337,13 @@ class MySQLTarget:
                 return True
             if retyped(node.left) or retyped(node.right):
                 return True
-            for a, b in zip(left, right):
+            for k, (a, b) in enumerate(zip(left, right)):
                 exact = self.NUMERIC_CODES - self.APPROXIMATE_CODES - {16}
                 if {a, b} == self.APPROXIMATE_CODES:
                     return True
-                if (a in exact and b in self.APPROXIMATE_CODES) or (b in exact and a in self.APPROXIMATE_CODES):
+                if a in exact and b in self.APPROXIMATE_CODES and not converts_exactly(node.left, k):
+                    return True
+                if b in exact and a in self.APPROXIMATE_CODES and not converts_exactly(node.right, k):
                     return True
                 if 6 not in (a, b) and self._family(a) != self._family(b):
                     return True
@@ -445,6 +478,21 @@ class SQLiteTarget:
         except Exception as e:      # RuntimeError (ctypes library) or sqlite3.Error
             ERRORS[str(e)[:70]] += 1
             return None, None
+
+
+def exact_in_double(value):
+    """Whether an exact number goes to a DOUBLE that no other exact number of its kind goes
+    to: an integer of at most 2^53 in absolute value, a DECIMAL of at most 15 significant
+    digits (DBL_DIG; printed with 15 digits the DOUBLE gives the DECIMAL back).  NULL too."""
+    if value is None:
+        return True
+    if isinstance(value, bool) or not isinstance(value, (int, Decimal)):
+        return False
+    if isinstance(value, int):
+        return abs(value) <= 2 ** 53
+    if not value.is_finite():
+        return False
+    return len(value.normalize().as_tuple().digits) <= 15
 
 
 def sqlite_schema(db):

@@ -25,6 +25,9 @@ RECORDS = os.path.join(HERE, '..', 'results', 'mariadb-campaign.jsonl')
 # (seed, rule): why the present checker does not report it
 KNOWN_HIDDEN = {
     (42, 'DISTINCT-add'): 'an EXCEPT over a _ci and a _bin column, and the rows that differ hold strings with letters: which representative a DISTINCT kept can explain them',
+    # MySQLTarget._mixes_precision, a column of two families: the other pairs of issue 012 are still violated
+    (76, 'cond->TRUE'): 'a set operation with a column that is a number in one operand and a string in the other: the result is a string column, outside the models of the rules',
+    (83, 'DISTINCT-add'): 'a set operation with a column that is a DECIMAL in one operand and a string in the other: the result is a string column, outside the models of the rules',
 }
 
 

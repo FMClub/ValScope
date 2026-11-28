@@ -8,9 +8,10 @@ import argparse
 import os
 import sys
 import types
+from decimal import Decimal
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from run_on_db import MySQLTarget, arm_mix_verdict  # noqa: E402
+from run_on_db import MySQLTarget, arm_mix_verdict, exact_in_double  # noqa: E402
 from checker import MariaDBColumns, check_inclusion  # noqa: E402
 
 failures = 0
@@ -72,9 +73,19 @@ def main():
         target.run('SELECT t.n FROM t UNION SELECT t.n + 0.5 FROM t')
         report(not target.last_arm_mix, 'two numeric types and no text: no mix')
         target.run('SELECT t.n FROM t UNION SELECT t.n + 0.5e0 FROM t')
-        report('precision' in target.last_arm_mix, 'an exact arm and a DOUBLE arm: the exact values are converted')
-        target.run('SELECT t.n FROM t WHERE t.n IN (SELECT t.n FROM t EXCEPT SELECT t.n + 0.5e0 FROM t)')
+        report('precision' not in target.last_arm_mix, 'small integers beside a DOUBLE arm: converted one to one')
+        target.run('SELECT t.n * 9007199254740993 FROM t UNION SELECT t.n + 0.5e0 FROM t')
+        report('precision' in target.last_arm_mix, 'an integer above 2^53 beside a DOUBLE arm: converted')
+        target.run('SELECT CAST(t.n AS DECIMAL(30,20)) + 0.00000000000000000001 FROM t UNION SELECT t.n + 0.5e0 FROM t')
+        report('precision' in target.last_arm_mix, 'a DECIMAL of 21 significant digits beside a DOUBLE arm: converted')
+        target.run('SELECT t.n FROM t WHERE t.n IN (SELECT t.n * 9007199254740993 FROM t EXCEPT SELECT t.n + 0.5e0 FROM t)')
         report('precision' in target.last_arm_mix, 'the same in a compound nested in a condition')
+        target.run('SELECT t.n FROM t WHERE t.n IN (SELECT t.n FROM t EXCEPT SELECT t.n + 0.5e0 FROM t)')
+        report('precision' not in target.last_arm_mix, 'and small integers there: converted one to one')
+        report(exact_in_double(2 ** 53) and not exact_in_double(2 ** 53 + 1) and exact_in_double(None) and
+               exact_in_double(Decimal('2.3333')) and exact_in_double(Decimal('123456789012345.00')) and
+               not exact_in_double(Decimal('0.10000000000000000001')) and not exact_in_double('1'),
+               'exact_in_double: integers within 2^53, DECIMALs of at most 15 significant digits')
         target.run('SELECT t.n + 1e0 FROM t UNION ALL SELECT t.n + 0.5e0 FROM t')
         report('precision' not in target.last_arm_mix, 'two DOUBLE arms: nothing is converted')
         report(arm_mix_verdict('Up violated', set(), {'types'}) == 'Up violated' and
